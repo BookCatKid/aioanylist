@@ -31,3 +31,9 @@ async with AnyListClient() as client:
 ```
 
 The low-level protobuf namespace is available as `anylist_sdk.proto.PB`, and each operation-backed service exposes `operation(...)` for official handlers whose high-level convenience wrapper is not needed by an application.
+
+## Live conformance
+
+Opt-in real-service tests live under `live_tests/` and are excluded from the default test
+suite. See [`OFFLINE_CONFORMANCE.md`](OFFLINE_CONFORMANCE.md) for the required environment
+variables and mutation-safety rules.

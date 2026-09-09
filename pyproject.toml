@@ -25,6 +25,9 @@ test = [
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+  "live: opt-in tests against the real AnyList service; never collected by the default testpaths",
+]
 
 [tool.ruff]
 line-length = 100

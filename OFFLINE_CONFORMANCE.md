@@ -3,7 +3,7 @@
 This document records the point at which the SDK's static/offline reconstruction has been
 exhausted against the official AnyList web application source available to this project.
 
-Code checkpoint: `2c1c121 Complete offline endpoint contracts`
+Code checkpoint: `2e67352 Handle timestamp read 304 responses`
 
 ## Authority
 
@@ -17,7 +17,7 @@ Unofficial clients are not used as protocol authority.
 
 ## Offline verification status
 
-- Full offline test suite: `453 passed`.
+- Full offline test suite: `456 passed`.
 - Official operation-handler inventory: `185` handler IDs.
   - All `185` are explicitly represented by tests.
   - `184` have a normal serializable SDK path.
@@ -41,6 +41,8 @@ Unofficial clients are not used as protocol authority.
 - The wheel contains `proto/schema.json`, `official_surface.json`, and
   `data/recipe_source_aliases.json` and contains no `__pycache__` or `.pyc` files.
 - The built wheel installs and imports successfully from outside the source tree.
+- Timestamped reads that return HTTP `304 Not Modified` now follow the official managers'
+  no-op path rather than attempting to decode an empty protobuf response.
 
 This checkpoint is not a claim of production readiness or live server parity.
 
@@ -101,3 +103,34 @@ from read-only checks to mutations:
 No further protocol behavior should be invented merely to make a live test pass. Any live
 deviation should first be captured, compared with `app.js` and the embedded schema, and then
 implemented as a source- or server-proven behavior.
+
+### Opt-in live harness
+
+The repository includes `live_tests/`, which is intentionally outside the default pytest
+`testpaths`. It never runs as part of `pytest` unless invoked explicitly.
+
+Read-only/auth/realtime checks require:
+
+```text
+ANYLIST_LIVE=1
+ANYLIST_EMAIL=...
+ANYLIST_PASSWORD=...
+```
+
+Run them with:
+
+```text
+python -m pytest -q live_tests/test_live_readonly.py
+```
+
+Mutation checks require an additional explicit opt-in and an already-approved disposable
+shopping list:
+
+```text
+ANYLIST_LIVE_MUTATIONS=1
+ANYLIST_LIVE_LIST_ID=<shopping-list-id>
+```
+
+The initial mutation harness only adds and removes one uniquely named item in that supplied
+list and attempts cleanup in a `finally` block. It never creates or deletes an account, sends
+email, changes sharing/Alexa/iCalendar state, uploads photos, or restores archived operations.
