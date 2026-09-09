@@ -6,6 +6,7 @@ from typing import Any
 
 from google.protobuf.message import Message
 
+from .item_semantics import items_equal
 from .normalization import (
     localized_sort_key,
     normalized_for_search,
@@ -28,9 +29,15 @@ class AutocompleteEngine:
     def _generic_candidates(data: Any, query: str, *, contains_mode: int = 1) -> list[str]:
         # Port of tag_data autocompleteKeywords lookup. Each leaf is keyword -> [[text, weight], ...].
         normalized = remove_diacritics(query.lower())
-        tokens = [x for x in re.split(r"[ ,():/\-]", normalized) if x]
+        # TY() deliberately keeps the raw split position in its `u` counter even when a
+        # token is empty.  This is observable for a leading separator: the first real token
+        # is treated as an intersection token against an empty result, yielding no generic
+        # suggestions.  Do not collapse empty tokens here.
+        tokens = re.split(r"[ ,():/\-]", normalized)
         candidates: list[str] = []
         for token_index, token in enumerate(tokens):
+            if not token.strip():
+                continue
             groups = []
             if contains_mode == 1 and token:
                 group = data.autocomplete_keywords.get(token[0])
@@ -146,17 +153,32 @@ class AutocompleteEngine:
     ) -> list[AutocompleteSuggestion]:
         active = await self.tag_data.get()
         language = active.language
-        query_fold = remove_diacritics(query.lower())
         result = [AutocompleteSuggestion(query, "add", payload=None)]
-        seen = {query_fold}
+        # AnyList's duplicate set contains only rows already appended *after* the Add row.
+        # A current/favorite/recent/generic item equal to the typed text may therefore appear
+        # directly below Add.  AutocompleteItem equality delegates to full ListItem equality,
+        # not name equality, so same-name rows with different quantity/details/etc. coexist.
+        seen_items: list[Message] = []
+
+        def as_item(value: Message | str) -> Message:
+            if isinstance(value, Message):
+                return value
+            from .proto import PB
+
+            return PB.ListItem(name=value)
+
+        def already_seen(value: Message | str) -> bool:
+            item = as_item(value)
+            if any(items_equal(existing, item) for existing in seen_items):
+                return True
+            seen_items.append(item)
+            return False
 
         def merge(values: Iterable[Message | str], source: str) -> None:
             for value in self._local_candidates(values, query, language=language):
                 text = _name(value)
-                folded = remove_diacritics(text.lower())
-                if not text or folded in seen:
+                if not text or already_seen(value):
                     continue
-                seen.add(folded)
                 result.append(AutocompleteSuggestion(text, source, payload=value))
 
         merge(current_items, "current-list")
@@ -170,9 +192,6 @@ class AutocompleteEngine:
             if language == "de":
                 generic.extend(self._generic_candidates(active, query, contains_mode=0))
             for text in generic:
-                folded = remove_diacritics(text.lower())
-                if folded not in seen:
-                    seen.add(folded)
+                if not already_seen(text):
                     result.append(AutocompleteSuggestion(text, "generic"))
         return result[:limit]
-

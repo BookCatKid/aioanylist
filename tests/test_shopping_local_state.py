@@ -264,6 +264,47 @@ async def test_add_item_ignores_top_position_while_alphabetically_sorted(fake_tr
 
 
 @pytest.mark.asyncio
+async def test_revive_matching_autocomplete_item_uncrosses_and_applies_filter_context(fake_transport) -> None:
+    svc = service(fake_transport)
+    svc.state.shopping_lists["list"] = PB.ShoppingList(
+        identifier="list",
+        items=[PB.ListItem(identifier="item", listId="list", name="Milk", checked=True)],
+    )
+    source = PB.ListItem(identifier="suggestion-copy", listId="list", name="Milk", checked=True)
+    store_filter = PB.PBStoreFilter(
+        identifier="filter", listId="list", showsAllItems=False, storeIds=["market"]
+    )
+
+    revived = await svc.revive_matching_item(
+        "list", source, store_filter=store_filter, flush=False
+    )
+
+    assert revived is svc.item("list", "item")
+    assert revived.checked is False
+    assert list(revived.storeIds) == ["market"]
+    assert [op.metadata.handlerId for op in svc.legacy_queue._pending] == [
+        "set-list-item-checked",
+        "add-store-ids-to-items",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_revive_matching_item_requires_full_item_equality(fake_transport) -> None:
+    svc = service(fake_transport)
+    svc.state.shopping_lists["list"] = PB.ShoppingList(
+        identifier="list",
+        items=[PB.ListItem(identifier="item", listId="list", name="Milk", details="2%")],
+    )
+
+    result = await svc.revive_matching_item(
+        "list", PB.ListItem(identifier="source", name="Milk", details="Whole")
+    )
+
+    assert result is None
+    assert fake_transport.calls == []
+
+
+@pytest.mark.asyncio
 async def test_bulk_add_at_top_preserves_visible_order_and_reverses_wire_items(fake_transport) -> None:
     svc = service(fake_transport)
     svc.state.shopping_lists["list"] = PB.ShoppingList(

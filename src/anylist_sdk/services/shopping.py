@@ -22,10 +22,12 @@ from ..item_semantics import (
     EXCLUDE_PACKAGE_SIZE,
     EXCLUDE_PRICE_QUANTITY,
     apply_properties_from_item,
+    items_equal,
     package_size_equal,
     quantity_equal,
     quantity_to_deprecated_string,
 )
+from ..normalization import canonical_category_match_id
 from ..parsing.quantity import normalize_unit
 from ..stemming import stem_words
 from .starter import favorite_list_id, recent_list_id
@@ -357,6 +359,72 @@ class ShoppingListsService(OperationService):
         if flush:
             await self.flush()
         return [self.item(list_id, item.identifier) for item in clones if self.item(list_id, item.identifier)]
+
+    async def revive_matching_item(
+        self,
+        list_id: str,
+        source_item: Message,
+        *,
+        store_filter: Message | None = None,
+        selected_category: Message | None = None,
+        flush: bool = True,
+    ) -> Message | None:
+        """Revive the current-list item represented by an autocomplete item.
+
+        The web add-item controller treats current-list autocomplete rows specially: it
+        finds the fully-equal ListItem already on the list, uncrosses it when necessary,
+        then applies the active store-filter/category context.  Favorite, recent, and
+        generic rows instead go through the new-item path, so this method intentionally
+        returns ``None`` when no fully-equal current item exists.
+        """
+        lst = self._require_list(list_id)
+        current = next((item for item in lst.items if items_equal(source_item, item)), None)
+        if current is None:
+            return None
+
+        queued = False
+        if bool(current.checked):
+            await self.set_checked(list_id, str(current.identifier), False, flush=False)
+            queued = True
+
+        if (
+            store_filter is not None
+            and not bool(getattr(store_filter, "showsAllItems", False))
+            and list(getattr(store_filter, "storeIds", ()))
+        ):
+            before = tuple(current.storeIds)
+            await self.add_store_ids_to_items(
+                list_id,
+                [str(current.identifier)],
+                list(store_filter.storeIds),
+                flush=False,
+            )
+            queued = queued or tuple(current.storeIds) != before
+
+        if selected_category is not None:
+            group_id = str(getattr(selected_category, "categoryGroupId", "") or "")
+            category_id = str(getattr(selected_category, "identifier", "") or "")
+            if group_id and category_id:
+                assignment = PB.PBListItemCategoryAssignment(
+                    categoryGroupId=group_id,
+                    categoryId=category_id,
+                )
+                await self.assign_category(
+                    list_id, str(current.identifier), assignment, flush=False
+                )
+                match_id = str(getattr(selected_category, "systemCategory", "") or "")
+                if not match_id:
+                    match_id = canonical_category_match_id(
+                        str(getattr(selected_category, "name", "") or "")
+                    )
+                await self.set_category_match_id(
+                    list_id, str(current.identifier), match_id, flush=False
+                )
+                queued = True
+
+        if flush and queued:
+            await self.flush()
+        return current
 
     async def remove_item(self, list_id: str, item_id: str, *, flush: bool = True) -> None:
         lst = self._require_list(list_id)
