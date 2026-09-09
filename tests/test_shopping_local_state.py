@@ -150,6 +150,160 @@ async def test_category_rename_and_icon_update_local_index(fake_transport) -> No
 
 
 @pytest.mark.asyncio
+async def test_unchanged_allows_multiple_category_groups_is_official_noop(fake_transport) -> None:
+    svc = service(fake_transport)
+    svc.state.shopping_lists["list"] = PB.ShoppingList(
+        identifier="list", allowsMultipleListCategoryGroups=True
+    )
+
+    await svc.set_allows_multiple_category_groups("list", True)
+
+    assert fake_transport.calls == []
+
+
+@pytest.mark.asyncio
+async def test_list_category_v2_operation_contracts(fake_transport) -> None:
+    svc = service(fake_transport)
+    category = PB.PBListCategory(
+        identifier="cat", listId="list", categoryGroupId="group", name="Produce", icon="produce"
+    )
+
+    await svc.save_list_category(category)
+    create = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert fake_transport.calls[-1][0] == "/data/shopping-lists/update-v2"
+    assert create.metadata.handlerId == "create-category"
+    assert create.metadata.operationClass == PB.PBOperationMetadata.OperationClass.ListCategoryOperation
+    assert create.listId == "list"
+    assert create.updatedCategory == category
+
+    await svc.migrate_list_category(category)
+    migrate = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert migrate.metadata.handlerId == "migrate-list-category"
+    assert migrate.metadata.operationClass == PB.PBOperationMetadata.OperationClass.ListCategoryOperation
+
+    await svc.rename_list_category(category, "Fresh Produce")
+    rename = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert rename.metadata.handlerId == "set-category-name"
+    assert rename.updatedCategory.name == "Fresh Produce"
+
+    await svc.set_list_category_icon(category, "leaf")
+    icon = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert icon.metadata.handlerId == "set-category-icon"
+    assert icon.updatedCategory.icon == "leaf"
+
+
+@pytest.mark.asyncio
+async def test_list_category_group_v2_operation_contracts(fake_transport) -> None:
+    svc = service(fake_transport)
+    group = PB.PBListCategoryGroup(
+        identifier="group", listId="list", name="Food", defaultCategoryId="cat"
+    )
+    group.categories.add(
+        identifier="cat", listId="list", categoryGroupId="group", name="Produce"
+    )
+
+    await svc.save_category_group(group)
+    create = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert fake_transport.calls[-1][0] == "/data/shopping-lists/update-v2"
+    assert create.metadata.handlerId == "create-category-group"
+    assert (
+        create.metadata.operationClass
+        == PB.PBOperationMetadata.OperationClass.ListCategoryGroupOperation
+    )
+    assert create.listId == "list"
+    assert create.updatedCategoryGroup.name == "Food"
+    assert [c.identifier for c in create.updatedCategoryGroup.categories] == ["cat"]
+
+    await svc.migrate_category_group(group)
+    migrate = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert migrate.metadata.handlerId == "migrate-list-category-group"
+    assert (
+        migrate.metadata.operationClass
+        == PB.PBOperationMetadata.OperationClass.ListCategoryGroupOperation
+    )
+
+    await svc.rename_category_group(group, "Groceries")
+    rename = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert rename.metadata.handlerId == "set-category-group-name"
+    assert rename.updatedCategoryGroup.name == "Groceries"
+
+    await svc.set_default_category(group, "other")
+    default = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert default.metadata.handlerId == "set-default-category-id"
+    assert default.updatedCategoryGroup.defaultCategoryId == "other"
+
+
+@pytest.mark.asyncio
+async def test_list_item_category_operation_contracts(fake_transport) -> None:
+    svc = service(fake_transport)
+    shopping = PB.ShoppingList(identifier="list")
+    item = shopping.items.add(identifier="item", listId="list", name="Milk")
+    svc.state.shopping_lists["list"] = shopping
+    assignment = PB.PBListItemCategoryAssignment(categoryGroupId="group", categoryId="cat")
+
+    await svc.assign_category("list", "item", assignment)
+    assignment_op = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert assignment_op.metadata.handlerId == "update-list-item-category-assignment"
+    assert assignment_op.listId == "list"
+    assert assignment_op.listItemId == "item"
+    assert len(assignment_op.listItem.categoryAssignments) == 1
+
+    await svc.set_category_match_id("list", "item", "dairy")
+    match = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert match.metadata.handlerId == "set-list-item-category-match-id"
+    assert match.listItem.categoryMatchId == "dairy"
+    assert match.listItem.category == "dairy"
+    assert match.originalValue == "dairy"
+
+
+@pytest.mark.asyncio
+async def test_list_categorization_rule_v2_operation_contracts(fake_transport) -> None:
+    svc = service(fake_transport)
+    rule = PB.PBListCategorizationRule(
+        identifier="rule", listId="list", categoryGroupId="group", categoryId="cat", itemName="milk"
+    )
+
+    await svc.save_categorization_rule(rule)
+    save = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert save.metadata.handlerId == "save-categorization-rule"
+    assert (
+        save.metadata.operationClass
+        == PB.PBOperationMetadata.OperationClass.ListCategorizationRuleOperation
+    )
+    assert save.updatedCategorizationRule == rule
+
+    rules = [
+        PB.PBListCategorizationRule(
+            identifier=f"bulk-{i}",
+            listId="list",
+            categoryGroupId="group",
+            categoryId="cat",
+            itemName=f"item-{i}",
+        )
+        for i in range(26)
+    ]
+    await svc.bulk_save_categorization_rules("list", rules)
+    bulk_operations = [
+        op
+        for call in fake_transport.calls
+        if call[0] == "/data/shopping-lists/update-v2"
+        for op in call[1]["operations"].operations
+        if op.metadata.handlerId == "bulk-save-categorization-rules"
+    ]
+    assert [len(op.updatedCategorizationRules) for op in bulk_operations] == [25, 1]
+    assert all(
+        op.metadata.operationClass
+        == PB.PBOperationMetadata.OperationClass.ListCategorizationRuleOperation
+        for op in bulk_operations
+    )
+
+    await svc.migrate_categorization_rules("list", rules[:2])
+    migrate = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert migrate.metadata.handlerId == "migrate-per-user-categorization-rules"
+    assert len(migrate.updatedCategorizationRules) == 2
+
+
+@pytest.mark.asyncio
 async def test_category_sort_sends_all_group_ids_and_appends_unspecified_categories(fake_transport) -> None:
     svc = service(fake_transport)
     group = PB.PBListCategoryGroup(identifier="group", listId="list", name="G")

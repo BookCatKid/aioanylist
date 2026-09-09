@@ -705,6 +705,8 @@ class ShoppingListsService(OperationService):
         self, list_id: str, value: bool, *, flush: bool = True
     ) -> None:
         lst = self._require_list(list_id)
+        if bool(lst.allowsMultipleListCategoryGroups) == value:
+            return
         lst.allowsMultipleListCategoryGroups = value
         partial = PB.ShoppingList(identifier=list_id, allowsMultipleListCategoryGroups=value)
         await self.operation(

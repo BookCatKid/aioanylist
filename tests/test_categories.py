@@ -34,10 +34,23 @@ async def test_user_grouping_mutations_are_optimistic(state):
     assert list(state.category_groupings[grouping.identifier].categoryIds) == ["b", "a"]
     assert service.queue._pending[-1].metadata.handlerId == "set-grouping-category-order"
 
+    await service.set_grouping_categories(grouping.identifier, ["a", "b"], flush=False)
+    assert list(state.category_groupings[grouping.identifier].categoryIds) == ["a", "b"]
+    assert service.queue._pending[-1].metadata.handlerId == "set-grouping-categories"
+
     await service.rename_grouping(grouping.identifier, "Renamed", flush=False)
     op = service.queue._pending[-1]
     assert op.metadata.handlerId == "set-grouping-name"
     assert op.grouping.name == "Renamed"
+    assert not op.grouping.categoryIds
+
+    await service.hide_grouping_from_browse(grouping.identifier, flush=False)
+    op = service.queue._pending[-1]
+    assert (
+        op.metadata.handlerId
+        == "set-should-hide-category-group-from-browse-list-category-groups-screen"
+    )
+    assert op.grouping.shouldHideFromBrowseListCategoryGroupsScreen is True
     assert not op.grouping.categoryIds
 
     await service.remove_grouping(grouping.identifier, flush=False)
