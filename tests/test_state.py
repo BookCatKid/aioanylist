@@ -253,3 +253,25 @@ def test_meal_plan_full_sync_can_switch_calendar_and_caps_processed_version() ->
     assert state.meal_plan_logical_timestamp == 10
     assert state.meal_plan_response_version == 1
     assert set(state.meal_plan_events) == {"new"}
+
+
+def test_state_retains_official_migration_metadata() -> None:
+    state = AnyListState()
+
+    folders = PB.PBListFoldersResponse(hasMigratedListOrdering=True)
+    state.apply_list_folders(folders)
+    assert state.has_migrated_list_ordering is True
+
+    categories = PB.PBUserCategoryData(
+        identifier="all",
+        timestamp=4.0,
+        requiresRefreshTimestamp=9.0,
+        hasMigratedCategoryOrderings=True,
+    )
+    state.apply_user_categories(categories)
+    assert state.user_categories_requires_refresh_timestamp == 9.0
+    assert state.has_migrated_category_orderings is True
+
+    starter = PB.StarterListsResponseV2(hasMigratedUserFavorites=True)
+    state.apply_starter_lists(starter)
+    assert state.has_migrated_user_favorites is True

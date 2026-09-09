@@ -36,6 +36,7 @@ class AnyListState:
     list_folders: dict[str, Message] = field(default_factory=dict)
     root_folder_id: str | None = None
     list_data_id: str | None = None
+    has_migrated_list_ordering: bool = False
 
     recipes: dict[str, Message] = field(default_factory=dict)
     recipe_collections: dict[str, Message] = field(default_factory=dict)
@@ -66,6 +67,8 @@ class AnyListState:
     category_groupings: dict[str, Message] = field(default_factory=dict)
     user_categories_timestamp: float = 0.0
     user_category_data_id: str = ""
+    user_categories_requires_refresh_timestamp: float = 0.0
+    has_migrated_category_orderings: bool = False
 
     list_settings: dict[str, Message] = field(default_factory=dict)
     list_settings_timestamp: float = 0.0
@@ -80,6 +83,7 @@ class AnyListState:
     ordered_starter_list_ids: list[str] = field(default_factory=list)
     ordered_starter_list_ids_timestamp: float = 0.0
     ordered_starter_list_ids_timestamp_id: str = ""
+    has_migrated_user_favorites: bool = False
 
     mobile_app_settings: Message | None = None
     account_info: Message | None = None
@@ -193,6 +197,8 @@ class AnyListState:
             self.list_data_id = str(response.listDataId)
         if response.rootFolderId:
             self.root_folder_id = str(response.rootFolderId)
+        if response.HasField("hasMigratedListOrdering"):
+            self.has_migrated_list_ordering = bool(response.hasMigratedListOrdering)
         # The official folder manager clears its index before applying a response that
         # explicitly says it contains every folder.  Without this, a folder removed on
         # another client can survive forever in our local mirror even after a full fetch.
@@ -325,6 +331,10 @@ class AnyListState:
     def apply_user_categories(self, response: Message) -> None:
         self.user_category_data_id = str(response.identifier)
         self.user_categories_timestamp = float(response.timestamp)
+        if response.HasField("requiresRefreshTimestamp"):
+            self.user_categories_requires_refresh_timestamp = float(response.requiresRefreshTimestamp)
+        if response.HasField("hasMigratedCategoryOrderings"):
+            self.has_migrated_category_orderings = bool(response.hasMigratedCategoryOrderings)
         if response.identifier == "all":
             self.user_categories.clear()
             self.category_groupings.clear()
@@ -358,6 +368,8 @@ class AnyListState:
                 target[str(item.starterList.identifier)] = clone(item.starterList)
 
     def apply_starter_lists(self, response: Message) -> None:
+        if response.HasField("hasMigratedUserFavorites"):
+            self.has_migrated_user_favorites = bool(response.hasMigratedUserFavorites)
         if response.HasField("userListsResponse"):
             self._apply_starter_batch(self.starter_lists, response.userListsResponse)
         if response.HasField("recentItemListsResponse"):
