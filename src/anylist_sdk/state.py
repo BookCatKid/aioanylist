@@ -82,6 +82,7 @@ class AnyListState:
     ordered_starter_list_ids_timestamp_id: str = ""
 
     mobile_app_settings: Message | None = None
+    account_info: Message | None = None
     loaded_once: bool = False
 
     def get_list(self, list_id: str) -> Message | None:

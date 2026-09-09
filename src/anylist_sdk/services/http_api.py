@@ -9,19 +9,41 @@ from google.protobuf.message import Message
 
 from ..identifiers import uuid4_hex
 from ..proto import PB, decode, encode
-from ..state import AnyListState
+from ..state import AnyListState, clone
 from ..transport import AnyListTransport, PHOTOS_BASE_URL
 
 
 class AccountService:
-    def __init__(self,transport:AnyListTransport,state:AnyListState): self.transport=transport;self.state=state
-    async def get(self)->Message:
-        raw=await self.transport.request("GET","/data/account/info",fields=None)
-        return decode("PBAccountInfoResponse",raw)
-    async def update_name(self,first_name:str,last_name:str,email:str="")->Message:
-        info=PB.PBAccountInfoResponse(firstName=first_name,lastName=last_name)
-        if email:info.email=email
-        return await self.transport.post_proto("/data/account/info",fields={"account_info":info},response_type="PBAccountInfoResponse")
+    def __init__(self, transport: AnyListTransport, state: AnyListState):
+        self.transport = transport
+        self.state = state
+
+    def _store(self, info: Message) -> Message:
+        self.state.account_info = clone(info)
+        return info
+
+    async def get(self) -> Message:
+        raw = await self.transport.request("GET", "/data/account/info", fields=None)
+        return self._store(decode("PBAccountInfoResponse", raw))
+
+    async def update_name(
+        self, first_name: str, last_name: str, email: str | None = None
+    ) -> Message:
+        # AnyList Web always includes the current account email when updating the name.
+        # Prefer an explicitly supplied email, then the most recently synchronized account
+        # info.  If neither exists we leave it absent rather than inventing an address.
+        if email is None and self.state.account_info is not None:
+            email = str(getattr(self.state.account_info, "email", "") or "")
+        info = PB.PBAccountInfoResponse(firstName=first_name, lastName=last_name)
+        if email:
+            info.email = email
+        response = await self.transport.post_proto(
+            "/data/account/info",
+            fields={"account_info": info},
+            response_type="PBAccountInfoResponse",
+        )
+        assert isinstance(response, Message)
+        return self._store(response)
 
 
 class PhotosService:
