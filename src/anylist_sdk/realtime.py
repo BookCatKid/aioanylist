@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from urllib.parse import quote
@@ -12,6 +13,11 @@ from .transport import AnyListTransport
 from .types import Domain
 
 HEARTBEAT = "--heartbeat--"
+HEARTBEAT_INTERVAL = 5.0
+MAX_MISSED_HEARTBEATS = 3
+INITIAL_RETRY_DELAY = 0.5
+MAX_RETRY_DELAY = 120.0
+RETRY_RESET_DELAY = 2.0
 
 INVALIDATION_DOMAINS: dict[str, Domain | None] = {
     "refresh-shopping-lists": Domain.SHOPPING_LISTS,
@@ -52,8 +58,9 @@ class RealtimeClient:
         self._task: asyncio.Task[None] | None = None
         self._stop = asyncio.Event()
         self.connected = asyncio.Event()
-        self._retry_delay = 0.5
+        self._retry_delay = INITIAL_RETRY_DELAY
         self._has_connected_once = False
+        self._callback_tasks: set[asyncio.Task[None]] = set()
 
     def add_listener(self, callback: EventCallback) -> None:
         self._callbacks.append(callback)
@@ -104,7 +111,13 @@ class RealtimeClient:
         self.connected.clear()
         # An explicit stop/start is a new realtime session, not an automatic reconnect.
         self._has_connected_once = False
-        self._retry_delay = 0.5
+        self._retry_delay = INITIAL_RETRY_DELAY
+        callbacks = tuple(self._callback_tasks)
+        for callback_task in callbacks:
+            callback_task.cancel()
+        if callbacks:
+            await asyncio.gather(*callbacks, return_exceptions=True)
+        self._callback_tasks.clear()
 
     def _url(self) -> str:
         if self.transport.tokens is None:
@@ -120,18 +133,35 @@ class RealtimeClient:
             f"&access_token={quote(self.transport.tokens.access_token, safe='')}"
         )
 
+    def _track_callback(self, awaitable: Awaitable[None]) -> None:
+        async def runner() -> None:
+            try:
+                await awaitable
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # Listener/catch-up failures are outside the WebSocket transport state machine.
+                # The web client launches the corresponding AJAX refreshes without awaiting
+                # them, so a failed refresh cannot tear down a healthy socket.
+                return
+
+        task = asyncio.create_task(runner(), name="anylist-realtime-callback")
+        self._callback_tasks.add(task)
+        task.add_done_callback(self._callback_tasks.discard)
+
     async def _dispatch(self, message: str) -> None:
         event = RealtimeEvent(message, INVALIDATION_DOMAINS.get(message))
         await self._events.put(event)
         for callback in tuple(self._callbacks):
             try:
                 result = callback(event)
-                if asyncio.iscoroutine(result):
-                    await result
             except Exception:
-                # External SDK listeners are not part of AnyList's transport protocol. A
-                # consumer callback failure must not tear down an otherwise healthy socket.
                 continue
+            if inspect.isawaitable(result):
+                self._track_callback(result)
+
+    def _reset_retry_delay(self) -> None:
+        self._retry_delay = INITIAL_RETRY_DELAY
 
     async def _connection(self) -> int:
         try:
@@ -139,56 +169,59 @@ class RealtimeClient:
                 was_reconnect = self._has_connected_once
                 self._has_connected_once = True
                 self.connected.set()
+                loop = asyncio.get_running_loop()
+                # WebSocketManager schedules rp independently at +2s and cancels it when this
+                # socket closes. Do not tie retry reset to the next incoming frame/heartbeat.
+                retry_reset_handle = loop.call_later(RETRY_RESET_DELAY, self._reset_retry_delay)
                 if was_reconnect:
                     for callback in tuple(self._reconnect_callbacks):
                         try:
                             result = callback()
-                            if asyncio.iscoroutine(result):
-                                await result
                         except Exception:
-                            # Catch-up is best-effort. A transient account/user-data fetch
-                            # must not tear down an otherwise healthy WebSocket.
                             continue
+                        if inspect.isawaitable(result):
+                            self._track_callback(result)
                 missed = 0
-                opened_at = asyncio.get_running_loop().time()
-                next_heartbeat = opened_at + 5.0
-                while not self._stop.is_set():
-                    timeout = max(0.0, next_heartbeat - asyncio.get_running_loop().time())
-                    try:
-                        msg = await asyncio.wait_for(ws.receive(), timeout=timeout)
-                    except asyncio.TimeoutError:
-                        missed += 1
-                        if missed >= 3:
-                            await ws.close()
-                            return 1006
-                        await ws.send_str(HEARTBEAT)
-                        next_heartbeat = asyncio.get_running_loop().time() + 5.0
-                        continue
+                next_heartbeat = loop.time() + HEARTBEAT_INTERVAL
+                try:
+                    while not self._stop.is_set():
+                        timeout = max(0.0, next_heartbeat - loop.time())
+                        try:
+                            msg = await asyncio.wait_for(ws.receive(), timeout=timeout)
+                        except asyncio.TimeoutError:
+                            missed += 1
+                            if missed >= MAX_MISSED_HEARTBEATS:
+                                await ws.close()
+                                return 1006
+                            await ws.send_str(HEARTBEAT)
+                            next_heartbeat = loop.time() + HEARTBEAT_INTERVAL
+                            continue
 
-                    if msg.type == aiohttp.WSMsgType.TEXT:
-                        if msg.data == HEARTBEAT:
-                            missed = 0
-                        else:
-                            await self._dispatch(str(msg.data))
-                    elif msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED):
-                        return int(ws.close_code or 1000)
-                    elif msg.type == aiohttp.WSMsgType.ERROR:
-                        return int(ws.close_code or 1006)
+                        if msg.type == aiohttp.WSMsgType.TEXT:
+                            if msg.data == HEARTBEAT:
+                                missed = 0
+                            else:
+                                # Official refresh methods launch network work and return; keep
+                                # dispatch off the socket receive/heartbeat critical path.
+                                await self._dispatch(str(msg.data))
+                        elif msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED):
+                            return int(ws.close_code or 1000)
+                        elif msg.type == aiohttp.WSMsgType.ERROR:
+                            return int(ws.close_code or 1006)
 
-                    now = asyncio.get_running_loop().time()
-                    if now >= next_heartbeat:
-                        missed += 1
-                        if missed >= 3:
-                            await ws.close()
-                            return 1006
-                        await ws.send_str(HEARTBEAT)
-                        next_heartbeat = now + 5.0
+                        now = loop.time()
+                        if now >= next_heartbeat:
+                            missed += 1
+                            if missed >= MAX_MISSED_HEARTBEATS:
+                                await ws.close()
+                                return 1006
+                            await ws.send_str(HEARTBEAT)
+                            next_heartbeat = now + HEARTBEAT_INTERVAL
 
-                    # Official web resets the retry delay two seconds after a successful open.
-                    if now - opened_at >= 2.0:
-                        self._retry_delay = 0.5
-                await ws.close(code=1000)
-                return 1000
+                    await ws.close(code=1000)
+                    return 1000
+                finally:
+                    retry_reset_handle.cancel()
         except aiohttp.ClientError as exc:
             self.connected.clear()
             if self._stop.is_set():
@@ -213,4 +246,4 @@ class RealtimeClient:
                 except Exception:
                     pass
             await asyncio.sleep(self._retry_delay)
-            self._retry_delay = min(self._retry_delay * 2.0, 120.0)
+            self._retry_delay = min(self._retry_delay * 2.0, MAX_RETRY_DELAY)
