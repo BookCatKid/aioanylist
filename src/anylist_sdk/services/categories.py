@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+import hashlib
 from google.protobuf.message import Message
 
 from ..identifiers import uuid4_hex
@@ -98,6 +99,7 @@ class CategorizedItemsService(OperationService):
         super().__init__(transport,state,user_id=user_id,
             spec=QueueSpec(f"{user_id}:categorized-items","/data/categorized-items/update",
                            "PBCategorizeItemOperation","PBCategorizeItemOperationList"),journal=journal)
+        self.user_id = user_id
         self.queue.on_response = self._on_response
     async def _on_response(self,response:Message)->None:
         if not response.originalTimestamps or not response.newTimestamps:return
@@ -119,10 +121,83 @@ class CategorizedItemsService(OperationService):
         assert isinstance(response, Message)
         self.state.apply_categorized_items(response)
         return response
-    async def categorize(self,item:Message,*,flush:bool=True)->str:
-        c=clone_message(item); c.name=c.name.lower()
-        self.state.categorized_items[c.identifier]=c
-        return await self.operation("categorize-item",listItem=c,flush=flush)
-    async def remove(self,item:Message,*,flush:bool=True)->str:
-        self.state.categorized_items.pop(item.identifier,None)
-        return await self.operation("remove-categorized-item",listItem=clone_message(item),flush=flush)
+    @staticmethod
+    def _category_id(item: Message) -> str:
+        # Official ListItem.categoryID(): categoryMatchId -> category -> "other".
+        return str(getattr(item, "categoryMatchId", "") or getattr(item, "category", "") or "other")
+
+    def memory_id(self, name: str, list_id: str = "") -> str:
+        # ALCategorizedListItemsManager: md5(lowercaseName + "-" + listId + "-" + userId).
+        raw = f"{name.lower()}-{list_id}-{self.user_id}"
+        return hashlib.md5(raw.encode("utf-8")).hexdigest()
+
+    def lookup(self, name: str, list_id: str = "") -> Message | None:
+        """Return AnyList's learned categorization, preferring list-specific over global."""
+        item = self.state.categorized_items.get(self.memory_id(name, list_id))
+        if item is None and list_id:
+            item = self.state.categorized_items.get(self.memory_id(name, ""))
+        return item
+
+    async def categorize(
+        self, item: Message, *, global_scope: bool = False, flush: bool = True
+    ) -> str:
+        """Remember an item's category using AnyList's list/global categorization keys."""
+        source_list_id = str(getattr(item, "listId", "") or "")
+        learned = clone_message(item)
+        learned.userId = self.user_id
+        if global_scope:
+            learned.listId = ""
+        learned.name = (learned.name or "").lower()
+        learned.identifier = self.memory_id(learned.name, learned.listId)
+
+        existing = self.state.categorized_items.get(learned.identifier)
+        changed = existing is None or self._category_id(existing) != self._category_id(learned)
+        if existing is None:
+            self.state.categorized_items[learned.identifier] = clone_message(learned)
+        elif changed:
+            existing.categoryMatchId = self._category_id(learned)
+            if getattr(learned, "category", ""):
+                existing.category = learned.category
+
+        operation_id = ""
+        if changed:
+            operation_id = await self.operation(
+                "categorize-item", listItem=learned, flush=flush
+            )
+
+        # Global learning replaces a previously remembered value for this concrete list.
+        if global_scope and source_list_id:
+            local_id = self.memory_id(learned.name, source_list_id)
+            local = self.state.categorized_items.pop(local_id, None)
+            if local is not None:
+                removal = PB.ListItem(
+                    identifier=local_id,
+                    name=(local.name or "").lower(),
+                    userId=self.user_id,
+                    listId=source_list_id,
+                    categoryMatchId=self._category_id(local),
+                    category=(getattr(local, "category", "") or "other"),
+                )
+                await self.operation(
+                    "remove-categorized-item", listItem=removal, flush=flush
+                )
+        return operation_id
+
+    async def remove(
+        self, item: Message, *, global_scope: bool = False, flush: bool = True
+    ) -> str:
+        list_id = "" if global_scope else str(getattr(item, "listId", "") or "")
+        identifier = self.memory_id(str(getattr(item, "name", "") or ""), list_id)
+        existing = self.state.categorized_items.pop(identifier, None)
+        source = existing or item
+        removal = PB.ListItem(
+            identifier=identifier,
+            name=(getattr(source, "name", "") or "").lower(),
+            userId=self.user_id,
+            listId=list_id,
+            categoryMatchId=self._category_id(source),
+            category=(getattr(source, "category", "") or "other"),
+        )
+        return await self.operation(
+            "remove-categorized-item", listItem=removal, flush=flush
+        )
