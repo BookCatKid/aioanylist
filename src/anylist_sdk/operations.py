@@ -81,7 +81,12 @@ class OperationQueue:
         self.journal = journal
         self.on_response = on_response
         self._pending: list[Message] = []
-        self._lock = asyncio.Lock()
+        # Keep pending-list mutation independent from the active network request. AnyList
+        # Web allows zT/QO to append while KO has a request in flight; only one KO request may
+        # be active at once. A single lock across HTTP would serialize producers on latency.
+        self._state_lock = asyncio.Lock()
+        self._flush_lock = asyncio.Lock()
+        self._flush_owner: asyncio.Task[Any] | None = None
         self._pause_count = 0
 
     @property
@@ -143,9 +148,9 @@ class OperationQueue:
             )
         # Serialize pending-list mutations with flush. Without this, a producer could append
         # while flush is replacing _pending after acknowledgements and lose a newly queued op.
-        async with self._lock:
+        async with self._state_lock:
             self._pending.append(operation)
-            await self._persist()
+            await self._persist_locked()
         operation_id = operation.metadata.operationId
         if flush and not self.paused:
             await self.flush()
@@ -160,7 +165,7 @@ class OperationQueue:
             result.operations.add().CopyFrom(operation)
         return result
 
-    async def _persist(self) -> None:
+    async def _persist_locked(self) -> None:
         if self.journal is None:
             return
         if not self._pending:
@@ -174,87 +179,121 @@ class OperationQueue:
         raw = await self.journal.load(self.spec.queue_id)
         if not raw:
             return 0
-        restored = decode(self.spec.operation_list_type, raw)
-        async with self._lock:
-            self._pending = []
-            for op in restored.operations:
-                clone = message_class(self.spec.operation_type)()
-                clone.CopyFrom(op)
-                self._pending.append(clone)
+        try:
+            restored = decode(self.spec.operation_list_type, raw)
+        except Exception:
+            # ALArchivedOperations restore ignores an archive that cannot be decoded.
+            logger.exception("Failed to decode archived AnyList operations for %s", self.spec.queue_id)
+            return 0
+
+        # The browser archive has one top-level ALOperationsKey equal to the active AnyList
+        # user ID and rejects the entire archive on mismatch. Our journal is split per queue,
+        # so enforce the same account boundary against every restored operation metadata.
+        for op in restored.operations:
+            if str(op.metadata.userId or "") != self.user_id:
+                await self.journal.clear(self.spec.queue_id)
+                return 0
+
+        async with self._flush_lock:
+            async with self._state_lock:
+                self._pending = []
+                for op in restored.operations:
+                    clone = message_class(self.spec.operation_type)()
+                    clone.CopyFrom(op)
+                    self._pending.append(clone)
         return len(self._pending)
 
     async def flush(self) -> OperationAck | None:
+        current_task = asyncio.current_task()
+        # A domain response delegate may enqueue another operation. In the web client KO sees
+        # that a request is already active and simply leaves it for the outer completion path.
+        if current_task is not None and self._flush_owner is current_task:
+            return None
         if self.paused or not self._pending:
             return None
-        async with self._lock:
-            if self.paused or not self._pending:
-                return None
-            all_processed: list[str] = []
-            last_response: Message | None = None
-            while self._pending and not self.paused:
-                batch = self._pending[: self.spec.max_batch_size]
-                request = self._as_list_message(batch)
-                response = await self.transport.post_proto(
-                    self.spec.endpoint,
-                    fields={self.spec.form_field: request},
-                    response_type="PBEditOperationResponse",
-                )
-                assert isinstance(response, Message)
-                last_response = response
-                processed = list(response.processedOperations)
-                removed = 0
-                # AnyList Web walks processed IDs in order and only shifts when each ID
-                # matches the *current* queue head. A mismatch is reported but does not
-                # discard local work. Mirror that behavior instead of treating the response
-                # as an unordered acknowledgement set.
-                for operation_id in processed:
-                    if self._pending and self._pending[0].metadata.operationId == operation_id:
-                        del self._pending[0]
-                        removed += 1
-                    else:
-                        local_id = (
-                            self._pending[0].metadata.operationId if self._pending else None
-                        )
-                        logger.error(
-                            "AnyList operation acknowledgement mismatch for %s: "
-                            "processed=%s local_head=%s",
-                            self.spec.endpoint,
-                            operation_id,
-                            local_id,
-                        )
-                all_processed.extend(processed)
-                await self._persist()
 
-                # ALEditOperationsNetworkQueue shifts acknowledged operations before it
-                # invokes the domain delegate (app.js 77633-77685).  Several managers use
-                # their queue's pending state inside that callback to decide whether a
-                # conflict refresh may be applied, so this ordering is observable behavior.
-                # The official queue also isolates delegate exceptions instead of turning a
-                # successfully acknowledged network edit into a caller-visible failure.
-                if self.on_response is not None:
-                    try:
-                        callback_result = self.on_response(response)
-                        if asyncio.iscoroutine(callback_result):
-                            await callback_result
-                    except Exception:
-                        logger.exception(
-                            "AnyList operation response delegate failed for %s",
-                            self.spec.endpoint,
-                        )
-                # KO schedules another request only when at least one operation was
-                # acknowledged and the remaining queue has fallen to <= the 200-op batch
-                # limit. In particular, a 401-op queue becomes 201 after the first request
-                # and stops until a later queue trigger. A partial ack from a small queue is
-                # retried immediately. Zero-ack responses retain the queue without spinning.
-                if not self._pending or not processed:
-                    break
-                if len(self._pending) > self.spec.max_batch_size:
-                    break
-                # A malformed response containing only mismatched IDs would make the web
-                # client reschedule indefinitely. Avoid a synchronous hot loop while keeping
-                # the same retained-queue semantics.
-                if removed == 0:
-                    break
-            if last_response is None:
-                return None
-            return OperationAck(tuple(all_processed), last_response)
+        async with self._flush_lock:
+            self._flush_owner = current_task
+            try:
+                all_processed: list[str] = []
+                last_response: Message | None = None
+                while not self.paused:
+                    # Snapshot only the batch being transmitted, then release the state lock so
+                    # producers can append while the request is in flight just like zT/QO.
+                    async with self._state_lock:
+                        if self.paused or not self._pending:
+                            break
+                        batch = list(self._pending[: self.spec.max_batch_size])
+                        request = self._as_list_message(batch)
+
+                    response = await self.transport.post_proto(
+                        self.spec.endpoint,
+                        fields={self.spec.form_field: request},
+                        response_type="PBEditOperationResponse",
+                    )
+                    assert isinstance(response, Message)
+                    last_response = response
+                    processed = list(response.processedOperations)
+                    removed = 0
+
+                    async with self._state_lock:
+                        # AnyList Web walks processed IDs in order and only shifts when each ID
+                        # matches the *current* queue head. An operation appended during the
+                        # request therefore cannot be lost when this batch is acknowledged.
+                        for operation_id in processed:
+                            if (
+                                self._pending
+                                and self._pending[0].metadata.operationId == operation_id
+                            ):
+                                del self._pending[0]
+                                removed += 1
+                            else:
+                                local_id = (
+                                    self._pending[0].metadata.operationId
+                                    if self._pending
+                                    else None
+                                )
+                                logger.error(
+                                    "AnyList operation acknowledgement mismatch for %s: "
+                                    "processed=%s local_head=%s",
+                                    self.spec.endpoint,
+                                    operation_id,
+                                    local_id,
+                                )
+                        all_processed.extend(processed)
+                        await self._persist_locked()
+
+                    # ALEditOperationsNetworkQueue shifts acknowledged operations before it
+                    # invokes the domain delegate (app.js 77633-77685). Several managers use
+                    # pending state inside that callback, so this ordering is observable.
+                    if self.on_response is not None:
+                        try:
+                            callback_result = self.on_response(response)
+                            if asyncio.iscoroutine(callback_result):
+                                await callback_result
+                        except Exception:
+                            logger.exception(
+                                "AnyList operation response delegate failed for %s",
+                                self.spec.endpoint,
+                            )
+
+                    # KO schedules another request only when at least one operation was
+                    # acknowledged and the *current* remaining queue is <= 200. Re-read after
+                    # the delegate because it may itself have queued work.
+                    async with self._state_lock:
+                        pending_count = len(self._pending)
+                    if pending_count == 0 or not processed:
+                        break
+                    if pending_count > self.spec.max_batch_size:
+                        break
+                    # A malformed response containing only mismatched IDs would make the web
+                    # client reschedule indefinitely. Avoid an unbounded SDK request loop while
+                    # retaining every local operation for a later trigger.
+                    if removed == 0:
+                        break
+
+                if last_response is None:
+                    return None
+                return OperationAck(tuple(all_processed), last_response)
+            finally:
+                self._flush_owner = None

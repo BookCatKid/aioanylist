@@ -151,3 +151,164 @@ async def test_response_delegate_failure_is_isolated_after_server_ack(fake_trans
     assert ack is not None
     assert ack.processed_ids == (op.metadata.operationId,)
     assert queue.pending_count == 0
+
+@pytest.mark.asyncio
+async def test_enqueue_during_inflight_flush_is_not_blocked_and_is_sent_next() -> None:
+    class BlockingTransport:
+        def __init__(self):
+            self.calls = []
+            self.started = asyncio.Event()
+            self.release = asyncio.Event()
+
+        async def post_proto(self, endpoint, *, fields, response_type=None):
+            request = fields["operations"]
+            self.calls.append(request)
+            if len(self.calls) == 1:
+                self.started.set()
+                await self.release.wait()
+            response = PB.PBEditOperationResponse()
+            response.processedOperations.extend(
+                op.metadata.operationId for op in request.operations
+            )
+            return response
+
+    transport = BlockingTransport()
+    queue = OperationQueue(
+        transport,
+        QueueSpec("q", "/update", "PBListOperation", "PBListOperationList"),
+        user_id="user",
+    )
+    first = queue.new_operation("first")
+    second = queue.new_operation("second")
+    await queue.enqueue(first, flush=False)
+
+    flushing = asyncio.create_task(queue.flush())
+    await transport.started.wait()
+    # zT/QO may append while KO is active; this must not wait for the HTTP response.
+    await asyncio.wait_for(queue.enqueue(second, flush=False), timeout=0.1)
+    assert queue.pending_count == 2
+
+    transport.release.set()
+    ack = await flushing
+
+    assert ack is not None
+    assert ack.processed_ids == (first.metadata.operationId, second.metadata.operationId)
+    assert len(transport.calls) == 2
+    assert [op.metadata.handlerId for op in transport.calls[0].operations] == ["first"]
+    assert [op.metadata.handlerId for op in transport.calls[1].operations] == ["second"]
+    assert queue.pending_count == 0
+
+
+@pytest.mark.asyncio
+async def test_response_delegate_can_enqueue_without_recursive_flush_deadlock(fake_transport) -> None:
+    queue = OperationQueue(
+        fake_transport,
+        QueueSpec("q", "/update", "PBListOperation", "PBListOperationList"),
+        user_id="user",
+    )
+    first = queue.new_operation("first")
+    await queue.enqueue(first, flush=False)
+    added = False
+
+    async def on_response(_response):
+        nonlocal added
+        if not added:
+            added = True
+            await queue.add("second", flush=True)
+
+    queue.on_response = on_response
+    ack = await asyncio.wait_for(queue.flush(), timeout=0.5)
+
+    assert ack is not None
+    assert queue.pending_count == 0
+    assert len(fake_transport.calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_restore_rejects_operations_archived_for_another_user(tmp_path, fake_transport) -> None:
+    journal = FileOperationJournal(tmp_path)
+    spec = QueueSpec("shared", "/update", "PBListOperation", "PBListOperationList")
+    old = OperationQueue(fake_transport, spec, user_id="old-user", journal=journal)
+    await old.add("rename-list", flush=False, listId="l", updatedValue="Name")
+
+    current = OperationQueue(fake_transport, spec, user_id="new-user", journal=journal)
+    assert await current.restore() == 0
+    assert current.pending_count == 0
+    assert await journal.load(spec.queue_id) is None
+
+
+@pytest.mark.asyncio
+async def test_restore_ignores_corrupt_archived_operation_payload(tmp_path, fake_transport) -> None:
+    journal = FileOperationJournal(tmp_path)
+    spec = QueueSpec("q", "/update", "PBListOperation", "PBListOperationList")
+    await journal.save(spec.queue_id, b"not a protobuf")
+    queue = OperationQueue(fake_transport, spec, user_id="user", journal=journal)
+
+    assert await queue.restore() == 0
+    assert queue.pending_count == 0
+
+@pytest.mark.asyncio
+async def test_transport_failure_retains_pending_operations_for_retry(fake_transport) -> None:
+    from anylist_sdk.exceptions import TransportError
+
+    queue = OperationQueue(
+        fake_transport,
+        QueueSpec("q", "/update", "PBListOperation", "PBListOperationList"),
+        user_id="user",
+    )
+    op = queue.new_operation("rename-list", listId="list", updatedValue="Name")
+    await queue.enqueue(op, flush=False)
+    fake_transport.responses.append(TransportError("offline"))
+
+    with pytest.raises(TransportError):
+        await queue.flush()
+
+    assert queue.pending_count == 1
+    assert queue._pending[0].metadata.operationId == op.metadata.operationId
+
+
+@pytest.mark.asyncio
+async def test_pause_during_inflight_request_processes_ack_but_suppresses_next_send() -> None:
+    class BlockingTransport:
+        def __init__(self):
+            self.calls = []
+            self.started = asyncio.Event()
+            self.release = asyncio.Event()
+
+        async def post_proto(self, endpoint, *, fields, response_type=None):
+            request = fields["operations"]
+            self.calls.append(request)
+            self.started.set()
+            await self.release.wait()
+            response = PB.PBEditOperationResponse()
+            response.processedOperations.extend(
+                op.metadata.operationId for op in request.operations
+            )
+            return response
+
+    transport = BlockingTransport()
+    queue = OperationQueue(
+        transport,
+        QueueSpec("q", "/update", "PBListOperation", "PBListOperationList", max_batch_size=1),
+        user_id="user",
+    )
+    first = queue.new_operation("first")
+    second = queue.new_operation("second")
+    await queue.enqueue(first, flush=False)
+    await queue.enqueue(second, flush=False)
+
+    flushing = asyncio.create_task(queue.flush())
+    await transport.started.wait()
+    queue.pause()
+    transport.release.set()
+    ack = await flushing
+
+    assert ack is not None
+    assert ack.processed_ids == (first.metadata.operationId,)
+    assert queue.pending_count == 1
+    assert len(transport.calls) == 1
+
+    # Tl(false) schedules the retained queue immediately in the official client.
+    await queue.resume(flush=True)
+    assert queue.pending_count == 0
+    assert len(transport.calls) == 2
