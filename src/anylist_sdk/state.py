@@ -185,7 +185,12 @@ class AnyListState:
             self.shopping_lists.pop(list_id, None)
             self._drop_list_local_state(list_id)
         self._merge_index(self.shopping_lists, response.newLists)
-        self._merge_index(self.shopping_lists, response.modifiedLists)
+        # ShoppingListManager.cQ updates modified lists only when they already exist in
+        # the local index. A modified-list delta must not materialize an unknown list.
+        for value in response.modifiedLists:
+            identifier = str(getattr(value, "identifier", "") or "")
+            if identifier and identifier in self.shopping_lists:
+                self.shopping_lists[identifier] = clone(value)
         # cQ assigns orderedIds even when it is empty; an empty server order must clear an
         # old local ordering rather than leave stale IDs behind.
         self.ordered_shopping_list_ids = list(response.orderedIds)
@@ -193,10 +198,12 @@ class AnyListState:
             self.apply_list_response(detail)
 
     def apply_list_folders(self, response: Message) -> None:
-        if response.listDataId:
-            self.list_data_id = str(response.listDataId)
-        if response.rootFolderId:
-            self.root_folder_id = str(response.rootFolderId)
+        # ListFolderManager.DB rejects the entire response unless both identities are
+        # present. Applying a malformed full response would otherwise clear good state.
+        if not response.listDataId or not response.rootFolderId:
+            return
+        self.list_data_id = str(response.listDataId)
+        self.root_folder_id = str(response.rootFolderId)
         if response.HasField("hasMigratedListOrdering"):
             self.has_migrated_list_ordering = bool(response.hasMigratedListOrdering)
         # The official folder manager clears its index before applying a response that

@@ -218,6 +218,37 @@ def test_shopping_response_empty_order_and_unknown_list_clear_local_subdomains()
     assert "gone" not in state.list_categorization_rules
 
 
+def test_shopping_delta_does_not_create_unknown_modified_list() -> None:
+    state = AnyListState()
+    response = PB.ShoppingListsResponse()
+    response.modifiedLists.add(identifier="unknown", name="Should not materialize")
+
+    state.apply_shopping_lists(response)
+
+    assert "unknown" not in state.shopping_lists
+
+
+def test_folder_response_without_required_identity_is_ignored_wholesale() -> None:
+    state = AnyListState(list_data_id="existing-data", root_folder_id="existing-root")
+    state.list_folders["keep"] = PB.PBListFolder(identifier="keep", name="Keep")
+
+    missing_root = PB.PBListFoldersResponse(listDataId="new-data", includesAllFolders=True)
+    missing_root.listFolders.add(identifier="bad", name="Bad")
+    state.apply_list_folders(missing_root)
+
+    assert state.list_data_id == "existing-data"
+    assert state.root_folder_id == "existing-root"
+    assert set(state.list_folders) == {"keep"}
+
+    missing_data = PB.PBListFoldersResponse(rootFolderId="new-root", includesAllFolders=True)
+    missing_data.listFolders.add(identifier="also-bad", name="Also bad")
+    state.apply_list_folders(missing_data)
+
+    assert state.list_data_id == "existing-data"
+    assert state.root_folder_id == "existing-root"
+    assert set(state.list_folders) == {"keep"}
+
+
 def test_meal_plan_rejects_old_response_version_and_cross_calendar_delta() -> None:
     state = AnyListState(meal_plan_calendar_id="calendar-a", meal_plan_logical_timestamp=4)
     state.meal_plan_events["existing"] = PB.PBCalendarEvent(identifier="existing", calendarId="calendar-a")
@@ -258,7 +289,9 @@ def test_meal_plan_full_sync_can_switch_calendar_and_caps_processed_version() ->
 def test_state_retains_official_migration_metadata() -> None:
     state = AnyListState()
 
-    folders = PB.PBListFoldersResponse(hasMigratedListOrdering=True)
+    folders = PB.PBListFoldersResponse(
+        listDataId="data", rootFolderId="root", hasMigratedListOrdering=True
+    )
     state.apply_list_folders(folders)
     assert state.has_migrated_list_ordering is True
 

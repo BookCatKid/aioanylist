@@ -88,7 +88,9 @@ async def test_delete_folder_item_updates_parent_and_folder_index(fake_transport
 def test_full_folder_response_clears_stale_entries() -> None:
     state = AnyListState(user_id="user")
     state.list_folders["stale"] = PB.PBListFolder(identifier="stale")
-    response = PB.PBListFoldersResponse(includesAllFolders=True, rootFolderId="root")
+    response = PB.PBListFoldersResponse(
+        includesAllFolders=True, rootFolderId="root", listDataId="data"
+    )
     response.listFolders.add(identifier="root", name="Root")
 
     state.apply_list_folders(response)
