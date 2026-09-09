@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import Any
 
 import aiohttp
 
@@ -183,7 +184,7 @@ class AnyListClient:
     async def load(self,*,realtime:bool=False,load_tag_data:bool=True,restore_pending:bool=True)->AnyListState:
         if not self._services_ready:raise RuntimeError("Authenticate before loading AnyList data")
         # The official UI has a readiness barrier; aggregate sync and static tag data can load concurrently.
-        tasks=[asyncio.create_task(self.sync.refresh(full=True))]
+        tasks: list[asyncio.Task[Any]] = [asyncio.create_task(self.sync.refresh(full=True))]
         if load_tag_data:tasks.append(asyncio.create_task(self.tag_data.active_and_english()))
         await asyncio.gather(*tasks)
         if restore_pending:

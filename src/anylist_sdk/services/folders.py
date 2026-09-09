@@ -18,7 +18,7 @@ class FoldersService(OperationService):
                            "PBListFolderOperation", "PBListFolderOperationList"), journal=journal)
         self.queue.on_response = self._on_response
         self.on_list_removed: Callable[[str, bool], Awaitable[None]] | None = None
-        self.on_shopping_refresh_requested: Callable[[], Awaitable[None]] | None = None
+        self.on_shopping_refresh_requested: Callable[[], Awaitable[object]] | None = None
         self._refresh_shopping_after_queue = False
 
     async def _on_response(self, response: Message) -> None:

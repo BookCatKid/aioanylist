@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
+from typing import Any
 from google.protobuf.message import Message
 
 from uuid import UUID
@@ -102,7 +103,7 @@ class MealPlanService(OperationService):
         if e is None:
             e=self.state.meal_plan_template_events.pop(event_id,None)
         if e is None:raise KeyError(event_id)
-        fields = {"updatedEvent": e}
+        fields: dict[str, Any] = {"updatedEvent": e}
         if int(e.eventType) == int(PB.PBCalendarEventType.MealPlanTemplateEvent):
             fields["eventType"] = int(e.eventType)
         await self.operation("delete-event",flush=flush,**fields)
@@ -273,7 +274,7 @@ class MealPlanService(OperationService):
                     itemType=PB.PBMealPlanTemplateGroupItem.Type.Template,
                 )
         self.state.meal_plan_templates[x.identifier] = clone(x)
-        fields = {"updatedTemplate": x}
+        fields: dict[str, Any] = {"updatedTemplate": x}
         if creating:
             fields["updatedParentTemplateGroupId"] = parent_group_id
         await self.operation(
@@ -825,11 +826,13 @@ class MealPlanService(OperationService):
 
     async def set_icalendar_enabled(self,enabled:bool)->Message:
         request=PB.PBMealPlanSetICalendarEnabledRequest(shouldEnableIcalendarGeneration=enabled)
-        return await self.transport.post_proto(
+        response = await self.transport.post_proto(
             "/data/meal-planning-calendar/set-icalendar-enabled",
             fields={"icalendar_request":request},
             response_type="PBMealPlanSetICalendarEnabledRequestResponse",
         )
+        assert isinstance(response, Message)
+        return response
     async def send_as_email(self,email:str,markup:str)->bytes:
         return await self.transport.request(
             "POST","/data/meal-planning-calendar/send-as-email",fields={"email":email,"markup":markup}

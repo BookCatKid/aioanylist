@@ -147,12 +147,12 @@ class AnyListTransport:
             return tokens
 
     async def logout(self) -> None:
-        if self.tokens is None:
-            return
-        try:
-            await self.request("POST", "/auth/logout", fields={})
-        finally:
-            self.tokens = None
+        # The official token client exposes /auth/token and /auth/token/refresh, but app.js
+        # never sends a bearer-authenticated logout request. Its only /auth/logout usage is a
+        # browser-session HTML form carrying _xsrf + next. An SDK token session therefore has
+        # no source-backed remote logout operation to reproduce; discard the local credentials
+        # without inventing a request that the official token flow does not make.
+        self.tokens = None
 
     async def request(
         self,

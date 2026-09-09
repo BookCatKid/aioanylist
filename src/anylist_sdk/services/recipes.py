@@ -278,7 +278,7 @@ class RecipesService(OperationService):
     async def set_system_collection_recipe_sort(
         self, collection_id: str, sort_order: int, *, reversed: bool = False, flush: bool = True
     ) -> Message:
-        settings = self.state.system_recipe_collection_settings.get(collection_id)
+        settings: Any = self.state.system_recipe_collection_settings.get(collection_id)
         if settings is None:
             settings = PB.PBRecipeCollectionSettings()
         else:
@@ -296,7 +296,7 @@ class RecipesService(OperationService):
     async def set_system_collection_collection_sort(
         self, collection_id: str, sort_order: int, *, reversed: bool = False, flush: bool = True
     ) -> Message:
-        settings = self.state.system_recipe_collection_settings.get(collection_id)
+        settings: Any = self.state.system_recipe_collection_settings.get(collection_id)
         if settings is None:
             settings = PB.PBRecipeCollectionSettings()
         else:
@@ -314,8 +314,11 @@ class RecipesService(OperationService):
     async def web_import(self, url: str, *, html: str | None = None) -> Message:
         fields: dict[str, bytes | str] = {"url": url}
         if html is not None: fields["html"] = html
-        return await self.transport.post_proto("/data/recipes/web-import", fields=fields,
-                                               response_type="PBRecipeWebImportResponse")
+        response = await self.transport.post_proto(
+            "/data/recipes/web-import", fields=fields, response_type="PBRecipeWebImportResponse"
+        )
+        assert isinstance(response, Message)
+        return response
 
     async def send_as_email(
         self,

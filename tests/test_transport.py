@@ -109,6 +109,25 @@ async def test_concurrent_refreshes_are_serialized_and_share_rotated_token() -> 
 
 
 @pytest.mark.asyncio
+async def test_token_logout_is_local_only_because_official_token_client_has_no_logout_request(
+    monkeypatch,
+) -> None:
+    transport = AnyListTransport(tokens=AuthTokens("user", "access", "refresh"))
+    calls = []
+
+    async def request(*args, **kwargs):
+        calls.append((args, kwargs))
+        return b""
+
+    monkeypatch.setattr(transport, "request", request)
+
+    await transport.logout()
+
+    assert transport.tokens is None
+    assert calls == []
+
+
+@pytest.mark.asyncio
 async def test_multipart_numeric_scalar_is_sent_as_normal_text_field() -> None:
     seen = {}
 

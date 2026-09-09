@@ -93,7 +93,7 @@ class ShoppingListsService(OperationService):
         self.on_store_filter_removed: Callable[[str, str, bool], Awaitable[None]] | None = None
         self.on_category_group_removed: Callable[[str, str, bool], Awaitable[None]] | None = None
         self.on_items_became_recent: Callable[[str, Sequence[Message], bool, bool], Awaitable[None]] | None = None
-        self.on_folder_refresh_requested: Callable[[], Awaitable[None]] | None = None
+        self.on_folder_refresh_requested: Callable[[], Awaitable[object]] | None = None
         self._refresh_after_legacy_queue = False
         self._refresh_after_v2_queue = False
         self._refresh_folders_after_legacy_queue = False
@@ -372,7 +372,12 @@ class ShoppingListsService(OperationService):
             )
         if flush:
             await self.flush()
-        return [self.item(list_id, item.identifier) for item in clones if self.item(list_id, item.identifier)]
+        result: list[Message] = []
+        for item in clones:
+            stored = self.item(list_id, item.identifier)
+            if stored is not None:
+                result.append(stored)
+        return result
 
     async def revive_matching_item(
         self,
@@ -1445,7 +1450,9 @@ class ShoppingListsService(OperationService):
                 "add-item-ingredient-to-list-item",
                 listId=list_id, listItemId=item_id, listItem=item, flush=flush,
             )
-            return self.item(list_id, item_id)
+            stored = self.item(list_id, item_id)
+            assert stored is not None
+            return stored
 
         add_item_ingredient(item, item_ingredient)
         # Re-adding a checked recipe item revives it and drops ingredient override state,

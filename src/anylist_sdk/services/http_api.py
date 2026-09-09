@@ -106,7 +106,7 @@ class SharingService:
         self.transport = transport
         self.user_id = user_id
         self.state = state
-        self.on_refresh_requested: Callable[[], Awaitable[None] | None] | None = None
+        self.on_refresh_requested: Callable[[], Awaitable[object] | None] | None = None
 
     async def share_list(self, list_id: str, email: str) -> Message:
         op = PB.PBListOperation(listId=list_id, updatedValue=email)

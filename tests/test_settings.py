@@ -40,6 +40,26 @@ async def test_mobile_settings_does_not_invent_handler_for_read_only_web_field(f
 
 
 @pytest.mark.asyncio
+async def test_web_selected_meal_plan_event_handler_is_blocked_by_official_schema_gap(
+    fake_transport,
+) -> None:
+    # app.js calls setWebSelectedMealPlanEventId() and queues this handler, but the embedded
+    # PBMobileAppSettings schema has no webSelectedMealPlanEventId field. Keep the handler
+    # accounted for without inventing an unencodable protobuf field.
+    assert "webSelectedMealPlanEventId" not in PB.PBMobileAppSettings.DESCRIPTOR.fields_by_name
+    state = AnyListState(user_id="user")
+    state.mobile_app_settings = PB.PBMobileAppSettings(identifier="user", timestamp=1)
+    service = MobileSettingsService(fake_transport, state, user_id="user")
+
+    with pytest.raises(TypeError, match="webSelectedMealPlanEventId"):
+        await service.set(
+            "webSelectedMealPlanEventId",
+            "event",
+            handler_id="set-web-selected-meal-plan-event-id",
+        )
+
+
+@pytest.mark.asyncio
 async def test_list_settings_partial_carries_object_timestamp(fake_transport) -> None:
     state = AnyListState(user_id="user")
     state.list_settings["list"] = PB.PBListSettings(
