@@ -74,11 +74,43 @@ class PhotosService:
 
 
 class SharingService:
-    def __init__(self,transport:AnyListTransport,user_id:str):self.transport=transport;self.user_id=user_id
-    async def share_list(self,list_id:str,email:str)->Message:
-        op=PB.PBListOperation(listId=list_id,updatedValue=email)
-        op.metadata.operationId=uuid4_hex();op.metadata.handlerId="share-shopping-list";op.metadata.userId=self.user_id
-        return await self.transport.post_proto("/data/shopping-lists/share-list",fields={"operation":op},response_type="PBShareListOperationResponse")
+    def __init__(
+        self, transport: AnyListTransport, user_id: str, state: AnyListState | None = None
+    ) -> None:
+        self.transport = transport
+        self.user_id = user_id
+        self.state = state
+
+    async def share_list(self, list_id: str, email: str) -> Message:
+        op = PB.PBListOperation(listId=list_id, updatedValue=email)
+        op.metadata.operationId = uuid4_hex()
+        op.metadata.handlerId = "share-shopping-list"
+        op.metadata.userId = self.user_id
+        response = await self.transport.post_proto(
+            "/data/shopping-lists/share-list",
+            fields={"operation": op},
+            response_type="PBShareListOperationResponse",
+        )
+        if (
+            self.state is not None
+            and response is not None
+            and int(response.statusCode) == 0
+            and response.HasField("sharedUser")
+        ):
+            lst = self.state.shopping_lists.get(list_id)
+            shared = response.sharedUser
+            # vK rejects an email-mismatched response rather than poisoning local state.
+            if lst is not None and str(shared.email).casefold() == email.casefold():
+                existing_emails = {str(user.email).casefold() for user in lst.sharedUsers}
+                existing_ids = {str(user.userId) for user in lst.sharedUsers if user.userId}
+                if (
+                    str(shared.email).casefold() not in existing_emails
+                    and (not shared.userId or str(shared.userId) not in existing_ids)
+                ):
+                    lst.sharedUsers.add().CopyFrom(shared)
+                if float(lst.timestamp) == float(response.originalListTimestamp):
+                    lst.timestamp = float(response.updatedListTimestamp)
+        return response
     async def send_list_email(self,list_id:str,email:str,*,decimal_separator:str=".")->dict[str,Any]:
         raw=await self.transport.request("POST","/data/shopping-lists/send-as-email",fields={"email":email,"list_id":list_id,"decimal_separator":decimal_separator})
         return json.loads(raw or b"{}")
