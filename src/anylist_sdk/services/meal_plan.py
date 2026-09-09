@@ -3,12 +3,16 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Sequence
 from google.protobuf.message import Message
 
-from ..identifiers import uuid4_hex
+from uuid import UUID
+
+from ..identifiers import uuid4_hex, uuid5_hex
 from ..operations import QueueSpec
 from ..proto import PB
 from ..state import AnyListState, clone
 from ..transport import AnyListTransport
 from .base import OperationService, clone_message
+
+_ROOT_TEMPLATE_GROUP_NAMESPACE = UUID(hex="3da9450f605a455ca3aadaf230998b4d")
 
 
 class MealPlanService(OperationService):
@@ -523,9 +527,11 @@ class MealPlanService(OperationService):
     async def create_root_template_group(
         self, *, group_id: str | None = None, flush: bool = True
     ) -> Message:
+        calendar_id = self.state.meal_plan_calendar_id or ""
+        identifier = group_id or uuid5_hex(calendar_id, _ROOT_TEMPLATE_GROUP_NAMESPACE)
         group = PB.PBMealPlanTemplateGroup(
-            identifier=group_id or uuid4_hex(),
-            calendarId=self.state.meal_plan_calendar_id or "",
+            identifier=identifier,
+            calendarId=calendar_id,
         )
         self.state.meal_plan_template_groups[group.identifier] = clone(group)
         await self.operation("create-root-template-group", templateGroup=group, flush=flush)
@@ -565,6 +571,27 @@ class MealPlanService(OperationService):
     async def delete_template_group(
         self, group_id: str, parent_group_id: str, *, flush: bool = True
     ) -> None:
+        group = self._template_group(group_id)
+        # AnyList Web recursively deletes direct templates first, then child groups,
+        # before removing the group from its parent. Keep all operations queued until
+        # the outermost call finishes so the mutation is observed as one batch.
+        template_ids = [
+            str(item.identifier)
+            for item in group.items
+            if int(item.itemType) == int(PB.PBMealPlanTemplateGroupItem.Type.Template)
+        ]
+        child_group_ids = [
+            str(item.identifier)
+            for item in group.items
+            if int(item.itemType) == int(PB.PBMealPlanTemplateGroupItem.Type.Group)
+        ]
+        for template_id in template_ids:
+            if template_id in self.state.meal_plan_templates:
+                await self.delete_template(template_id, flush=False)
+        for child_group_id in child_group_ids:
+            if child_group_id in self.state.meal_plan_template_groups:
+                await self.delete_template_group(child_group_id, group_id, flush=False)
+
         self.state.meal_plan_template_groups.pop(group_id, None)
         parent = self.state.meal_plan_template_groups.get(parent_group_id)
         if parent is not None:
@@ -601,9 +628,15 @@ class MealPlanService(OperationService):
         new_parent_id: str,
         *,
         flush: bool = True,
-    ) -> None:
+    ) -> bool:
         old_parent = self._template_group(old_parent_id)
         new_parent = self._template_group(new_parent_id)
+        for item in items:
+            if int(item.itemType) != int(PB.PBMealPlanTemplateGroupItem.Type.Group):
+                continue
+            moved_id = str(item.identifier)
+            if moved_id == new_parent_id or self._group_contains_group(moved_id, new_parent_id):
+                return False
         ids = {x.identifier for x in items}
         old_kept = [clone_message(x) for x in old_parent.items if x.identifier not in ids]
         del old_parent.items[:]
@@ -620,6 +653,19 @@ class MealPlanService(OperationService):
             templateGroupItems=[clone_message(x) for x in items],
             flush=flush,
         )
+        return True
+
+    def _group_contains_group(self, group_id: str, target_id: str) -> bool:
+        group = self.state.meal_plan_template_groups.get(group_id)
+        if group is None:
+            return False
+        for item in group.items:
+            if int(item.itemType) != int(PB.PBMealPlanTemplateGroupItem.Type.Group):
+                continue
+            child_id = str(item.identifier)
+            if child_id == target_id or self._group_contains_group(child_id, target_id):
+                return True
+        return False
 
     async def set_template_group_items_sort_order(
         self, group_id: str, sort_order: int, *, flush: bool = True

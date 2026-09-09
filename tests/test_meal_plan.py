@@ -206,3 +206,62 @@ async def test_event_label_change_clears_normal_event_label_sort_and_recomputes_
     op = service.queue._pending[-1]
     assert op.metadata.handlerId == "set-event-label"
     assert op.updatedEvent.orderAddedSortIndex == 4
+
+@pytest.mark.asyncio
+async def test_root_template_group_uses_official_deterministic_identifier(fake_transport) -> None:
+    from uuid import UUID
+    from anylist_sdk.identifiers import uuid5_hex
+
+    state = AnyListState(user_id="user", meal_plan_calendar_id="cal")
+    service = MealPlanService(fake_transport, state, user_id="user")
+    state.meal_plan_calendar_id = "calendar"
+    group = await service.create_root_template_group(flush=False)
+    assert group.identifier == uuid5_hex(
+        "calendar", UUID(hex="3da9450f605a455ca3aadaf230998b4d")
+    )
+
+
+@pytest.mark.asyncio
+async def test_delete_template_group_recursively_removes_descendants_and_template_events(fake_transport) -> None:
+    state = AnyListState(user_id="user", meal_plan_calendar_id="cal")
+    service = MealPlanService(fake_transport, state, user_id="user")
+    state.meal_plan_calendar_id = "calendar"
+    root = PB.PBMealPlanTemplateGroup(identifier="root", calendarId="calendar")
+    child = PB.PBMealPlanTemplateGroup(identifier="child", calendarId="calendar")
+    root.items.add(identifier="child", itemType=PB.PBMealPlanTemplateGroupItem.Type.Group)
+    child.items.add(identifier="template", itemType=PB.PBMealPlanTemplateGroupItem.Type.Template)
+    state.meal_plan_template_groups.update(root=root, child=child)
+    state.meal_plan_templates["template"] = PB.PBMealPlanTemplate(identifier="template", calendarId="calendar")
+    state.meal_plan_template_events["event"] = PB.PBCalendarEvent(
+        identifier="event", calendarId="calendar", templateId="template",
+        eventType=PB.PBCalendarEventType.MealPlanTemplateEvent,
+    )
+
+    await service.delete_template_group("child", "root", flush=False)
+
+    assert "child" not in state.meal_plan_template_groups
+    assert "template" not in state.meal_plan_templates
+    assert "event" not in state.meal_plan_template_events
+    assert list(root.items) == []
+    assert [op.metadata.handlerId for op in service.queue._pending] == [
+        "delete-template", "delete-template-group"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_move_template_group_rejects_cycle_without_mutating_or_queueing(fake_transport) -> None:
+    state = AnyListState(user_id="user", meal_plan_calendar_id="cal")
+    service = MealPlanService(fake_transport, state, user_id="user")
+    root = PB.PBMealPlanTemplateGroup(identifier="root")
+    parent = PB.PBMealPlanTemplateGroup(identifier="parent")
+    child = PB.PBMealPlanTemplateGroup(identifier="child")
+    root.items.add(identifier="parent", itemType=PB.PBMealPlanTemplateGroupItem.Type.Group)
+    parent.items.add(identifier="child", itemType=PB.PBMealPlanTemplateGroupItem.Type.Group)
+    state.meal_plan_template_groups.update(root=root, parent=parent, child=child)
+    moved = PB.PBMealPlanTemplateGroupItem(
+        identifier="parent", itemType=PB.PBMealPlanTemplateGroupItem.Type.Group
+    )
+
+    assert await service.move_template_group_items([moved], "root", "child", flush=False) is False
+    assert [x.identifier for x in root.items] == ["parent"]
+    assert service.queue._pending == []
