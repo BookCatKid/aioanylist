@@ -101,3 +101,84 @@ async def test_clear_store_filter_id_uses_official_handler_with_absent_field(fak
     assert op.metadata.handlerId == "set-store-filter-id"
     assert op.updatedSettings.timestamp == 3.5
     assert not op.updatedSettings.HasField("storeFilterId")
+
+@pytest.mark.asyncio
+async def test_list_settings_suppresses_official_unchanged_mutation(fake_transport) -> None:
+    state = AnyListState(user_id="user")
+    state.list_settings["list"] = PB.PBListSettings(
+        identifier="settings", userId="user", listId="list", shouldHidePrices=True
+    )
+    service = ListSettingsService(fake_transport, state, user_id="user")
+
+    await service.set("list", "shouldHidePrices", True)
+
+    assert fake_transport.calls == []
+
+
+@pytest.mark.asyncio
+async def test_list_settings_can_clear_optional_scalar_with_absent_wire_field(fake_transport) -> None:
+    state = AnyListState(user_id="user")
+    state.list_settings["list"] = PB.PBListSettings(
+        identifier="settings", userId="user", listId="list", listThemeId="theme"
+    )
+    service = ListSettingsService(fake_transport, state, user_id="user")
+
+    await service.set("list", "listThemeId", None)
+
+    assert not state.list_settings["list"].HasField("listThemeId")
+    op = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert op.metadata.handlerId == "set-list-theme-id"
+    assert not op.updatedSettings.HasField("listThemeId")
+
+
+@pytest.mark.asyncio
+async def test_mobile_selected_defaults_suppress_equivalent_mutations(fake_transport) -> None:
+    state = AnyListState(user_id="user")
+    settings = PB.PBMobileAppSettings(identifier="mobile", timestamp=1.0, defaultListId="default")
+    state.mobile_app_settings = settings
+    service = MobileSettingsService(fake_transport, state, user_id="user")
+
+    await service.set("webSelectedListId", "default")
+    await service.set("webRecipeCollectionLayoutStyle", 1)
+    await service.set("webSelectedMealPlanTab", 0)
+    await service.set("webMealPlanWeekEventListType", 1)
+    await service.set("webMealPlanNotesSortOrder", 5)
+
+    assert fake_transport.calls == []
+
+
+@pytest.mark.asyncio
+async def test_mobile_optional_selection_can_be_cleared(fake_transport) -> None:
+    state = AnyListState(user_id="user")
+    state.mobile_app_settings = PB.PBMobileAppSettings(
+        identifier="mobile", timestamp=1.0, webSelectedRecipeId="recipe"
+    )
+    service = MobileSettingsService(fake_transport, state, user_id="user")
+
+    await service.set("webSelectedRecipeId", None)
+
+    assert not state.mobile_app_settings.HasField("webSelectedRecipeId")
+    op = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert not op.updatedSettings.HasField("webSelectedRecipeId")
+
+
+@pytest.mark.asyncio
+async def test_recipe_cooking_states_are_keyed_by_recipe_and_event(fake_transport) -> None:
+    state = AnyListState(user_id="user")
+    settings = PB.PBMobileAppSettings(identifier="mobile", timestamp=1.0)
+    settings.recipeCookingStates.add(recipeId="recipe", eventId="event-a", selectedStepNumber=1)
+    settings.recipeCookingStates.add(recipeId="recipe", eventId="event-b", selectedStepNumber=2)
+    state.mobile_app_settings = settings
+    service = MobileSettingsService(fake_transport, state, user_id="user")
+
+    await service.save_recipe_cooking_states([
+        PB.PBRecipeCookingState(recipeId="recipe", eventId="event-a", selectedStepNumber=3)
+    ])
+
+    values = {(x.recipeId, x.eventId): x.selectedStepNumber for x in settings.recipeCookingStates}
+    assert values == {("recipe", "event-a"): 3, ("recipe", "event-b"): 2}
+
+    await service.remove_recipe_cooking_states([
+        PB.PBRecipeCookingState(recipeId="recipe", eventId="event-a")
+    ])
+    assert [(x.recipeId, x.eventId) for x in settings.recipeCookingStates] == [("recipe", "event-b")]

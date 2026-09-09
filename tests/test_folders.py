@@ -80,3 +80,58 @@ def test_full_folder_response_clears_stale_entries() -> None:
 
     assert set(state.list_folders) == {"root"}
     assert state.root_folder_id == "root"
+
+@pytest.mark.asyncio
+async def test_delete_folder_recurses_lists_children_and_parent(fake_transport) -> None:
+    state = AnyListState(user_id="user", list_data_id="data", root_folder_id="root")
+    root = PB.PBListFolder(identifier="root")
+    parent = PB.PBListFolder(identifier="parent")
+    child = PB.PBListFolder(identifier="child")
+    root.items.add(identifier="parent", itemType=1)
+    parent.items.add(identifier="list-a", itemType=0)
+    parent.items.add(identifier="child", itemType=1)
+    child.items.add(identifier="list-b", itemType=0)
+    state.list_folders.update(root=root, parent=parent, child=child)
+    removed: list[str] = []
+    service = FoldersService(fake_transport, state, user_id="user")
+
+    async def on_list_removed(list_id: str, flush: bool) -> None:
+        removed.append(list_id)
+
+    service.on_list_removed = on_list_removed
+    await service.delete_folder("parent", "root")
+
+    assert removed == ["list-a", "list-b"]
+    assert set(state.list_folders) == {"root"}
+    assert list(state.list_folders["root"].items) == []
+    operations = fake_transport.calls[-1][1]["operations"].operations
+    assert [(op.metadata.handlerId, op.originalParentFolderId, op.folderItems[0].identifier) for op in operations] == [
+        ("delete-folder-items", "parent", "list-a"),
+        ("delete-folder-items", "child", "list-b"),
+        ("delete-folder-items", "parent", "child"),
+        ("delete-folder-items", "root", "parent"),
+    ]
+
+
+def test_remove_list_local_drops_order_and_list_local_indexes() -> None:
+    from anylist_sdk.services.shopping import ShoppingListsService
+
+    class DummyTransport:
+        pass
+
+    state = AnyListState(user_id="user")
+    state.shopping_lists["list"] = PB.ShoppingList(identifier="list")
+    state.ordered_shopping_list_ids[:] = ["other", "list", "list"]
+    state.list_stores["list"] = {"store": PB.PBStore(identifier="store", listId="list")}
+    state.list_store_filters["list"] = {}
+    state.list_category_groups["list"] = {}
+    state.list_categories["list"] = {}
+    state.list_categorization_rules["list"] = {}
+    service = ShoppingListsService(DummyTransport(), state, user_id="user")
+
+    removed = service.remove_list_local("list")
+
+    assert removed is not None
+    assert "list" not in state.shopping_lists
+    assert state.ordered_shopping_list_ids == ["other"]
+    assert "list" not in state.list_stores

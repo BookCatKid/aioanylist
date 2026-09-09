@@ -12,6 +12,73 @@ from ..transport import AnyListTransport
 from .base import OperationService, clone_message
 
 
+def _present_value(message: Message, field: str) -> Any:
+    """Return proto2 optional fields as None when absent, matching protobuf.js v5."""
+    descriptor = message.DESCRIPTOR.fields_by_name[field]
+    if descriptor.is_repeated:
+        return list(getattr(message, field))
+    try:
+        if not message.HasField(field):
+            return None
+    except ValueError:
+        pass
+    return getattr(message, field)
+
+
+def _set_proto_field(message: Message, field: str, value: Any) -> None:
+    descriptor = message.DESCRIPTOR.fields_by_name[field]
+    target = getattr(message, field)
+    if descriptor.is_repeated:
+        del target[:]
+        if descriptor.message_type:
+            for item in value:
+                target.add().CopyFrom(item)
+        else:
+            target.extend(value)
+    elif value is None:
+        message.ClearField(field)
+    elif descriptor.message_type:
+        target.CopyFrom(value)
+    else:
+        setattr(message, field, value)
+
+
+def _mobile_effective_value(settings: Message, field: str) -> Any:
+    raw = _present_value(settings, field)
+    if field == "webSelectedListId":
+        return raw or (_present_value(settings, "defaultListId") or None)
+    if field in {
+        "webSelectedRecipeId", "webSelectedRecipeCollectionId",
+        "webSelectedListFolderPath", "webSelectedTabId",
+    }:
+        return raw or None
+    if field == "webRecipeCollectionLayoutStyle":
+        return 1 if raw is None else raw
+    if field == "webSelectedMealPlanTab":
+        return 0 if raw is None else raw
+    if field == "webMealPlanCalendarLayout":
+        if raw is not None and 0 <= int(raw) < 2:
+            return raw
+        deprecated = _present_value(settings, "webSelectedMealPlanTabDeprecated")
+        if deprecated == 0:
+            return 1
+        if deprecated == 1:
+            return 0
+        return 0
+    if field == "webMealPlanMonthEventListType":
+        return raw if raw is not None and 0 <= int(raw) < 2 else 0
+    if field == "webMealPlanWeekEventListType":
+        return raw if raw is not None and 0 <= int(raw) < 2 else 1
+    if field == "webMealPlanNotesSortOrder":
+        return raw if raw is not None and 0 <= int(raw) < 6 else 5
+    if field in {
+        "webMealPlanAddEntriesScreenPinnedEntriesCollapsed",
+        "webMealPlanAddEntriesScreenQueueEntriesCollapsed",
+    }:
+        return False if raw is None else raw
+    return raw
+
+
 class ListSettingsService(OperationService):
     def __init__(self, transport: AnyListTransport, state: AnyListState, *, user_id: str,
                  starter: bool = False, journal=None):
@@ -60,16 +127,6 @@ class ListSettingsService(OperationService):
         settings = self.ensure(list_id)
         desc = settings.DESCRIPTOR.fields_by_name.get(field)
         if desc is None: raise TypeError(f"PBListSettings has no field {field!r}")
-        target = getattr(settings, field)
-        if desc.is_repeated:
-            del target[:]
-            if desc.message_type:
-                for v in value: target.add().CopyFrom(v)
-            else: target.extend(value)
-        elif desc.message_type:
-            target.CopyFrom(value)
-        else:
-            setattr(settings, field, value)
         official_handlers = {
             "shouldHideCategories": "set-should-hide-categories",
             "shouldHideCompletedItems": "set-should-hide-completed-items",
@@ -99,6 +156,12 @@ class ListSettingsService(OperationService):
                     f"The official web client has no generic list-settings mutation for {field!r}; "
                     "pass an explicitly proven handler_id only when reproducing an official operation"
                 )
+        no_op_if_unchanged = field not in {
+            "customTheme", "shouldShowSharedListCategoryOrderHintBanner"
+        }
+        if no_op_if_unchanged and _present_value(settings, field) == value:
+            return settings
+        _set_proto_field(settings, field, value)
         partial = PB.PBListSettings(identifier=settings.identifier)
         if settings.userId: partial.userId = settings.userId
         if settings.listId: partial.listId = settings.listId
@@ -108,13 +171,7 @@ class ListSettingsService(OperationService):
         # semantics on this specific settings object.
         if settings.HasField("timestamp"):
             partial.timestamp = settings.timestamp
-        ptarget = getattr(partial, field)
-        if desc.is_repeated:
-            if desc.message_type:
-                for v in value: ptarget.add().CopyFrom(v)
-            else: ptarget.extend(value)
-        elif desc.message_type: ptarget.CopyFrom(value)
-        else: setattr(partial, field, value)
+        _set_proto_field(partial, field, value)
         await self.operation(handler_id, updatedSettings=partial, flush=flush)
         return settings
 
@@ -195,24 +252,8 @@ class MobileSettingsService(OperationService):
         if settings is None: raise RuntimeError("Mobile app settings have not been synchronized")
         desc = settings.DESCRIPTOR.fields_by_name.get(field)
         if desc is None: raise TypeError(f"PBMobileAppSettings has no field {field!r}")
-        target = getattr(settings, field)
-        if desc.is_repeated:
-            del target[:]
-            if desc.message_type:
-                for x in value: target.add().CopyFrom(x)
-            else: target.extend(value)
-        elif desc.message_type: target.CopyFrom(value)
-        else: setattr(settings, field, value)
         # AnyList Web's UT() helper seeds every mobile-settings operation with both
         # identifier and the current timestamp before setting the changed field.
-        partial = PB.PBMobileAppSettings(identifier=settings.identifier, timestamp=settings.timestamp)
-        ptarget = getattr(partial, field)
-        if desc.is_repeated:
-            if desc.message_type:
-                for x in value: ptarget.add().CopyFrom(x)
-            else: ptarget.extend(value)
-        elif desc.message_type: ptarget.CopyFrom(value)
-        else: setattr(partial, field, value)
         names = {
             "listIdForRecipeIngredients":"set-list-id-for-recipe-ingredients",
             "webSelectedListId":"set-web-selected-list-id",
@@ -244,6 +285,22 @@ class MobileSettingsService(OperationService):
                     f"The official web client has no generic mobile-settings mutation for {field!r}; "
                     "pass an explicitly proven handler_id only when reproducing an official operation"
                 )
+        no_op_fields = {
+            "webSelectedListId", "webSelectedRecipeId", "webSelectedRecipeCollectionId",
+            "webSelectedRecipeCollectionType", "webRecipeCollectionLayoutStyle",
+            "webSelectedListFolderPath", "webSelectedTabId", "webSelectedMealPlanTab",
+            "webSelectedMealPlanEventId", "webMealPlanCalendarLayout",
+            "webMealPlanMonthEventListType", "webMealPlanWeekEventListType",
+            "webMealPlanNotesSortOrder", "webHasHiddenStoresAndFiltersHelp",
+            "webHasHiddenItemPricesHelp",
+            "webMealPlanAddEntriesScreenPinnedEntriesCollapsed",
+            "webMealPlanAddEntriesScreenQueueEntriesCollapsed",
+        }
+        if field in no_op_fields and _mobile_effective_value(settings, field) == value:
+            return settings
+        _set_proto_field(settings, field, value)
+        partial = PB.PBMobileAppSettings(identifier=settings.identifier, timestamp=settings.timestamp)
+        _set_proto_field(partial, field, value)
         await self.operation(handler_id, updatedSettings=partial, flush=flush)
         return settings
     async def save_recipe_cooking_states(
@@ -252,10 +309,13 @@ class MobileSettingsService(OperationService):
         settings = self.state.mobile_app_settings
         if settings is None:
             raise RuntimeError("Mobile app settings have not been synchronized")
-        by_id = {str(x.recipeId): x for x in settings.recipeCookingStates if x.recipeId}
+        by_id = {
+            (str(x.recipeId or ""), str(x.eventId or "")): clone_message(x)
+            for x in settings.recipeCookingStates
+        }
         for value in states:
-            if value.recipeId:
-                by_id[str(value.recipeId)] = clone_message(value)
+            key = (str(value.recipeId or ""), str(value.eventId or ""))
+            by_id[key] = clone_message(value)
         del settings.recipeCookingStates[:]
         for value in by_id.values():
             settings.recipeCookingStates.add().CopyFrom(value)
@@ -272,8 +332,14 @@ class MobileSettingsService(OperationService):
         settings = self.state.mobile_app_settings
         if settings is None:
             raise RuntimeError("Mobile app settings have not been synchronized")
-        remove_ids = {str(x.recipeId) for x in states if x.recipeId}
-        kept = [clone_message(x) for x in settings.recipeCookingStates if str(x.recipeId) not in remove_ids]
+        remove_ids = {
+            (str(x.recipeId or ""), str(x.eventId or "")) for x in states
+        }
+        kept = [
+            clone_message(x)
+            for x in settings.recipeCookingStates
+            if (str(x.recipeId or ""), str(x.eventId or "")) not in remove_ids
+        ]
         del settings.recipeCookingStates[:]
         for value in kept:
             settings.recipeCookingStates.add().CopyFrom(value)

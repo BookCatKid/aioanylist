@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from google.protobuf.message import Message
 
 from ..identifiers import uuid4_hex
@@ -17,6 +17,7 @@ class FoldersService(OperationService):
             spec=QueueSpec(f"{user_id}:list-folders", "/data/list-folders/update",
                            "PBListFolderOperation", "PBListFolderOperationList"), journal=journal)
         self.queue.on_response = self._on_response
+        self.on_list_removed: Callable[[str, bool], Awaitable[None]] | None = None
 
     async def _on_response(self, response: Message) -> None:
         mismatch = False
@@ -149,6 +150,47 @@ class FoldersService(OperationService):
                 self.state.list_folders.pop(str(item.identifier), None)
         await self.operation("delete-folder-items", folderItems=wire_items,
                              originalParentFolderId=parent_id, flush=flush)
+
+
+    async def delete_folder(
+        self, folder_id: str, parent_id: str, *, flush: bool = True
+    ) -> None:
+        """Recursively delete a folder exactly like the AnyList Web folder manager.
+
+        Direct shopping lists are removed first, then child folders recursively, and finally
+        the folder itself is removed from its parent.  Each removed node is represented by
+        the same ``delete-folder-items`` operation shape used by the web client.
+        """
+        folder = self._require(folder_id)
+        parent = self._require(parent_id)
+
+        direct_list_ids = [
+            str(item.identifier) for item in list(folder.items) if int(item.itemType) == 0
+        ]
+        child_folder_ids = [
+            str(item.identifier) for item in list(folder.items) if int(item.itemType) == 1
+        ]
+
+        # qB(listID, folderID) removes the list from the shopping manager and asks the
+        # folder manager to remove the corresponding ListType item.  Preserve the one-op
+        # per direct list behavior rather than collapsing the recursive delete into one op.
+        for list_id in direct_list_ids:
+            if self.on_list_removed is not None:
+                await self.on_list_removed(list_id, False)
+            item = PB.PBListFolderItem(identifier=list_id, itemType=0)
+            await self.delete_items([item], folder_id, flush=False)
+
+        for child_id in child_folder_ids:
+            if child_id in self.state.list_folders:
+                await self.delete_folder(child_id, folder_id, flush=False)
+
+        # The recursive child calls may already have removed all child entries. Remove this
+        # folder from its parent and its indexed mirror last, matching IB().
+        folder_item = PB.PBListFolderItem(identifier=folder_id, itemType=1)
+        await self.delete_items([folder_item], parent_id, flush=False)
+
+        if flush:
+            await self.flush()
 
     def _require(self, fid: str) -> Message:
         x=self.get(fid)

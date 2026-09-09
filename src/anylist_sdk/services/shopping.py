@@ -139,6 +139,18 @@ class ShoppingListsService(OperationService):
     def item(self, list_id: str, item_id: str) -> Message | None:
         return self.state.get_item(list_id, item_id)
 
+    def remove_list_local(self, list_id: str) -> Message | None:
+        """Apply ShoppingListManager.qB's local list-removal side effects.
+
+        Folder membership and PBListSettings queueing are coordinated by the client/folder
+        service; this method owns the shopping/list-local indexed state.
+        """
+        removed = self.state.shopping_lists.pop(list_id, None)
+        while list_id in self.state.ordered_shopping_list_ids:
+            self.state.ordered_shopping_list_ids.remove(list_id)
+        self.state._drop_list_local_state(list_id)
+        return removed
+
     async def refresh(self) -> Message:
         response = await self.transport.post_proto(
             "/data/shopping-lists/all",

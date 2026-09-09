@@ -73,6 +73,7 @@ class AnyListClient:
         self.lists.on_store_filter_removed = self._clear_selected_store_filter
         self.lists.on_category_group_removed = self._migrate_selected_category_group
         self.lists.on_items_became_recent = self._record_recent_items
+        self.folders.on_list_removed = self._remove_list_from_folder_tree
         self._services_ready=True
 
     @property
@@ -123,6 +124,12 @@ class AnyListClient:
         if not self._services_ready:return []
         return [self.lists,self.recipes,self.folders,self.categories,self.categorized_items,
                 self.list_settings,self.starter_list_settings,self.mobile_settings,self.starter_lists,self.meal_plan]
+
+    async def _remove_list_from_folder_tree(self, list_id: str, flush: bool) -> None:
+        if self.lists is not None:
+            self.lists.remove_list_local(list_id)
+        if self.list_settings is not None:
+            await self.list_settings.remove(list_id, flush=flush)
 
     async def _record_recent_items(
         self, list_id: str, items, skip_existing: bool, flush: bool
