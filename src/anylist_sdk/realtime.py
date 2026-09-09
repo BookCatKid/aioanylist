@@ -84,7 +84,7 @@ class RealtimeClient:
         # Wait for the first successful open, but also observe an unexpectedly terminated
         # runner so callers never hang forever on a task that has already failed.
         connected_wait = asyncio.create_task(self.connected.wait())
-        done, pending = await asyncio.wait(
+        _, pending = await asyncio.wait(
             {connected_wait, self._task}, return_when=asyncio.FIRST_COMPLETED
         )
         for task in pending:

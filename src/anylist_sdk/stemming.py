@@ -54,7 +54,7 @@ def _contains_vowel(text: str) -> bool:
 
 def _short_syllable(word: str) -> bool:
     if len(word) >= 3:
-        a, b, c = word[-3:]
+        a, b, c = word[-3], word[-2], word[-1]
         return (not _vowel(a)) and _vowel(b) and (not _vowel(c)) and c.lower() not in "wxyY"
     if len(word) == 2:
         return _vowel(word[0]) and not _vowel(word[1])

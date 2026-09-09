@@ -48,7 +48,7 @@ class TagData:
 class TagDataManager:
     """Loads the same /static/webapp/data/tag_data*.json resources as AnyList Web."""
 
-    SUPPORTED_LANGUAGES = {"en", "de"}
+    SUPPORTED_LANGUAGES = frozenset({"en", "de"})
 
     def __init__(
         self,

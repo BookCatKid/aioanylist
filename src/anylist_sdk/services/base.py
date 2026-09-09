@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
 from typing import Any
 
 from google.protobuf.message import Message
 
 from ..operations import OperationQueue, QueueSpec
-from ..proto import PB, message_class
+from ..proto import message_class
 from ..state import AnyListState
 from ..transport import AnyListTransport
 

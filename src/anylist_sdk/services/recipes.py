@@ -116,7 +116,11 @@ class RecipesService(OperationService):
         recipe = clone_message(recipe)
         if not recipe.identifier:
             recipe.identifier = uuid4_hex()
-        if not self.state.recipe_data_id and getattr(recipe, "recipeDataId", ""):
+        if (
+            not self.state.recipe_data_id
+            and "recipeDataId" in recipe.DESCRIPTOR.fields_by_name
+            and bool(recipe.recipeDataId)
+        ):
             self.state.recipe_data_id = recipe.recipeDataId
         if self.state.recipe_data_id and "recipeDataId" in recipe.DESCRIPTOR.fields_by_name:
             recipe.recipeDataId = self.state.recipe_data_id
@@ -345,6 +349,7 @@ class RecipesService(OperationService):
             fields={"link_request": req},
             response_type="PBRecipeLinkRequestResponse",
         )
+        assert isinstance(response, Message)
         # OX treats a successful link request as a full recipe-data replacement.
         if (
             response is not None
@@ -361,8 +366,8 @@ class RecipesService(OperationService):
             fields={"link_request_id": request_id, "user_id": self.user_id},
             response_type="PBRecipeDataResponse",
         )
-        if response is not None:
-            self._apply_full_recipe_response(response)
+        assert isinstance(response, Message)
+        self._apply_full_recipe_response(response)
         return response
 
     async def cancel_link(self, request: Message) -> Message | None:
@@ -384,8 +389,8 @@ class RecipesService(OperationService):
             fields={"link_request": request},
             response_type="PBRecipeDataResponse",
         )
-        if response is not None:
-            self._apply_full_recipe_response(response)
+        assert isinstance(response, Message)
+        self._apply_full_recipe_response(response)
         return response
 
     async def unlink(self, user_id: str) -> Message:
@@ -396,10 +401,10 @@ class RecipesService(OperationService):
             fields={"user_id": user_id},
             response_type="PBRecipeDataResponse",
         )
-        if response is not None:
-            # The official unlink callback uses RecipeManager.MX, a full replacement,
-            # rather than the normal incremental FX merge path.
-            self._apply_full_recipe_response(response)
+        assert isinstance(response, Message)
+        # The official unlink callback uses RecipeManager.MX, a full replacement,
+        # rather than the normal incremental FX merge path.
+        self._apply_full_recipe_response(response)
         return response
 
     def _apply_full_recipe_response(self, response: Message) -> None:

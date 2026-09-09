@@ -5,7 +5,7 @@ from typing import Iterable
 
 from google.protobuf.message import Message
 
-from .proto import PB, message_class
+from .proto import PB
 
 
 def clone(message: Message) -> Message:
@@ -108,9 +108,9 @@ class AnyListState:
         for identifier in deleted_ids:
             index.pop(str(identifier), None)
         for value in values:
-            identifier = getattr(value, "identifier", None)
-            if identifier:
-                index[str(identifier)] = clone(value)
+            value_id = getattr(value, "identifier", None)
+            if value_id:
+                index[str(value_id)] = clone(value)
 
     def _drop_list_local_state(self, list_id: str) -> None:
         self.list_responses.pop(list_id, None)
@@ -282,9 +282,9 @@ class AnyListState:
         for identifier in deleted_ids:
             index.pop(str(identifier), None)
         for value in values:
-            identifier = getattr(value, "identifier", None)
-            if identifier:
-                index[str(identifier)] = clone(value)
+            value_id = getattr(value, "identifier", None)
+            if value_id:
+                index[str(value_id)] = clone(value)
 
     def apply_meal_plan(self, response: Message) -> None:
         # MealPlanManager.Zq rejects malformed calendars and response versions older than

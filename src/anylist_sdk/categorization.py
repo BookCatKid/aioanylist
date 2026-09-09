@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from collections import Counter
-from functools import lru_cache
-from typing import Any
 
 from .normalization import contains_word_or_phrase, remove_diacritics
 from .stemming import english_stem

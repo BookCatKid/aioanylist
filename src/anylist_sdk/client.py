@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Any
 
 import aiohttp
 
@@ -82,62 +81,83 @@ class AnyListClient:
 
     def _bind_sync_queue_guards(self) -> None:
         """Route aggregate snapshots through the official per-manager pending-op guards."""
+        lists = self.lists
+        folders = self.folders
+        recipes = self.recipes
+        categories = self.categories
+        categorized_items = self.categorized_items
+        list_settings = self.list_settings
+        starter_list_settings = self.starter_list_settings
+        mobile_settings = self.mobile_settings
+        starter_lists = self.starter_lists
+        meal_plan = self.meal_plan
+        assert lists is not None
+        assert folders is not None
+        assert recipes is not None
+        assert categories is not None
+        assert categorized_items is not None
+        assert list_settings is not None
+        assert starter_list_settings is not None
+        assert mobile_settings is not None
+        assert starter_lists is not None
+        assert meal_plan is not None
+
         self.sync.set_field_guard(
-            "mobileAppSettingsResponse", lambda: self.mobile_settings.queue.pending_count == 0
+            "mobileAppSettingsResponse", lambda: mobile_settings.queue.pending_count == 0
         )
 
         def shopping_lists_ready() -> bool:
-            if self.lists.legacy_queue.pending_count:
+            if lists.legacy_queue.pending_count:
                 # cQ sets tQ only for the legacy queue. bQ consumes it after the ack.
-                self.lists._refresh_after_legacy_queue = True
+                lists._refresh_after_legacy_queue = True
                 return False
-            if self.lists.queue.pending_count:
+            if lists.queue.pending_count:
                 return False
-            if self.folders.has_pending_delete_items():
+            if folders.has_pending_delete_items():
                 # cQ asks the folder manager to refresh shopping lists after deletion acks.
-                self.folders._refresh_shopping_after_queue = True
+                folders._refresh_shopping_after_queue = True
                 return False
             return True
 
         def list_folders_ready() -> bool:
-            if self.folders.queue.pending_count:
+            if folders.queue.pending_count:
                 return False
-            if self.lists.has_pending_new_list():
+            if lists.has_pending_new_list():
                 # DB marks the shopping manager so bQ refreshes folders after the new-list ack.
-                self.lists._refresh_folders_after_legacy_queue = True
+                lists._refresh_folders_after_legacy_queue = True
                 return False
             return True
 
         self.sync.set_field_guard("shoppingListsResponse", shopping_lists_ready)
         self.sync.set_field_guard("listFoldersResponse", list_folders_ready)
-        self.sync.set_field_guard("recipeDataResponse", lambda: self.recipes.queue.pending_count == 0)
+        self.sync.set_field_guard("recipeDataResponse", lambda: recipes.queue.pending_count == 0)
         self.sync.set_field_guard(
-            "mealPlanningCalendarResponse", lambda: self.meal_plan.queue.pending_count == 0
+            "mealPlanningCalendarResponse", lambda: meal_plan.queue.pending_count == 0
         )
         self.sync.set_field_guard(
-            "userCategoriesResponse", lambda: self.categories.queue.pending_count == 0
+            "userCategoriesResponse", lambda: categories.queue.pending_count == 0
         )
         self.sync.set_field_guard(
-            "categorizedItemsResponse", lambda: self.categorized_items.queue.pending_count == 0
+            "categorizedItemsResponse", lambda: categorized_items.queue.pending_count == 0
         )
         self.sync.set_field_guard(
-            "listSettingsResponse", lambda: self.list_settings.queue.pending_count == 0
+            "listSettingsResponse", lambda: list_settings.queue.pending_count == 0
         )
         self.sync.set_field_guard(
             "starterListSettingsResponse",
-            lambda: self.starter_list_settings.queue.pending_count == 0,
+            lambda: starter_list_settings.queue.pending_count == 0,
         )
 
         def starter_lists_ready() -> bool:
-            if self.starter_lists.queue.pending_count:
-                self.starter_lists._refresh_after_queue = True
+            if starter_lists.queue.pending_count:
+                starter_lists._refresh_after_queue = True
                 return False
             return True
 
         self.sync.set_field_guard("starterListsResponse", starter_lists_ready)
         self.sync.set_field_guard(
             "orderedStarterListIdsResponse",
-            lambda: self.starter_lists.order_queue.pending_count == 0,
+            lambda: starter_lists.order_queue.pending_count == 0,
         )
 
     @property

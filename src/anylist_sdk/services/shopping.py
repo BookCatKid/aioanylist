@@ -31,10 +31,10 @@ from ..normalization import canonical_category_match_id
 from ..parsing.quantity import normalize_unit
 from ..stemming import stem_words
 from .starter import favorite_list_id, recent_list_id
-from ..proto import PB, message_class
+from ..proto import PB
 from ..state import AnyListState, clone
 from ..transport import AnyListTransport
-from .base import OperationService, clone_message, partial_message
+from .base import OperationService, clone_message
 
 # Official web client namespace used by list categorization-rule IDs.
 _CATEGORY_RULE_NAMESPACE = UUID(hex="f4338133428d4f0b94027c9b23243f14")

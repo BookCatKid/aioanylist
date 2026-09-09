@@ -265,21 +265,21 @@ def sort_recipes(
                 return -result if reversed_direction else result
             return name_cmp
         if order == int(enum.DatePreparedSortOrder):
-            av = history(a)[0]
-            bv = history(b)[0]
-            ah, bh = bool(av), bool(bv)
-            if ah and bh and av != bv:
-                result = -1 if av > bv else 1
+            prepared_a = history(a)[0]
+            prepared_b = history(b)[0]
+            ah, bh = bool(prepared_a), bool(prepared_b)
+            if ah and bh and prepared_a != prepared_b:
+                result = -1 if prepared_a > prepared_b else 1
                 return -result if reversed_direction else result
             if ah != bh:
                 result = -1 if ah else 1
                 return -result if reversed_direction else result
             return name_cmp
         if order == int(enum.TimesPreparedSortOrder):
-            av = history(a)[1]
-            bv = history(b)[1]
-            if av != bv:
-                result = -1 if av > bv else 1
+            count_a = history(a)[1]
+            count_b = history(b)[1]
+            if count_a != count_b:
+                result = -1 if count_a > count_b else 1
                 return -result if reversed_direction else result
             return name_cmp
         return 0

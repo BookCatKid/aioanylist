@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import json
 import inspect
-from pathlib import Path
 from collections.abc import Awaitable, Callable
-from typing import Any, BinaryIO
+from typing import Any
 
 import aiohttp
 from google.protobuf.message import Message
@@ -51,7 +50,7 @@ class AccountService:
 
 
 class PhotosService:
-    ACCEPTED_CONTENT_TYPES={"image/jpeg","image/bmp","image/gif","image/png","image/tiff","image/webp","image/avif"}
+    ACCEPTED_CONTENT_TYPES=frozenset({"image/jpeg","image/bmp","image/gif","image/png","image/tiff","image/webp","image/avif"})
     MAX_BYTES=10*1024*1024
     def __init__(self,transport:AnyListTransport):self.transport=transport
     async def upload_bytes(self,data:bytes,*,content_type:str="image/jpeg",filename:str|None=None)->str:
@@ -119,9 +118,9 @@ class SharingService:
             fields={"operation": op},
             response_type="PBShareListOperationResponse",
         )
+        assert isinstance(response, Message)
         if (
             self.state is not None
-            and response is not None
             and int(response.statusCode) == 0
             and response.HasField("sharedUser")
         ):

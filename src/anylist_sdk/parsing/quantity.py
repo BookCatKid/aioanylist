@@ -6,7 +6,7 @@ import unicodedata
 from dataclasses import dataclass
 from fractions import Fraction
 
-from ..normalization import collapse_whitespace, trim_whitespace_and_punctuation
+from ..normalization import trim_whitespace_and_punctuation
 from ..proto import PB
 
 _VULGAR = {
@@ -390,7 +390,6 @@ def parse_quantity_and_package_size(text: str, *, decimal_separator: str = "."):
 
     if unit:
         # Distinguish measurement quantity from count + package-size shape.
-        normalized = normalize_unit(unit)
         is_measurement = re.sub(r"[.\s]+", " ", unit.casefold()).strip() in _UNIT_MATCH_KEYS
         is_container = unit.casefold().rstrip(".") in {
             p.casefold().rstrip(".") for p in _PACKAGE_WORDS
@@ -407,7 +406,7 @@ def parse_quantity_and_package_size(text: str, *, decimal_separator: str = "."):
         elif is_container:
             # "2 12 ounce jars" / "4 6-inch sprigs": package size can precede the container.
             prefix_source = rest
-            inner_amount, inner_rest = parse_leading_amount(prefix_source, decimal_separator=decimal_separator)
+            inner_amount, _ = parse_leading_amount(prefix_source, decimal_separator=decimal_separator)
             if inner_amount is not None:
                 package = parse_package_size(prefix_source, require_unit=True, decimal_separator=decimal_separator)
         else:

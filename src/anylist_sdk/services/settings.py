@@ -7,7 +7,7 @@ from google.protobuf.message import Message
 
 from ..operations import QueueSpec
 from ..proto import PB
-from ..state import AnyListState, clone
+from ..state import AnyListState
 from ..transport import AnyListTransport
 from .base import OperationService, clone_message
 

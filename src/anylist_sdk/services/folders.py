@@ -176,7 +176,7 @@ class FoldersService(OperationService):
         the same ``delete-folder-items`` operation shape used by the web client.
         """
         folder = self._require(folder_id)
-        parent = self._require(parent_id)
+        self._require(parent_id)
 
         direct_list_ids = [
             str(item.identifier) for item in list(folder.items) if int(item.itemType) == 0
