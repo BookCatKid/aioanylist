@@ -624,18 +624,43 @@ class ShoppingListsService(OperationService):
             "remove-store-id-from-all-items", listId=list_id, updatedValue=store_id, flush=flush
         )
 
+    def _store_index(self, list_id: str) -> dict[str, Message]:
+        return self.state.list_stores.setdefault(list_id, {})
+
+    def _store_filter_index(self, list_id: str) -> dict[str, Message]:
+        return self.state.list_store_filters.setdefault(list_id, {})
+
+    def _category_index(self, list_id: str) -> dict[str, Message]:
+        return self.state.list_categories.setdefault(list_id, {})
+
+    def _category_group_index(self, list_id: str) -> dict[str, Message]:
+        return self.state.list_category_groups.setdefault(list_id, {})
+
+    def _categorization_rule_index(self, list_id: str) -> dict[str, Message]:
+        return self.state.list_categorization_rules.setdefault(list_id, {})
+
     async def save_store(
         self, list_id: str, store: Message, *, is_new: bool = False, flush: bool = True
     ) -> str:
+        updated = clone_message(store)
+        if not updated.listId:
+            updated.listId = list_id
+        stores = self._store_index(list_id)
+        if is_new:
+            # AnyList Web assigns a new store to the end of the current store ordering
+            # before saving the model into its local manager.
+            updated.sortIndex = max((int(x.sortIndex) for x in stores.values()), default=-1) + 1
+        stores[str(updated.identifier)] = clone_message(updated)
         return await self.operation(
             "new-store" if is_new else "set-store-name",
             listId=list_id,
-            updatedStore=clone_message(store),
+            updatedStore=clone_message(updated),
             operation_class=PB.PBOperationMetadata.OperationClass.StoreOperation,
             flush=flush,
         )
 
     async def delete_store(self, list_id: str, store: Message, *, flush: bool = True) -> str:
+        self._store_index(list_id).pop(str(store.identifier), None)
         return await self.operation(
             "delete-store",
             listId=list_id,
@@ -647,6 +672,11 @@ class ShoppingListsService(OperationService):
     async def set_sorted_store_ids(
         self, list_id: str, store_ids: Sequence[str], *, flush: bool = True
     ) -> str:
+        stores = self._store_index(list_id)
+        for sort_index, store_id in enumerate(store_ids):
+            store = stores.get(str(store_id))
+            if store is not None:
+                store.sortIndex = sort_index
         return await self.operation(
             "set-sorted-store-ids",
             listId=list_id,
@@ -658,10 +688,17 @@ class ShoppingListsService(OperationService):
     async def save_store_filter(
         self, list_id: str, store_filter: Message, *, is_new: bool = False, flush: bool = True
     ) -> str:
+        updated = clone_message(store_filter)
+        if not updated.listId:
+            updated.listId = list_id
+        filters = self._store_filter_index(list_id)
+        if is_new:
+            updated.sortIndex = max((int(x.sortIndex) for x in filters.values()), default=-1) + 1
+        filters[str(updated.identifier)] = clone_message(updated)
         return await self.operation(
             "new-store-filter" if is_new else "update-store-filter",
             listId=list_id,
-            updatedStoreFilter=clone_message(store_filter),
+            updatedStoreFilter=clone_message(updated),
             operation_class=PB.PBOperationMetadata.OperationClass.StoreFilterOperation,
             flush=flush,
         )
@@ -669,6 +706,7 @@ class ShoppingListsService(OperationService):
     async def delete_store_filter(
         self, list_id: str, store_filter: Message, *, flush: bool = True
     ) -> str:
+        self._store_filter_index(list_id).pop(str(store_filter.identifier), None)
         return await self.operation(
             "delete-store-filter",
             listId=list_id,
@@ -680,6 +718,11 @@ class ShoppingListsService(OperationService):
     async def set_sorted_store_filter_ids(
         self, list_id: str, store_filter_ids: Sequence[str], *, flush: bool = True
     ) -> str:
+        filters = self._store_filter_index(list_id)
+        for sort_index, filter_id in enumerate(store_filter_ids):
+            store_filter = filters.get(str(filter_id))
+            if store_filter is not None:
+                store_filter.sortIndex = sort_index
         return await self.operation(
             "set-sorted-store-filter-ids",
             listId=list_id,
@@ -695,10 +738,12 @@ class ShoppingListsService(OperationService):
         handler_id: str = "create-category",
         flush: bool = True,
     ) -> str:
+        updated = clone_message(category)
+        self._category_index(str(updated.listId))[str(updated.identifier)] = clone_message(updated)
         return await self.operation(
             handler_id,
-            listId=str(category.listId),
-            updatedCategory=clone_message(category),
+            listId=str(updated.listId),
+            updatedCategory=clone_message(updated),
             operation_class=PB.PBOperationMetadata.OperationClass.ListCategoryOperation,
             flush=flush,
         )
@@ -720,6 +765,15 @@ class ShoppingListsService(OperationService):
         updated.icon = icon
         return await self.save_list_category(updated, handler_id="set-category-icon", flush=flush)
 
+    def _store_category_group(self, group: Message) -> None:
+        list_id = str(group.listId)
+        categories = self._category_index(list_id)
+        for category in group.categories:
+            categories[str(category.identifier)] = clone_message(category)
+        stored = clone_message(group)
+        del stored.categories[:]
+        self._category_group_index(list_id)[str(stored.identifier)] = stored
+
     async def save_category_group(
         self,
         group: Message,
@@ -727,10 +781,18 @@ class ShoppingListsService(OperationService):
         handler_id: str = "create-category-group",
         flush: bool = True,
     ) -> str:
+        updated = clone_message(group)
+        if handler_id == "delete-category-group":
+            self._category_group_index(str(updated.listId)).pop(str(updated.identifier), None)
+            for category_id, category in tuple(self._category_index(str(updated.listId)).items()):
+                if str(category.categoryGroupId) == str(updated.identifier):
+                    self._category_index(str(updated.listId)).pop(category_id, None)
+        else:
+            self._store_category_group(updated)
         return await self.operation(
             handler_id,
-            listId=str(group.listId),
-            updatedCategoryGroup=clone_message(group),
+            listId=str(updated.listId),
+            updatedCategoryGroup=clone_message(updated),
             operation_class=PB.PBOperationMetadata.OperationClass.ListCategoryGroupOperation,
             flush=flush,
         )
@@ -764,31 +826,75 @@ class ShoppingListsService(OperationService):
     async def set_sorted_category_ids(
         self, group: Message, category_ids: Sequence[str], *, flush: bool = True
     ) -> str:
+        list_id = str(group.listId)
+        category_index = self._category_index(list_id)
+        requested = [str(x) for x in category_ids]
+        next_index = len(requested)
+        for category in category_index.values():
+            category_id = str(category.identifier)
+            if str(category.categoryGroupId) != str(group.identifier):
+                continue
+            try:
+                category.sortIndex = requested.index(category_id)
+            except ValueError:
+                category.sortIndex = next_index
+                next_index += 1
+
+        # The web client sends identifiers for *all* categories in the group after applying
+        # the ordering, not only the IDs explicitly supplied by the caller.
+        ordered_categories = sorted(
+            (c for c in category_index.values() if str(c.categoryGroupId) == str(group.identifier)),
+            key=lambda c: int(c.sortIndex),
+        )
         updated = clone_message(group)
         del updated.categories[:]
-        for category_id in category_ids:
-            updated.categories.add(identifier=category_id)
-        return await self.save_category_group(
-            updated, handler_id="set-sorted-category-ids", flush=flush
+        for category in ordered_categories:
+            updated.categories.add(identifier=str(category.identifier))
+        stored_group = clone_message(updated)
+        del stored_group.categories[:]
+        self._category_group_index(list_id)[str(stored_group.identifier)] = stored_group
+        return await self.operation(
+            "set-sorted-category-ids",
+            listId=list_id,
+            updatedCategoryGroup=clone_message(updated),
+            operation_class=PB.PBOperationMetadata.OperationClass.ListCategoryGroupOperation,
+            flush=flush,
         )
 
     async def remove_category_ids(
         self, group: Message, categories: Sequence[Message], *, flush: bool = True
     ) -> str:
+        list_id = str(group.listId)
+        index = self._category_index(list_id)
+        for category in categories:
+            index.pop(str(category.identifier), None)
         updated = clone_message(group)
+        del updated.categories[:]
         for category in categories:
             updated.categories.add().CopyFrom(category)
-        return await self.save_category_group(
-            updated, handler_id="remove-category-ids", flush=flush
+        operation_id = await self.operation(
+            "remove-category-ids",
+            listId=list_id,
+            updatedCategoryGroup=updated,
+            operation_class=PB.PBOperationMetadata.OperationClass.ListCategoryGroupOperation,
+            flush=False,
         )
+        # AnyList Web immediately prunes categorization rules that reference any removed
+        # category, using a second ListCategorizationRuleOperation on the same queue.
+        await self.remove_categorization_rules_for_category_ids(
+            group, [str(category.identifier) for category in categories], flush=flush
+        )
+        return operation_id
 
     async def save_categorization_rule(
         self, rule: Message, *, flush: bool = True
     ) -> str:
+        updated = clone_message(rule)
+        self._categorization_rule_index(str(updated.listId))[str(updated.identifier)] = clone_message(updated)
         return await self.operation(
             "save-categorization-rule",
-            listId=str(rule.listId),
-            updatedCategorizationRule=clone_message(rule),
+            listId=str(updated.listId),
+            updatedCategorizationRule=clone_message(updated),
             operation_class=PB.PBOperationMetadata.OperationClass.ListCategorizationRuleOperation,
             flush=flush,
         )
@@ -796,6 +902,9 @@ class ShoppingListsService(OperationService):
     async def bulk_save_categorization_rules(
         self, list_id: str, rules: Sequence[Message], *, flush: bool = True
     ) -> None:
+        index = self._categorization_rule_index(list_id)
+        for rule in rules:
+            index[str(rule.identifier)] = clone_message(rule)
         for start in range(0, len(rules), 25):
             await self.operation(
                 "bulk-save-categorization-rules",
@@ -810,6 +919,9 @@ class ShoppingListsService(OperationService):
     async def migrate_categorization_rules(
         self, list_id: str, rules: Sequence[Message], *, flush: bool = True
     ) -> None:
+        index = self._categorization_rule_index(list_id)
+        for rule in rules:
+            index[str(rule.identifier)] = clone_message(rule)
         for start in range(0, len(rules), 25):
             await self.operation(
                 "migrate-per-user-categorization-rules",
@@ -824,12 +936,19 @@ class ShoppingListsService(OperationService):
     async def remove_categorization_rules_for_category_ids(
         self, group: Message, category_ids: Sequence[str], *, flush: bool = True
     ) -> str:
+        list_id = str(group.listId)
+        category_ids_set = {str(x) for x in category_ids}
+        rules = self._categorization_rule_index(list_id)
+        for identifier, rule in tuple(rules.items()):
+            if str(rule.categoryGroupId) == str(group.identifier) and str(rule.categoryId) in category_ids_set:
+                rules.pop(identifier, None)
         updated = clone_message(group)
+        del updated.categories[:]
         for category_id in category_ids:
             updated.categories.add(identifier=category_id)
         return await self.operation(
             "remove-categorization-rules-for-category-ids",
-            listId=str(group.listId),
+            listId=list_id,
             updatedCategoryGroup=updated,
             operation_class=PB.PBOperationMetadata.OperationClass.ListCategorizationRuleOperation,
             flush=flush,
