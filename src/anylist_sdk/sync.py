@@ -21,7 +21,7 @@ class SyncCoordinator:
         self.transport = transport
         self.state = state
         self._lock = asyncio.Lock()
-        self._inflight: asyncio.Task[Message] | None = None
+        self._inflight: asyncio.Task[Message | None] | None = None
         self._listeners: list[SyncListener] = []
         self._field_guards: dict[str, FieldGuard] = {}
         self._busy_callbacks: dict[str, BusyCallback] = {}
@@ -76,13 +76,15 @@ class SyncCoordinator:
                 callback()
         return filtered
 
-    async def _refresh_once(self, *, full: bool) -> Message:
+    async def _refresh_once(self, *, full: bool) -> Message | None:
         fields: dict[str, Message] = {"client_info": self.state.user_data_client_info()}
         if not full and self.state.loaded_once:
             fields["timestamps"] = self.state.user_data_timestamps()
         response = await self.transport.post_proto(
             "/data/user-data/get", fields=fields, response_type="PBUserDataResponse"
         )
+        if response is None:
+            return None
         assert isinstance(response, Message)
         filtered = self._filter_busy_fields(response)
         domains = self._domains_in(filtered)
@@ -90,7 +92,7 @@ class SyncCoordinator:
         await self._notify(domains)
         return response
 
-    async def refresh(self, *, full: bool = False) -> Message:
+    async def refresh(self, *, full: bool = False) -> Message | None:
         # Coalesce callers so HA-like consumers cannot accidentally trigger N identical refreshes.
         async with self._lock:
             current = self._inflight

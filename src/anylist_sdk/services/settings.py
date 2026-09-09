@@ -149,6 +149,8 @@ class ListSettingsService(OperationService):
             fields=fields,
             response_type="PBListSettingsList",
         )
+        if response is None:
+            return None
         assert isinstance(response, Message)
         # WI ignores server snapshots while local operations are pending so they cannot
         # overwrite optimistic edits. Direct refresh follows the same manager method.
@@ -292,6 +294,8 @@ class MobileSettingsService(OperationService):
         response = await self.transport.post_proto(
             "/data/mobile-app-settings/by-id", fields=fields, response_type="PBMobileAppSettings"
         )
+        if response is None:
+            return None
         assert isinstance(response, Message)
         self.state.apply_mobile_settings(response)
         return response

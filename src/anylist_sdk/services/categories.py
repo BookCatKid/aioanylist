@@ -72,6 +72,8 @@ class UserCategoriesService(OperationService):
         response = await self.transport.post_proto(
             "/data/user-categories/all", fields=fields, response_type="PBUserCategoryData"
         )
+        if response is None:
+            return None
         assert isinstance(response, Message)
         self.state.apply_user_categories(response)
         return response
@@ -156,6 +158,8 @@ class CategorizedItemsService(OperationService):
             fields={"timestamp": timestamp},
             response_type="PBCategorizedItemsList",
         )
+        if response is None:
+            return None
         assert isinstance(response, Message)
         self.state.apply_categorized_items(response)
         return response

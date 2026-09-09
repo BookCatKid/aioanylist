@@ -21,6 +21,10 @@ class TransportError(AnyListError):
     """Network transport failure."""
 
 
+class NotModifiedError(TransportError):
+    """HTTP 304 response from a timestamped AnyList read."""
+
+
 class SyncError(AnyListError):
     """Synchronization or operation acknowledgement failure."""
 

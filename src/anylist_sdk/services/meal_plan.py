@@ -77,6 +77,8 @@ class MealPlanService(OperationService):
         response = await self.transport.post_proto(
             "/data/meal-planning-calendar/get", fields=fields, response_type="PBCalendarResponse"
         )
+        if response is None:
+            return None
         assert isinstance(response, Message)
         self.state.apply_meal_plan(response)
         return response

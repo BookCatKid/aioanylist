@@ -271,6 +271,8 @@ class StarterListsService(OperationService):
             },
             response_type="StarterListsResponseV2",
         )
+        if response is None:
+            return None
         assert isinstance(response, Message)
         self.state.apply_starter_lists(response)
         return response
@@ -287,6 +289,8 @@ class StarterListsService(OperationService):
             fields={"timestamp": timestamp},
             response_type="PBIdentifierList",
         )
+        if response is None:
+            return None
         assert isinstance(response, Message)
         self.state.apply_ordered_starter_ids(response)
         return response

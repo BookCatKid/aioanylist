@@ -103,6 +103,8 @@ class RecipesService(OperationService):
         response = await self.transport.post_proto(
             endpoint, fields=fields, response_type="PBRecipeDataResponse"
         )
+        if response is None:
+            return None
         assert isinstance(response, Message)
         self.state.apply_recipes(response)
         return response

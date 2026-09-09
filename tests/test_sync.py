@@ -56,6 +56,21 @@ async def test_incremental_sync_sends_domain_timestamps(fake_transport) -> None:
 
 
 @pytest.mark.asyncio
+async def test_incremental_sync_304_is_noop_without_marking_new_state_loaded(fake_transport) -> None:
+    fake_transport.responses.append(None)
+    state = AnyListState(user_id="user")
+    sync = SyncCoordinator(fake_transport, state)
+    seen = []
+    sync.add_listener(lambda domains: seen.append(domains))
+
+    response = await sync.refresh()
+
+    assert response is None
+    assert not state.loaded_once
+    assert seen == []
+
+
+@pytest.mark.asyncio
 async def test_concurrent_refreshes_coalesce_to_one_request() -> None:
     transport = BlockingTransport(PB.PBUserDataResponse())
     sync = SyncCoordinator(transport, AnyListState(user_id="user"))

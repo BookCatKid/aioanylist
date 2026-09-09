@@ -5,6 +5,8 @@ from contextlib import asynccontextmanager
 import pytest
 from aiohttp import web
 
+from anylist_sdk.exceptions import NotModifiedError
+from anylist_sdk.proto import PB
 from anylist_sdk.transport import AnyListTransport
 from anylist_sdk.types import AuthTokens
 
@@ -149,3 +151,26 @@ async def test_multipart_numeric_scalar_is_sent_as_normal_text_field() -> None:
 
     assert result == b"ok"
     assert seen == {"event_type": "1", "scale": "1.5"}
+
+
+@pytest.mark.asyncio
+async def test_timestamped_proto_read_treats_http_304_as_official_noop() -> None:
+    async def unchanged(_request: web.Request):
+        return web.Response(status=304)
+
+    app = web.Application()
+    app.router.add_post("/unchanged", unchanged)
+    async with server(app) as base:
+        async with AnyListTransport(
+            base_url=base,
+            tokens=AuthTokens("user", "access", "refresh"),
+        ) as transport:
+            with pytest.raises(NotModifiedError):
+                await transport.request("POST", "/unchanged", fields={})
+            response = await transport.post_proto(
+                "/unchanged",
+                fields={"timestamp": PB.PBTimestamp(timestamp=1)},
+                response_type="PBIdentifierList",
+            )
+
+    assert response is None

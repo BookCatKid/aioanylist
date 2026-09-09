@@ -72,6 +72,8 @@ class FoldersService(OperationService):
         response = await self.transport.post_proto(
             "/data/list-folders/all", fields=fields, response_type="PBListFoldersResponse"
         )
+        if response is None:
+            return None
         assert isinstance(response, Message)
         self.state.apply_list_folders(response)
         return response

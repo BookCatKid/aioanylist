@@ -222,6 +222,8 @@ class ShoppingListsService(OperationService):
             },
             response_type="ShoppingListsResponse",
         )
+        if response is None:
+            return None
         assert isinstance(response, Message)
         self.state.apply_shopping_lists(response)
         return response

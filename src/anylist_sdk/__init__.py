@@ -2,6 +2,7 @@ from .client import AnyListClient
 from .exceptions import (
     AnyListError,
     AuthenticationError,
+    NotModifiedError,
     PermissionDeniedError,
     ProtocolError,
     SyncError,
@@ -14,6 +15,7 @@ __all__ = [
     "AnyListClient",
     "AnyListError",
     "AuthenticationError",
+    "NotModifiedError",
     "PermissionDeniedError",
     "ProtocolError",
     "SyncError",

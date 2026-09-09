@@ -9,7 +9,13 @@ import aiohttp
 from google.protobuf.message import Message
 
 from .identifiers import uuid4_hex
-from .exceptions import AuthenticationError, PermissionDeniedError, ProtocolError, TransportError
+from .exceptions import (
+    AuthenticationError,
+    NotModifiedError,
+    PermissionDeniedError,
+    ProtocolError,
+    TransportError,
+)
 from .proto import decode, encode
 from .types import AuthTokens
 
@@ -183,6 +189,8 @@ class AnyListTransport:
         try:
             async with self.session.request(method, url, data=form, headers=headers) as response:
                 body = await response.read()
+                if response.status == 304:
+                    raise NotModifiedError(f"AnyList reports {endpoint} is not modified")
                 if response.status in (401, 4010) and authenticated and retry_auth:
                     await self.refresh_access_token(stale_token=stale_token)
                     return await self.request(
@@ -210,9 +218,14 @@ class AnyListTransport:
         *,
         fields: Mapping[str, Message | bytes | str | int | float],
         response_type: str | None = None,
-    ) -> Message | bytes:
+    ) -> Message | bytes | None:
         encoded_fields: dict[str, bytes | str | int | float] = {}
         for name, value in fields.items():
             encoded_fields[name] = encode(value) if isinstance(value, Message) else value
-        raw = await self.request("POST", endpoint, fields=encoded_fields)
+        try:
+            raw = await self.request("POST", endpoint, fields=encoded_fields)
+        except NotModifiedError:
+            # Timestamped reads in app.js route HTTP 304 to their no-op failure callback.
+            # Returning None preserves that control-flow without decoding an empty protobuf.
+            return None
         return decode(response_type, raw) if response_type else raw

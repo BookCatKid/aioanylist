@@ -8,7 +8,8 @@ from anylist_sdk.services.folders import FoldersService
 from anylist_sdk.services.http_api import AlexaService, PhotosService, SharingService, WebStateService
 from anylist_sdk.services.meal_plan import MealPlanService
 from anylist_sdk.services.recipes import RecipesService
-from anylist_sdk.services.settings import MobileSettingsService
+from anylist_sdk.services.settings import ListSettingsService, MobileSettingsService
+from anylist_sdk.services.shopping import ShoppingListsService
 from anylist_sdk.services.starter import StarterListsService
 from anylist_sdk.state import AnyListState
 
@@ -155,6 +156,38 @@ async def test_direct_refresh_endpoint_contracts(fake_transport) -> None:
     assert fake_transport.calls[4][1]["timestamp"].identifier == "user"
     assert fake_transport.calls[5][2] == fake_transport.calls[6][2] == "PBRecipeDataResponse"
     assert fake_transport.calls[7][2] == "PBCalendarResponse"
+
+
+@pytest.mark.asyncio
+async def test_timestamped_direct_refreshes_treat_304_as_noop(fake_transport) -> None:
+    state = AnyListState(user_id="user")
+    services = [
+        ShoppingListsService(fake_transport, state, user_id="user"),
+        UserCategoriesService(fake_transport, state, user_id="user"),
+        CategorizedItemsService(fake_transport, state, user_id="user"),
+        FoldersService(fake_transport, state, user_id="user"),
+        ListSettingsService(fake_transport, state, user_id="user"),
+        ListSettingsService(fake_transport, state, user_id="user", starter=True),
+        MobileSettingsService(fake_transport, state, user_id="user"),
+        StarterListsService(fake_transport, state, user_id="user"),
+        RecipesService(fake_transport, state, user_id="user"),
+        MealPlanService(fake_transport, state, user_id="user"),
+    ]
+    # FakeTransport uses None to model AnyListTransport.post_proto's HTTP-304 no-op result.
+    fake_transport.responses.extend([None] * 12)
+
+    assert await services[0].refresh() is None
+    assert await services[1].refresh() is None
+    assert await services[2].refresh() is None
+    assert await services[3].refresh() is None
+    assert await services[4].refresh() is None
+    assert await services[5].refresh() is None
+    assert await services[6].refresh() is None
+    assert await services[7].refresh() is None
+    assert await services[7].refresh_order() is None
+    assert await services[8].refresh() is None
+    assert await services[8].refresh(desktop_import_extension=True) is None
+    assert await services[9].refresh() is None
 
 
 @pytest.mark.asyncio
