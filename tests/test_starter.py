@@ -113,6 +113,37 @@ async def test_recent_list_caps_at_200_and_removes_oldest_before_add():
 
 
 @pytest.mark.asyncio
+async def test_starter_remove_clear_and_item_remove_operation_contracts():
+    service, state = make_service()
+    first = PB.StarterList(identifier="starter1", name="One")
+    first.items.add(identifier="item1", listId="starter1", name="Milk")
+    state.starter_lists[first.identifier] = first
+    state.ordered_starter_list_ids.append(first.identifier)
+
+    await service.remove_item(first.identifier, "item1", flush=False)
+    remove_item = service.queue._pending[-1]
+    assert remove_item.metadata.handlerId == "remove-item"
+    assert remove_item.listId == first.identifier
+    assert remove_item.listItemId == "item1"
+    assert remove_item.listItem.name == "Milk"
+    assert list(first.items) == []
+
+    first.items.add(identifier="item2", listId="starter1", name="Bread")
+    await service.clear(first.identifier, flush=False)
+    clear = service.queue._pending[-1]
+    assert clear.metadata.handlerId == "clear-starter-list"
+    assert clear.listId == first.identifier
+    assert list(first.items) == []
+
+    await service.remove(first.identifier, flush=False)
+    remove_list = service.queue._pending[-1]
+    assert remove_list.metadata.handlerId == "remove-starter-list"
+    assert remove_list.listId == first.identifier
+    assert first.identifier not in state.starter_lists
+    assert first.identifier not in state.ordered_starter_list_ids
+
+
+@pytest.mark.asyncio
 async def test_bulk_recent_add_keeps_last_200_and_buckets_operations_by_25():
     service, state = make_service()
     rec = PB.StarterList(

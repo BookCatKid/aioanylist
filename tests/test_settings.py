@@ -80,11 +80,15 @@ async def test_mobile_recipe_cooking_state_operations_carry_timestamp(fake_trans
 
     await service.save_recipe_cooking_states([cooking])
     save_op = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert save_op.metadata.handlerId == "save-recipe-cooking-states"
     assert save_op.updatedSettings.timestamp == 7.0
+    assert list(save_op.updatedSettings.recipeCookingStates) == [cooking]
 
     await service.remove_recipe_cooking_states([cooking])
     remove_op = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert remove_op.metadata.handlerId == "remove-recipe-cooking-states"
     assert remove_op.updatedSettings.timestamp == 7.0
+    assert list(remove_op.updatedSettings.recipeCookingStates) == [cooking]
 
 @pytest.mark.asyncio
 async def test_clear_store_filter_id_uses_official_handler_with_absent_field(fake_transport) -> None:

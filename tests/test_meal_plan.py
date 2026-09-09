@@ -298,6 +298,42 @@ async def test_template_event_save_and_delete_use_template_event_store(fake_tran
 
 
 @pytest.mark.asyncio
+async def test_template_event_list_item_mutations_use_template_event_store(fake_transport) -> None:
+    state = AnyListState(user_id="user", meal_plan_calendar_id="cal")
+    event = PB.PBCalendarEvent(
+        identifier="template-event",
+        calendarId="cal",
+        eventType=PB.PBCalendarEventType.MealPlanTemplateEvent,
+        templateDayId="day",
+    )
+    state.meal_plan_template_events[event.identifier] = event
+    service = MealPlanService(fake_transport, state, user_id="user")
+
+    created = await service.add_event_list_item(
+        event.identifier,
+        PB.PBCalendarEventListItem(identifier="item", name="Milk"),
+        flush=False,
+    )
+    assert created.identifier == "item"
+    add = service.queue._pending[-1]
+    assert add.metadata.handlerId == "add-event-list-item"
+    assert add.eventType == PB.PBCalendarEventType.MealPlanTemplateEvent
+
+    await service.set_event_list_item_name(event.identifier, "item", "Oat milk", flush=False)
+    updated = state.meal_plan_template_events[event.identifier].eventListItems[0]
+    assert updated.name == "Oat milk"
+    rename = service.queue._pending[-1]
+    assert rename.metadata.handlerId == "set-event-list-item-name"
+    assert rename.eventType == PB.PBCalendarEventType.MealPlanTemplateEvent
+
+    await service.remove_event_list_item(event.identifier, "item", flush=False)
+    assert list(state.meal_plan_template_events[event.identifier].eventListItems) == []
+    remove = service.queue._pending[-1]
+    assert remove.metadata.handlerId == "remove-event-list-item"
+    assert remove.eventType == PB.PBCalendarEventType.MealPlanTemplateEvent
+
+
+@pytest.mark.asyncio
 async def test_remove_template_days_discovers_affected_events(fake_transport) -> None:
     state = AnyListState(user_id="user", meal_plan_calendar_id="cal")
     service = MealPlanService(fake_transport, state, user_id="user")
@@ -328,3 +364,294 @@ async def test_event_label_sort_index_equal_value_is_noop(fake_transport) -> Non
     result = await service.set_event_label_sort_index("e", 4, flush=False)
     assert result is event
     assert service.queue._pending == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("method_name", "field_name", "handler"),
+    [
+        ("set_event_title", "title", "set-event-title"),
+        ("set_event_details", "details", "set-event-details"),
+    ],
+)
+async def test_empty_event_text_clears_optional_field_like_official_wrapper(
+    fake_transport, method_name: str, field_name: str, handler: str
+) -> None:
+    state = AnyListState(user_id="user", meal_plan_calendar_id="cal")
+    event = PB.PBCalendarEvent(identifier="e", calendarId="cal", eventType=0)
+    setattr(event, field_name, "old")
+    state.meal_plan_events[event.identifier] = event
+    service = MealPlanService(fake_transport, state, user_id="user")
+
+    await getattr(service, method_name)(event.identifier, "", flush=False)
+
+    assert not state.meal_plan_events[event.identifier].HasField(field_name)
+    operation = service.queue._pending[-1]
+    assert operation.metadata.handlerId == handler
+    assert not operation.updatedEvent.HasField(field_name)
+
+
+@pytest.mark.asyncio
+async def test_set_event_date_moves_queue_event_to_calendar_and_clears_label_sort(fake_transport) -> None:
+    state = AnyListState(user_id="user", meal_plan_calendar_id="cal")
+    event = PB.PBCalendarEvent(
+        identifier="e",
+        calendarId="cal",
+        eventType=PB.PBCalendarEventType.MealPlanQueueEvent,
+        labelSortIndex=7,
+    )
+    state.meal_plan_events[event.identifier] = event
+    service = MealPlanService(fake_transport, state, user_id="user")
+
+    await service.set_event_date([event.identifier], "2026-09-10", flush=False)
+
+    live = state.meal_plan_events[event.identifier]
+    assert live.date == "2026-09-10"
+    assert live.eventType == PB.PBCalendarEventType.MealPlanCalendarEvent
+    assert not live.HasField("labelSortIndex")
+    operation = service.queue._pending[-1]
+    assert operation.metadata.handlerId == "set-date-for-events"
+    assert operation.updatedEvents[0].eventType == PB.PBCalendarEventType.MealPlanCalendarEvent
+    assert not operation.updatedEvents[0].HasField("labelSortIndex")
+
+
+@pytest.mark.asyncio
+async def test_clear_event_date_moves_calendar_event_to_queue(fake_transport) -> None:
+    state = AnyListState(user_id="user", meal_plan_calendar_id="cal")
+    event = PB.PBCalendarEvent(
+        identifier="e",
+        calendarId="cal",
+        eventType=PB.PBCalendarEventType.MealPlanCalendarEvent,
+        date="2026-09-10",
+        labelSortIndex=7,
+    )
+    state.meal_plan_events[event.identifier] = event
+    service = MealPlanService(fake_transport, state, user_id="user")
+
+    await service.set_event_date([event.identifier], None, flush=False)
+
+    live = state.meal_plan_events[event.identifier]
+    assert not live.HasField("date")
+    assert live.eventType == PB.PBCalendarEventType.MealPlanQueueEvent
+    assert not live.HasField("labelSortIndex")
+    operation = service.queue._pending[-1]
+    assert operation.metadata.handlerId == "set-date-for-events"
+    assert operation.updatedEvents[0].eventType == PB.PBCalendarEventType.MealPlanQueueEvent
+
+
+@pytest.mark.asyncio
+async def test_event_and_label_operation_contracts(fake_transport) -> None:
+    state = AnyListState(user_id="user", meal_plan_calendar_id="cal")
+    state.meal_plan_events["event"] = PB.PBCalendarEvent(
+        identifier="event", calendarId="cal", eventType=PB.PBCalendarEventType.MealPlanCalendarEvent
+    )
+    state.meal_plan_labels["label"] = PB.PBCalendarLabel(
+        identifier="label", calendarId="cal", name="Old", sortIndex=3
+    )
+    service = MealPlanService(fake_transport, state, user_id="user")
+
+    await service.save_event(
+        PB.PBCalendarEvent(
+            identifier="event",
+            calendarId="cal",
+            eventType=PB.PBCalendarEventType.MealPlanCalendarEvent,
+            title="Updated",
+        ),
+        flush=False,
+    )
+    update = service.queue._pending[-1]
+    assert update.metadata.handlerId == "update-event"
+    assert update.updatedEvent.title == "Updated"
+    assert update.eventType == PB.PBCalendarEventType.MealPlanCalendarEvent
+
+    await service.save_events(
+        [
+            PB.PBCalendarEvent(title="One", eventType=PB.PBCalendarEventType.MealPlanCalendarEvent),
+            PB.PBCalendarEvent(title="Two", eventType=PB.PBCalendarEventType.MealPlanCalendarEvent),
+        ],
+        flush=False,
+    )
+    bulk = service.queue._pending[-1]
+    assert bulk.metadata.handlerId == "save-new-events"
+    assert bulk.metadata.operationVersion == 1
+    assert len(bulk.updatedEvents) == 2
+    assert all(event.identifier for event in bulk.updatedEvents)
+    assert all(event.calendarId == "cal" for event in bulk.updatedEvents)
+
+    await service.save_label(
+        PB.PBCalendarLabel(identifier="label", calendarId="cal", name="New", sortIndex=3),
+        is_new=False,
+        flush=False,
+    )
+    label_update = service.queue._pending[-1]
+    assert label_update.metadata.handlerId == "update-label"
+    assert label_update.updatedLabel.name == "New"
+
+    await service.reorder_labels(["label"], flush=False)
+    reorder = service.queue._pending[-1]
+    assert reorder.metadata.handlerId == "set-sorted-label-ids"
+    assert list(reorder.sortedLabelIds) == ["label"]
+
+
+@pytest.mark.asyncio
+async def test_event_icon_label_sort_and_embedded_item_operation_contracts(fake_transport) -> None:
+    state = AnyListState(user_id="user", meal_plan_calendar_id="cal")
+    event = PB.PBCalendarEvent(
+        identifier="event",
+        calendarId="cal",
+        eventType=PB.PBCalendarEventType.MealPlanCalendarEvent,
+    )
+    event.eventListItems.add(identifier="item", name="Milk", details="old")
+    state.meal_plan_events[event.identifier] = event
+    service = MealPlanService(fake_transport, state, user_id="user")
+
+    await service.set_event_icon(event.identifier, "dinner", flush=False)
+    icon = service.queue._pending[-1]
+    assert icon.metadata.handlerId == "set-event-icon"
+    assert icon.updatedEvent.icon.iconName == "dinner"
+
+    await service.set_event_label_sort_index(event.identifier, 4, flush=False)
+    label_sort = service.queue._pending[-1]
+    assert label_sort.metadata.handlerId == "set-event-label-sort-index"
+    assert label_sort.updatedEvent.labelSortIndex == 4
+
+    await service.set_event_list_item_details(event.identifier, "item", "new", flush=False)
+    details = service.queue._pending[-1]
+    assert details.metadata.handlerId == "set-event-list-item-details"
+    assert details.originalEventListItem.details == "old"
+    assert details.updatedEventListItem.details == "new"
+    assert details.eventType == PB.PBCalendarEventType.MealPlanCalendarEvent
+
+    quantity = PB.PBItemQuantity(amount="2", unit="cup", rawQuantity="2 cups")
+    await service.set_event_list_item_quantity(event.identifier, "item", quantity, flush=False)
+    quantity_op = service.queue._pending[-1]
+    assert quantity_op.metadata.handlerId == "set-event-list-item-quantity"
+    assert quantity_op.updatedEventListItem.quantityPb == quantity
+
+    package = PB.PBItemPackageSize(size="12", unit="oz", packageType="jar", rawPackageSize="12 oz jar")
+    await service.set_event_list_item_package_size(event.identifier, "item", package, flush=False)
+    package_op = service.queue._pending[-1]
+    assert package_op.metadata.handlerId == "set-event-list-item-package-size"
+    assert package_op.updatedEventListItem.packageSizePb == package
+
+
+@pytest.mark.asyncio
+async def test_template_operation_contracts(fake_transport) -> None:
+    state = AnyListState(user_id="user", meal_plan_calendar_id="cal")
+    template = PB.PBMealPlanTemplate(
+        identifier="template", calendarId="cal", name="Old", dayIds=["d1", "d2"]
+    )
+    state.meal_plan_templates[template.identifier] = template
+    state.meal_plan_template_events["event"] = PB.PBCalendarEvent(
+        identifier="event",
+        calendarId="cal",
+        eventType=PB.PBCalendarEventType.MealPlanTemplateEvent,
+        templateDayId="d1",
+    )
+    service = MealPlanService(fake_transport, state, user_id="user")
+
+    await service.set_template_name(template.identifier, "Week", flush=False)
+    rename = service.queue._pending[-1]
+    assert rename.metadata.handlerId == "set-template-name"
+    assert rename.updatedTemplate.name == "Week"
+
+    await service.set_template_icon(template.identifier, "calendar", flush=False)
+    icon = service.queue._pending[-1]
+    assert icon.metadata.handlerId == "set-template-icon"
+    assert icon.updatedTemplate.icon.iconName == "calendar"
+
+    await service.add_template_day_ids(template.identifier, ["d3"], flush=False)
+    add_days = service.queue._pending[-1]
+    assert add_days.metadata.handlerId == "add-template-day-ids"
+    assert list(add_days.updatedTemplate.dayIds) == ["d3"]
+
+    await service.remove_template_day_ids(template.identifier, ["d1"], flush=False)
+    remove_days = service.queue._pending[-1]
+    assert remove_days.metadata.handlerId == "remove-template-day-ids"
+    assert list(remove_days.updatedTemplate.dayIds) == ["d1"]
+    assert list(remove_days.eventIds) == ["event"]
+
+    await service.set_template_day_ids(template.identifier, ["x", "y"], flush=False)
+    set_days = service.queue._pending[-1]
+    assert set_days.metadata.handlerId == "set-template-day-ids"
+    assert list(set_days.updatedTemplate.dayIds) == ["x", "y"]
+
+    moved_event = PB.PBCalendarEvent(
+        identifier="move-event",
+        calendarId="cal",
+        eventType=PB.PBCalendarEventType.MealPlanTemplateEvent,
+        templateDayId="x",
+    )
+    state.meal_plan_template_events[moved_event.identifier] = moved_event
+    await service.set_template_day_id_for_events([moved_event.identifier], "y", flush=False)
+    move_day = service.queue._pending[-1]
+    assert move_day.metadata.handlerId == "set-template-day-id-for-events"
+    assert move_day.eventType == PB.PBCalendarEventType.MealPlanTemplateEvent
+    assert [event.templateDayId for event in move_day.updatedEvents] == ["y"]
+
+
+@pytest.mark.asyncio
+async def test_template_group_operation_contracts(fake_transport) -> None:
+    state = AnyListState(user_id="user", meal_plan_calendar_id="cal")
+    service = MealPlanService(fake_transport, state, user_id="user")
+
+    root = await service.create_root_template_group(group_id="root", flush=False)
+    root_op = service.queue._pending[-1]
+    assert root_op.metadata.handlerId == "create-root-template-group"
+    assert root_op.templateGroup.identifier == "root"
+
+    child = await service.create_template_group(
+        "Child", root.identifier, icon="folder", group_id="child", flush=False
+    )
+    child_op = service.queue._pending[-1]
+    assert child_op.metadata.handlerId == "new-template-group"
+    assert child_op.updatedParentTemplateGroupId == "root"
+    assert child_op.templateGroup.groupSettings.icon.iconName == "folder"
+
+    template_item = PB.PBMealPlanTemplateGroupItem(
+        identifier="template", itemType=PB.PBMealPlanTemplateGroupItem.Type.Template
+    )
+    await service.set_ordered_template_group_items(root.identifier, [template_item], flush=False)
+    ordered = service.queue._pending[-1]
+    assert ordered.metadata.handlerId == "set-ordered-template-group-items"
+    assert ordered.originalParentTemplateGroupId == "root"
+    assert [item.identifier for item in ordered.templateGroupItems] == ["template"]
+
+    destination = PB.PBMealPlanTemplateGroup(identifier="destination", calendarId="cal")
+    state.meal_plan_template_groups[destination.identifier] = destination
+    moved = await service.move_template_group_items(
+        [template_item], root.identifier, destination.identifier, flush=False
+    )
+    assert moved is True
+    move = service.queue._pending[-1]
+    assert move.metadata.handlerId == "move-template-group-items"
+    assert move.originalParentTemplateGroupId == "root"
+    assert move.updatedParentTemplateGroupId == "destination"
+
+    await service.set_template_group_items_sort_order(destination.identifier, 2, flush=False)
+    item_sort = service.queue._pending[-1]
+    assert item_sort.metadata.handlerId == "set-template-group-items-sort-order"
+    assert item_sort.templateGroup.identifier == "destination"
+    assert item_sort.templateGroup.groupSettings.itemsSortOrder == 2
+
+    await service.set_template_group_groups_sort_position(destination.identifier, 1, flush=False)
+    group_sort = service.queue._pending[-1]
+    assert group_sort.metadata.handlerId == "set-template-group-groups-sort-position"
+    assert group_sort.templateGroup.groupSettings.groupsSortPosition == 1
+
+
+@pytest.mark.asyncio
+async def test_delete_events_for_recipe_operation_has_official_marker_shape(fake_transport) -> None:
+    state = AnyListState(user_id="user", meal_plan_calendar_id="cal")
+    state.meal_plan_events["event"] = PB.PBCalendarEvent(
+        identifier="event", calendarId="cal", recipeId="recipe", eventType=0
+    )
+    service = MealPlanService(fake_transport, state, user_id="user")
+
+    await service.delete_events_for_recipe_id("recipe", flush=False)
+
+    operation = service.queue._pending[-1]
+    assert operation.metadata.handlerId == "delete-events-for-recipe-id"
+    assert operation.updatedEvent.calendarId == "cal"
+    assert operation.updatedEvent.recipeId == "recipe"
+    assert operation.updatedEvent.identifier

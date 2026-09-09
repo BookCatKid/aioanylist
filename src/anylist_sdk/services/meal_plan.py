@@ -115,22 +115,35 @@ class MealPlanService(OperationService):
             if self.state.meal_plan_calendar_id:x.calendarId=self.state.meal_plan_calendar_id
             self.state.meal_plan_events[x.identifier]=clone(x);vals.append(x)
         await self.operation("save-new-events",updatedEvents=vals,operation_version=1,flush=flush)
-    async def set_event_date(self,event_ids:Sequence[str],date:str,*,flush:bool=True)->None:
+    async def set_event_date(self,event_ids:Sequence[str],date:str|None,*,flush:bool=True)->None:
         vals=[];changes=[]
         for eid in event_ids:
-            e=self.state.meal_plan_events[eid];old=clone_message(e);e.date=date;self._refresh_event_sort_index(e, old);vals.append(clone_message(e));changes.append((e,old))
+            e=self.state.meal_plan_events[eid];old=clone_message(e)
+            if date is None:
+                e.ClearField("date")
+                e.ClearField("labelSortIndex")
+                e.eventType=PB.PBCalendarEventType.MealPlanQueueEvent
+            else:
+                e.date=date
+                e.ClearField("labelSortIndex")
+                if int(e.eventType)==int(PB.PBCalendarEventType.MealPlanQueueEvent):
+                    e.eventType=PB.PBCalendarEventType.MealPlanCalendarEvent
+            self._refresh_event_sort_index(e, old);vals.append(clone_message(e));changes.append((e,old))
         await self.operation("set-date-for-events",updatedEvents=vals,flush=flush)
         for current,old in changes:
             await self._notify_event_updated(current,old,flush)
     async def add_event_list_item(self,event_id:str,item:Message,*,flush:bool=True)->Message:
-        e=self.state.meal_plan_events[event_id];old_event=clone_message(e);x=clone_message(item)
+        e=self.state.meal_plan_events.get(event_id) or self.state.meal_plan_template_events.get(event_id)
+        if e is None: raise KeyError(event_id)
+        old_event=clone_message(e);x=clone_message(item)
         if not x.identifier:x.identifier=uuid4_hex()
         e.eventListItems.add().CopyFrom(x)
         await self.operation("add-event-list-item",updatedEventListItem=x,updatedEvent=clone_message(e),eventType=int(e.eventType),flush=flush)
         await self._notify_event_updated(e,old_event,flush)
         return e.eventListItems[-1]
     async def update_event_list_item(self,event_id:str,item_id:str,updated:Message,*,handler_id:str="set-event-list-item-name",flush:bool=True)->None:
-        e=self.state.meal_plan_events[event_id]
+        e=self.state.meal_plan_events.get(event_id) or self.state.meal_plan_template_events.get(event_id)
+        if e is None: raise KeyError(event_id)
         old_event=clone_message(e)
         original=None
         for i,x in enumerate(e.eventListItems):
@@ -141,7 +154,9 @@ class MealPlanService(OperationService):
                              updatedEvent=clone_message(e),eventType=int(e.eventType),flush=flush)
         await self._notify_event_updated(e,old_event,flush)
     async def remove_event_list_item(self,event_id:str,item_id:str,*,flush:bool=True)->None:
-        e=self.state.meal_plan_events[event_id];old_event=clone_message(e);original=None
+        e=self.state.meal_plan_events.get(event_id) or self.state.meal_plan_template_events.get(event_id)
+        if e is None: raise KeyError(event_id)
+        old_event=clone_message(e);original=None
         for i,x in enumerate(e.eventListItems):
             if x.identifier==item_id:original=clone_message(x);del e.eventListItems[i];break
         if original is None:raise KeyError(item_id)
@@ -321,10 +336,40 @@ class MealPlanService(OperationService):
         return event
 
     async def set_event_title(self, event_id: str, title: str, *, flush: bool = True) -> Message:
-        return await self._set_event_field(event_id, "title", title, "set-event-title", flush=flush)
+        return await self._set_event_optional_text(
+            event_id, "title", title, "set-event-title", flush=flush
+        )
 
     async def set_event_details(self, event_id: str, details: str, *, flush: bool = True) -> Message:
-        return await self._set_event_field(event_id, "details", details, "set-event-details", flush=flush)
+        return await self._set_event_optional_text(
+            event_id, "details", details, "set-event-details", flush=flush
+        )
+
+    async def _set_event_optional_text(
+        self,
+        event_id: str,
+        field: str,
+        value: str,
+        handler_id: str,
+        *,
+        flush: bool = True,
+    ) -> Message:
+        event = self.state.meal_plan_events.get(event_id) or self.state.meal_plan_template_events.get(event_id)
+        if event is None:
+            raise KeyError(event_id)
+        old_event = clone_message(event)
+        if value:
+            setattr(event, field, value)
+        else:
+            event.ClearField(field)
+        await self.operation(
+            handler_id,
+            updatedEvent=clone_message(event),
+            eventType=int(event.eventType),
+            flush=flush,
+        )
+        await self._notify_event_updated(event, old_event, flush)
+        return event
 
     async def set_event_icon(
         self, event_id: str, icon: str | Message, *, flush: bool = True
