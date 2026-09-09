@@ -326,7 +326,15 @@ class AnyListState:
             self.categorized_items_timestamp_id = str(response.timestamp.identifier)
             if response.timestamp.identifier == "all":
                 self.categorized_items.clear()
-        self._merge_index(self.categorized_items, response.categorizedItems)
+        # ALCategorizedListItemsManager.TA lowercases every learned item's name before
+        # indexing it, including values returned by the server.  Keep that normalization in
+        # the synchronized mirror rather than only applying it to locally-created memories.
+        for value in response.categorizedItems:
+            normalized = clone(value)
+            if normalized.name:
+                normalized.name = normalized.name.lower()
+            if normalized.identifier:
+                self.categorized_items[str(normalized.identifier)] = normalized
 
     def apply_user_categories(self, response: Message) -> None:
         self.user_category_data_id = str(response.identifier)

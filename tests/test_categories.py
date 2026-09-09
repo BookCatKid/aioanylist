@@ -98,6 +98,7 @@ async def test_global_categorization_replaces_list_specific_memory(state):
     removal = service.queue._pending[-1].listItem
     assert removal.identifier == local_id
     assert removal.listId == "list1"
+    assert removal.category == "dairy"
 
 
 @pytest.mark.asyncio
@@ -115,3 +116,136 @@ async def test_remove_categorized_item_uses_memory_key_not_shopping_id(state):
     assert op.metadata.handlerId == "remove-categorized-item"
     assert op.listItem.identifier == key
     assert op.listItem.name == "milk"
+    assert op.listItem.category == "dairy"
+
+
+def test_categorized_sync_lowercases_server_names_before_indexing(state):
+    response = PB.PBCategorizedItemsList()
+    response.timestamp.identifier = "all"
+    response.timestamp.timestamp = 4
+    response.categorizedItems.add(
+        identifier="memory", listId="list1", userId="user1", name="MiLK"
+    )
+
+    state.apply_categorized_items(response)
+
+    assert state.categorized_items["memory"].name == "milk"
+
+
+@pytest.mark.asyncio
+async def test_existing_memory_category_change_only_updates_match_id(state):
+    service = CategorizedItemsService(DummyTransport(), state, user_id="user1")
+    key = service.memory_id("Milk", "list1")
+    state.categorized_items[key] = PB.ListItem(
+        identifier=key,
+        listId="list1",
+        userId="user1",
+        name="milk",
+        categoryMatchId="dairy",
+        category="dairy",
+    )
+
+    await service.categorize(
+        PB.ListItem(
+            identifier="shopping",
+            listId="list1",
+            name="Milk",
+            categoryMatchId="beverages",
+            category="beverages",
+        ),
+        flush=False,
+    )
+
+    remembered = state.categorized_items[key]
+    assert remembered.categoryMatchId == "beverages"
+    # Official AA only calls setCategoryMatchId on an existing memory object.
+    assert remembered.category == "dairy"
+
+
+@pytest.mark.asyncio
+async def test_custom_category_removal_uses_other_legacy_category_field(state):
+    service = CategorizedItemsService(DummyTransport(), state, user_id="user1")
+    item = PB.ListItem(
+        identifier="shopping",
+        listId="list1",
+        name="Thing",
+        categoryMatchId="my-custom-category",
+        category="my-custom-category",
+    )
+
+    await service.remove(item, flush=False)
+
+    removal = service.queue._pending[-1].listItem
+    assert removal.categoryMatchId == "my-custom-category"
+    assert removal.category == "other"
+
+
+@pytest.mark.asyncio
+async def test_category_memory_migration_uses_exact_partial_payload_and_21_op_flush_cycle(state):
+    service = CategorizedItemsService(DummyTransport(), state, user_id="user1")
+    for i in range(22):
+        key = service.memory_id(f"Item {i}", "list1")
+        state.categorized_items[key] = PB.ListItem(
+            identifier=key,
+            userId="user1",
+            listId="list1",
+            name=f"item {i}",
+            categoryMatchId="old-custom",
+            category="other",
+            details="must-not-be-sent",
+        )
+    other_key = service.memory_id("Other", "list1")
+    state.categorized_items[other_key] = PB.ListItem(
+        identifier=other_key,
+        userId="user1",
+        listId="list1",
+        name="other",
+        categoryMatchId="dairy",
+    )
+
+    flush_sizes: list[int] = []
+
+    async def fake_flush():
+        flush_sizes.append(len(service.queue._pending))
+        service.queue._pending.clear()
+        return None
+
+    service.queue.flush = fake_flush
+
+    changed = await service.migrate_category("old-custom", "produce")
+
+    assert changed == 22
+    assert flush_sizes == [21, 1]
+    assert not service.queue.paused
+    assert service.queue._pending == []
+    migrated = [
+        value
+        for value in state.categorized_items.values()
+        if value.identifier != other_key
+    ]
+    assert all(value.categoryMatchId == "produce" for value in migrated)
+    assert state.categorized_items[other_key].categoryMatchId == "dairy"
+
+
+@pytest.mark.asyncio
+async def test_category_memory_migration_can_remain_queued_for_caller_batching(state):
+    service = CategorizedItemsService(DummyTransport(), state, user_id="user1")
+    key = service.memory_id("One", "")
+    state.categorized_items[key] = PB.ListItem(
+        identifier=key, userId="user1", name="one", categoryMatchId="dairy"
+    )
+
+    changed = await service.migrate_category("dairy", "custom", flush=False)
+
+    assert changed == 1
+    assert not service.queue.paused
+    assert len(service.queue._pending) == 1
+    op = service.queue._pending[0]
+    assert op.metadata.handlerId == "categorize-item"
+    sent = op.listItem
+    assert sent.identifier == key
+    assert sent.userId == "user1"
+    assert sent.name == "one"
+    assert sent.categoryMatchId == "custom"
+    assert sent.category == "other"
+    assert not sent.HasField("details")

@@ -13,6 +13,38 @@ from ..transport import AnyListTransport
 from .base import OperationService, clone_message
 
 
+# Exact return value of the official user-category manager's MA() helper.  Note that the
+# legacy "deli" system category exists in other built-in mappings but is intentionally not
+# in this list; categorized-item wire payloads therefore encode it as category="other".
+_SYSTEM_CATEGORY_MATCH_IDS = frozenset(
+    {
+        "baby",
+        "bakery",
+        "beverages",
+        "breakfast-and-cereal",
+        "condiments-oils-and-salad-dressings",
+        "cooking-and-baking",
+        "dairy",
+        "frozen-foods",
+        "grains-pasta-and-side-dishes",
+        "health-and-personal-care",
+        "household-and-cleaning",
+        "meat",
+        "pet-supplies",
+        "produce",
+        "seafood",
+        "snacks-cookies-and-candy",
+        "soups-and-canned-goods",
+        "wine-beer-spirits",
+        "other",
+    }
+)
+
+
+def _wire_category(category_match_id: str) -> str:
+    return category_match_id if category_match_id in _SYSTEM_CATEGORY_MATCH_IDS else "other"
+
+
 class UserCategoriesService(OperationService):
     def __init__(self, transport: AnyListTransport, state: AnyListState, *, user_id: str, journal=None):
         super().__init__(transport,state,user_id=user_id,
@@ -155,9 +187,9 @@ class CategorizedItemsService(OperationService):
         if existing is None:
             self.state.categorized_items[learned.identifier] = clone_message(learned)
         elif changed:
+            # AA updates only categoryMatchId on an existing learned item.  Its legacy
+            # ``category`` field is deliberately left untouched.
             existing.categoryMatchId = self._category_id(learned)
-            if getattr(learned, "category", ""):
-                existing.category = learned.category
 
         operation_id = ""
         if changed:
@@ -176,7 +208,7 @@ class CategorizedItemsService(OperationService):
                     userId=self.user_id,
                     listId=source_list_id,
                     categoryMatchId=self._category_id(local),
-                    category=(getattr(local, "category", "") or "other"),
+                    category=_wire_category(self._category_id(local)),
                 )
                 await self.operation(
                     "remove-categorized-item", listItem=removal, flush=flush
@@ -196,8 +228,53 @@ class CategorizedItemsService(OperationService):
             userId=self.user_id,
             listId=list_id,
             categoryMatchId=self._category_id(source),
-            category=(getattr(source, "category", "") or "other"),
+            category=_wire_category(self._category_id(source)),
         )
         return await self.operation(
             "remove-categorized-item", listItem=removal, flush=flush
         )
+
+    async def migrate_category(
+        self,
+        old_category_match_id: str,
+        new_category_match_id: str,
+        *,
+        flush: bool = True,
+    ) -> int:
+        """Rewrite learned-category memories using the official UA migration algorithm.
+
+        The web client pauses this queue, mutates each matching learned item optimistically,
+        and emits a deliberately small partial ListItem.  Its counter is tested with ``>20``
+        after incrementing, so a temporary resume/flush occurs every *21* operations, not 20.
+        """
+        self.pause()
+        changed = 0
+        chunk_count = 0
+        try:
+            for learned in self.state.categorized_items.values():
+                if self._category_id(learned) != old_category_match_id:
+                    continue
+                learned.categoryMatchId = new_category_match_id
+                partial = PB.ListItem(
+                    identifier=str(learned.identifier),
+                    userId=self.user_id,
+                    listId=str(learned.listId or ""),
+                    name=str(learned.name or ""),
+                    categoryMatchId=new_category_match_id,
+                    category=_wire_category(new_category_match_id),
+                )
+                await self.operation("categorize-item", listItem=partial, flush=False)
+                changed += 1
+                chunk_count += 1
+                if chunk_count > 20:
+                    # Tl(false) immediately schedules the pending queue in the official
+                    # implementation, then Tl(true) pauses it again for the next chunk.
+                    await self.resume(flush=True)
+                    self.pause()
+                    chunk_count = 0
+        finally:
+            # Always balance the initial pause, including cancellation/error paths.  The
+            # public ``flush=False`` extension keeps operations queued for caller batching;
+            # the normal/default path mirrors Tl(false)'s immediate send behavior.
+            await self.resume(flush=flush)
+        return changed
