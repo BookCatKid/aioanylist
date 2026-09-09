@@ -277,27 +277,67 @@ class RecipesService(OperationService):
         return await self.transport.post_proto("/data/recipes/web-import", fields=fields,
                                                response_type="PBRecipeWebImportResponse")
 
-    async def send_as_email(self, recipe_id: str, email: str) -> bytes:
-        # Official endpoint is form based. Keeping literal field names is intentional.
-        return await self.transport.request("POST", "/data/recipes/send-as-email",
-                                            fields={"recipe_id": recipe_id, "email": email})
+    async def send_as_email(
+        self,
+        recipe_id: str,
+        email: str,
+        *,
+        event_id: str | None = None,
+        event_type: int | None = None,
+    ) -> bytes:
+        # The official form optionally carries meal-plan provenance so recipe quantities can
+        # be rendered for the specific scaled event being emailed.
+        fields: dict[str, str | int] = {"recipe_id": recipe_id, "email": email}
+        if event_id is not None:
+            fields["event_id"] = event_id
+            if event_type is None:
+                event = self.state.meal_plan_events.get(event_id) or self.state.meal_plan_template_events.get(event_id)
+                if event is not None:
+                    event_type = int(event.eventType)
+        if event_type is not None:
+            fields["event_type"] = event_type
+        return await self.transport.request(
+            "POST", "/data/recipes/send-as-email", fields=fields
+        )
 
     async def request_link(self, email: str) -> Message:
-        req = PB.PBRecipeLinkRequest(identifier=uuid4_hex(), requestingUserId=self.user_id,
-                                     confirmingEmail=email)
-        return await self.transport.post_proto(
+        req = PB.PBRecipeLinkRequest(
+            identifier=uuid4_hex(), requestingUserId=self.user_id, confirmingEmail=email
+        )
+        response = await self.transport.post_proto(
             "/data/user-recipe-data/request-recipe-link-v2",
-            fields={"link_request": req}, response_type="PBRecipeLinkRequestResponse")
+            fields={"link_request": req},
+            response_type="PBRecipeLinkRequestResponse",
+        )
+        # OX treats a successful link request as a full recipe-data replacement.
+        if (
+            response is not None
+            and int(response.statusCode) == 0
+            and response.HasField("recipeDataResponse")
+        ):
+            self.state.apply_recipes_full(response.recipeDataResponse)
+        return response
 
-    async def accept_link(self, request: Message) -> Message:
-        return await self.transport.post_proto(
+    async def accept_link(self, request: Message | str) -> Message:
+        request_id = request if isinstance(request, str) else str(request.identifier)
+        response = await self.transport.post_proto(
             "/data/user-recipe-data/accept-recipe-link-request",
-            fields={"link_request": request}, response_type="PBRecipeLinkRequestResponse")
+            fields={"link_request_id": request_id, "user_id": self.user_id},
+            response_type="PBRecipeDataResponse",
+        )
+        if response is not None:
+            self.state.apply_recipes_full(response)
+        return response
 
     async def cancel_link(self, request: Message) -> Message:
-        return await self.transport.post_proto(
+        response = await self.transport.post_proto(
             "/data/user-recipe-data/cancel-recipe-link-request",
-            fields={"link_request": request}, response_type="PBRecipeLinkRequestResponse")
+            fields={"link_request": request},
+            response_type="PBRecipeDataResponse",
+        )
+        if response is not None:
+            self.state.apply_recipes_full(response)
+        return response
 
     async def unlink(self, user_id: str) -> Message:
         # The web client posts the linked user's ID as a plain multipart string and receives
