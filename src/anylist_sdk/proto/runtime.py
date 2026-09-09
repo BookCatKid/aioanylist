@@ -4,7 +4,7 @@ import json
 from functools import lru_cache
 from importlib.resources import files
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 from google.protobuf import descriptor_pb2, descriptor_pool, message_factory
 from google.protobuf.internal.enum_type_wrapper import EnumTypeWrapper
@@ -43,7 +43,7 @@ def _camel(name: str) -> str:
 
 def _load_schema() -> dict[str, Any]:
     with files(__package__).joinpath("schema.json").open("r", encoding="utf-8") as fh:
-        return json.load(fh)
+        return cast(dict[str, Any], json.load(fh))
 
 
 def _add_enum(target: Any, enum: dict[str, Any]) -> None:

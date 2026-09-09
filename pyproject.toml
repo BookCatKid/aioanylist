@@ -19,6 +19,7 @@ dependencies = [
 test = [
   "pytest>=8.2",
   "pytest-asyncio>=0.23",
+  "mypy>=1.11",
 ]
 
 [tool.pytest.ini_options]
@@ -32,6 +33,13 @@ markers = [
 [tool.ruff]
 line-length = 100
 
+[tool.mypy]
+strict = true
+# Runtime operation/response classes are selected from the embedded protobuf schema.
+# Public protobuf classes are statically described by proto/__init__.pyi; the implementation
+# deliberately retains dynamic Message attribute access in its low-level protocol machinery.
+disable_error_code = ["attr-defined"]
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 include-package-data = true
@@ -40,4 +48,4 @@ include-package-data = true
 where = ["src"]
 
 [tool.setuptools.package-data]
-anylist_sdk = ["proto/schema.json", "official_surface.json", "data/*.json"]
+anylist_sdk = ["py.typed", "proto/schema.json", "proto/*.pyi", "official_surface.json", "data/*.json"]

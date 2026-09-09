@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +10,7 @@ import aiohttp
 from .autocomplete import AutocompleteEngine
 from .categorization import Categorizer
 from .operations import FileOperationJournal, OperationJournal
+from .proto import ListItem, PBCalendarEvent, PBRecipe
 from .realtime import RealtimeClient, RealtimeEvent
 from .services import (
     AccountService, AlexaService, CategorizedItemsService, FoldersService, ListSettingsService,
@@ -22,10 +24,28 @@ from .sync import SyncCoordinator
 from .tag_data import TagDataManager
 from .transport import AnyListTransport
 from .types import AuthTokens, Domain
+from .services.base import OperationService
 
 
 class AnyListClient:
     """Async-first, protobuf-backed AnyList client reconstructed from AnyList Web."""
+
+    lists: ShoppingListsService | None
+    recipes: RecipesService | None
+    folders: FoldersService | None
+    categories: UserCategoriesService | None
+    categorized_items: CategorizedItemsService | None
+    list_settings: ListSettingsService | None
+    starter_list_settings: ListSettingsService | None
+    mobile_settings: MobileSettingsService | None
+    starter_lists: StarterListsService | None
+    meal_plan: MealPlanService | None
+    account: AccountService | None
+    photos: PhotosService | None
+    sharing: SharingService | None
+    alexa: AlexaService | None
+    web_state: WebStateService | None
+    raw: RawAPI
     def __init__(self,session:aiohttp.ClientSession|None=None,*,tokens:AuthTokens|None=None,
                  client_id:str|None=None,cache_dir:str|Path|None=None,
                  journal:OperationJournal|None=None,base_url:str="https://www.anylist.com") -> None:
@@ -205,10 +225,11 @@ class AnyListClient:
     async def flush(self)->None:
         for service in self._operation_services():await service.flush()
 
-    def _operation_services(self):
+    def _operation_services(self) -> list[OperationService]:
         if not self._services_ready:return []
-        return [self.lists,self.recipes,self.folders,self.categories,self.categorized_items,
-                self.list_settings,self.starter_list_settings,self.mobile_settings,self.starter_lists,self.meal_plan]
+        services = [self.lists,self.recipes,self.folders,self.categories,self.categorized_items,
+                    self.list_settings,self.starter_list_settings,self.mobile_settings,self.starter_lists,self.meal_plan]
+        return [service for service in services if service is not None]
 
     async def _remove_list_from_folder_tree(self, list_id: str, flush: bool) -> None:
         if self.lists is not None:
@@ -217,7 +238,7 @@ class AnyListClient:
             await self.list_settings.remove(list_id, flush=flush)
 
     async def _record_recent_items(
-        self, list_id: str, items, skip_existing: bool, flush: bool
+        self, list_id: str, items: Sequence[ListItem], skip_existing: bool, flush: bool
     ) -> None:
         if self.starter_lists is None:
             return
@@ -251,7 +272,7 @@ class AnyListClient:
         )
 
     async def _sync_recipe_references(
-        self, new_recipe, old_recipe, flush: bool
+        self, new_recipe: PBRecipe, old_recipe: PBRecipe, flush: bool
     ) -> None:
         list_id = self._recipe_ingredients_list_id()
         if self.lists is None or not list_id:
@@ -266,7 +287,9 @@ class AnyListClient:
         settings = self.state.mobile_app_settings
         return (getattr(settings, "listIdForRecipeIngredients", "") or "") if settings else ""
 
-    async def _sync_event_references(self, new_event, old_event, flush: bool) -> None:
+    async def _sync_event_references(
+        self, new_event: PBCalendarEvent, old_event: PBCalendarEvent, flush: bool
+    ) -> None:
         list_id = self._recipe_ingredients_list_id()
         if self.lists is None or not list_id:
             return
@@ -280,7 +303,7 @@ class AnyListClient:
         else:
             await self.lists.sync_event_list_update(list_id, new_event, old_event, flush=flush)
 
-    async def _cleanup_event_references(self, event, flush: bool) -> None:
+    async def _cleanup_event_references(self, event: PBCalendarEvent, flush: bool) -> None:
         list_id = self._recipe_ingredients_list_id()
         if self.lists is not None and list_id:
             await self.lists.remove_event_references(
@@ -329,4 +352,5 @@ class AnyListClient:
             await self.realtime.stop();await self.transport.close()
 
     async def __aenter__(self)->"AnyListClient":return self
-    async def __aexit__(self,*_):await self.close()
+    async def __aexit__(self, *_: object) -> None:
+        await self.close()

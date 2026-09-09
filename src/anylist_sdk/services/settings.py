@@ -5,8 +5,14 @@ from typing import Any
 
 from google.protobuf.message import Message
 
-from ..operations import QueueSpec
-from ..proto import PB
+from ..operations import OperationJournal, QueueSpec
+from ..proto import (
+    PB,
+    PBListSettings,
+    PBListSettingsList,
+    PBMobileAppSettings,
+    PBRecipeCookingState,
+)
 from ..state import AnyListState
 from ..transport import AnyListTransport
 from .base import OperationService, clone_message
@@ -81,7 +87,7 @@ def _mobile_effective_value(settings: Message, field: str) -> Any:
 
 class ListSettingsService(OperationService):
     def __init__(self, transport: AnyListTransport, state: AnyListState, *, user_id: str,
-                 starter: bool = False, journal=None):
+                 starter: bool = False, journal: OperationJournal | None = None) -> None:
         self.starter = starter
         endpoint = "/data/starter-list-settings/update" if starter else "/data/list-settings/update"
         self.read_endpoint = "/data/starter-list-settings/all" if starter else "/data/list-settings/all"
@@ -105,14 +111,14 @@ class ListSettingsService(OperationService):
             await self.refresh()
 
     @property
-    def _store(self):
+    def _store(self) -> dict[str, PBListSettings]:
         return self.state.starter_list_settings if self.starter else self.state.list_settings
 
-    def get(self, list_id: str = "") -> Message | None:
+    def get(self, list_id: str = "") -> PBListSettings | None:
         # State is keyed by list ID during apply; default settings may be stored under "".
         return self._store.get(list_id)
 
-    def ensure(self, list_id: str = "") -> Message:
+    def ensure(self, list_id: str = "") -> PBListSettings:
         value = self.get(list_id)
         if value is not None: return value
         # Official JS identifies per-list settings with md5(userId + "-" + listId).
@@ -122,7 +128,7 @@ class ListSettingsService(OperationService):
         self._store[list_id] = value
         return value
 
-    async def refresh(self) -> Message | None:
+    async def refresh(self) -> PBListSettingsList | None:
         """Refresh list settings through the official direct-read endpoint."""
         # dp() returns before constructing/sending the request whenever the edit queue
         # contains pending operations. This is stronger than merely refusing to apply the
@@ -151,7 +157,7 @@ class ListSettingsService(OperationService):
         )
         if response is None:
             return None
-        assert isinstance(response, Message)
+        assert isinstance(response, PB.PBListSettingsList)
         # WI ignores server snapshots while local operations are pending so they cannot
         # overwrite optimistic edits. Direct refresh follows the same manager method.
         if not self.queue.pending_count:
@@ -159,7 +165,7 @@ class ListSettingsService(OperationService):
         return response
 
     async def set(self, list_id: str, field: str, value: Any, *, handler_id: str | None = None,
-                  flush: bool = True) -> Message:
+                  flush: bool = True) -> PBListSettings:
         settings = self.ensure(list_id)
         desc = settings.DESCRIPTOR.fields_by_name.get(field)
         if desc is None: raise TypeError(f"PBListSettings has no field {field!r}")
@@ -217,7 +223,7 @@ class ListSettingsService(OperationService):
         await self.operation(handler_id, updatedSettings=partial, flush=flush)
         return settings
 
-    async def clear_store_filter_id(self, list_id: str, *, flush: bool = True) -> Message:
+    async def clear_store_filter_id(self, list_id: str, *, flush: bool = True) -> PBListSettings:
         """Clear the selected store filter using the official set-store-filter-id handler."""
         settings = self.ensure(list_id)
         if not settings.HasField("storeFilterId") or not settings.storeFilterId:
@@ -237,7 +243,7 @@ class ListSettingsService(OperationService):
 
     async def set_migrated_list_category_group_id(
         self, list_id: str, category_group_id: str, *, flush: bool = True
-    ) -> Message:
+    ) -> PBListSettings:
         """Mirror the web client's migration-only category-group mutation.
 
         Despite the handler name, the official client writes ``listCategoryGroupId`` in
@@ -267,7 +273,14 @@ class ListSettingsService(OperationService):
 
 
 class MobileSettingsService(OperationService):
-    def __init__(self, transport: AnyListTransport, state: AnyListState, *, user_id: str, journal=None):
+    def __init__(
+        self,
+        transport: AnyListTransport,
+        state: AnyListState,
+        *,
+        user_id: str,
+        journal: OperationJournal | None = None,
+    ) -> None:
         super().__init__(transport, state, user_id=user_id,
             spec=QueueSpec(f"{user_id}:mobile-settings", "/data/mobile-app-settings/update",
                            "PBMobileAppSettingsOperation", "PBMobileAppSettingsOperationList"), journal=journal)
@@ -281,7 +294,7 @@ class MobileSettingsService(OperationService):
         if original==float(settings.timestamp):settings.timestamp=response.newTimestamps[0].timestamp
         else:await self.refresh()
 
-    async def refresh(self) -> Message | None:
+    async def refresh(self) -> PBMobileAppSettings | None:
         # bp() returns immediately while mobile-settings operations are pending.
         if self.queue.pending_count:
             return None
@@ -296,14 +309,14 @@ class MobileSettingsService(OperationService):
         )
         if response is None:
             return None
-        assert isinstance(response, Message)
+        assert isinstance(response, PB.PBMobileAppSettings)
         self.state.apply_mobile_settings(response)
         return response
 
-    def get(self) -> Message | None: return self.state.mobile_app_settings
+    def get(self) -> PBMobileAppSettings | None: return self.state.mobile_app_settings
 
     async def set(self, field: str, value: Any, *, handler_id: str | None = None,
-                  flush: bool = True) -> Message:
+                  flush: bool = True) -> PBMobileAppSettings:
         settings = self.state.mobile_app_settings
         if settings is None: raise RuntimeError("Mobile app settings have not been synchronized")
         desc = settings.DESCRIPTOR.fields_by_name.get(field)
@@ -366,7 +379,7 @@ class MobileSettingsService(OperationService):
         await self.operation(handler_id, updatedSettings=partial, flush=flush)
         return settings
     async def save_recipe_cooking_states(
-        self, states: list[Message], *, flush: bool = True
+        self, states: list[PBRecipeCookingState], *, flush: bool = True
     ) -> str:
         settings = self.state.mobile_app_settings
         if settings is None:
@@ -389,7 +402,7 @@ class MobileSettingsService(OperationService):
         )
 
     async def remove_recipe_cooking_states(
-        self, states: list[Message], *, flush: bool = True
+        self, states: list[PBRecipeCookingState], *, flush: bool = True
     ) -> str:
         settings = self.state.mobile_app_settings
         if settings is None:

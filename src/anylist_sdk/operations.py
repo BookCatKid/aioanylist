@@ -151,7 +151,7 @@ class OperationQueue:
         async with self._state_lock:
             self._pending.append(operation)
             await self._persist_locked()
-        operation_id = operation.metadata.operationId
+        operation_id = str(operation.metadata.operationId)
         if flush and not self.paused:
             await self.flush()
         return operation_id

@@ -2,18 +2,19 @@ from __future__ import annotations
 
 import json
 import inspect
-from collections.abc import Awaitable, Callable
-from typing import Any
+from collections.abc import Awaitable, Callable, Mapping
+from typing import cast
 
 import aiohttp
 from google.protobuf.message import Message
 
 from ..identifiers import uuid4_hex
 from ..normalization import localized_sort_key
-from ..proto import PB, decode, encode
+from ..proto import PB, PBAccountInfoResponse, PBShareListOperationResponse, decode, encode
 from ..state import AnyListState, clone
 from ..exceptions import TransportError
 from ..transport import AnyListTransport, PHOTOS_BASE_URL
+from ..types import JSONMapping
 
 
 class AccountService:
@@ -21,17 +22,19 @@ class AccountService:
         self.transport = transport
         self.state = state
 
-    def _store(self, info: Message) -> Message:
+    def _store(self, info: PBAccountInfoResponse) -> PBAccountInfoResponse:
         self.state.account_info = clone(info)
         return info
 
-    async def get(self) -> Message:
+    async def get(self) -> PBAccountInfoResponse:
         raw = await self.transport.request("GET", "/data/account/info", fields=None)
-        return self._store(decode("PBAccountInfoResponse", raw))
+        info = decode("PBAccountInfoResponse", raw)
+        assert isinstance(info, PB.PBAccountInfoResponse)
+        return self._store(info)
 
     async def update_name(
         self, first_name: str, last_name: str, email: str | None = None
-    ) -> Message:
+    ) -> PBAccountInfoResponse:
         # AnyList Web always includes the current account email when updating the name.
         # Prefer an explicitly supplied email, then the most recently synchronized account
         # info.  If neither exists we leave it absent rather than inventing an address.
@@ -45,7 +48,7 @@ class AccountService:
             fields={"account_info": info},
             response_type="PBAccountInfoResponse",
         )
-        assert isinstance(response, Message)
+        assert isinstance(response, PB.PBAccountInfoResponse)
         return self._store(response)
 
 
@@ -108,7 +111,7 @@ class SharingService:
         self.state = state
         self.on_refresh_requested: Callable[[], Awaitable[object] | None] | None = None
 
-    async def share_list(self, list_id: str, email: str) -> Message:
+    async def share_list(self, list_id: str, email: str) -> PBShareListOperationResponse:
         op = PB.PBListOperation(listId=list_id, updatedValue=email)
         op.metadata.operationId = uuid4_hex()
         op.metadata.handlerId = "share-shopping-list"
@@ -118,7 +121,7 @@ class SharingService:
             fields={"operation": op},
             response_type="PBShareListOperationResponse",
         )
-        assert isinstance(response, Message)
+        assert isinstance(response, PB.PBShareListOperationResponse)
         if (
             self.state is not None
             and int(response.statusCode) == 0
@@ -156,33 +159,33 @@ class SharingService:
                         # best-effort reconciliation and does not turn it into a failed share.
                         pass
         return response
-    async def send_list_email(self,list_id:str,email:str,*,decimal_separator:str=".")->dict[str,Any]:
+    async def send_list_email(self,list_id:str,email:str,*,decimal_separator:str=".")->JSONMapping:
         raw=await self.transport.request("POST","/data/shopping-lists/send-as-email",fields={"email":email,"list_id":list_id,"decimal_separator":decimal_separator})
-        return json.loads(raw or b"{}")
-    async def send_recipe_email(self,recipe_id:str,email:str,*,event_id:str|None=None,event_type:int|None=None)->dict[str,Any]:
+        return cast(JSONMapping, json.loads(raw or b"{}"))
+    async def send_recipe_email(self,recipe_id:str,email:str,*,event_id:str|None=None,event_type:int|None=None)->JSONMapping:
         fields={"email":email,"recipe_id":recipe_id}
         if event_id is not None:fields["event_id"]=event_id
         if event_type is not None:fields["event_type"]=str(event_type)
-        return json.loads(await self.transport.request("POST","/data/recipes/send-as-email",fields=fields) or b"{}")
-    async def send_meal_plan_email(self,email:str,markup:str)->dict[str,Any]:
-        return json.loads(await self.transport.request("POST","/data/meal-planning-calendar/send-as-email",fields={"email":email,"markup":markup}) or b"{}")
+        return cast(JSONMapping, json.loads(await self.transport.request("POST","/data/recipes/send-as-email",fields=fields) or b"{}"))
+    async def send_meal_plan_email(self,email:str,markup:str)->JSONMapping:
+        return cast(JSONMapping, json.loads(await self.transport.request("POST","/data/meal-planning-calendar/send-as-email",fields={"email":email,"markup":markup}) or b"{}"))
 
 
 class AlexaService:
     def __init__(self,transport:AnyListTransport):self.transport=transport
-    async def link_list(self,*,alexa_list_id:str|None=None,anylist_list_id:str|None=None)->dict[str,Any]:
+    async def link_list(self,*,alexa_list_id:str|None=None,anylist_list_id:str|None=None)->JSONMapping:
         fields={}
         if alexa_list_id:fields["alexa_list_id"]=alexa_list_id
         if anylist_list_id:fields["anylist_list_id"]=anylist_list_id
-        return json.loads(await self.transport.request("POST","/data/alexa/link-list",fields=fields) or b"{}")
-    async def unlink_list(self,alexa_list_id:str)->dict[str,Any]:
-        return json.loads(await self.transport.request("POST","/data/alexa/unlink-list",fields={"alexa_list_id":alexa_list_id}) or b"{}")
-    async def unlink_anylist_list(self,anylist_list_id:str)->dict[str,Any]:
-        return json.loads(await self.transport.request("POST","/data/alexa/unlink-anylist-list",fields={"anylist_list_id":anylist_list_id}) or b"{}")
-    async def set_enabled_lists(self,enabled:list[str],disabled:list[str])->dict[str,Any]:
+        return cast(JSONMapping, json.loads(await self.transport.request("POST","/data/alexa/link-list",fields=fields) or b"{}"))
+    async def unlink_list(self,alexa_list_id:str)->JSONMapping:
+        return cast(JSONMapping, json.loads(await self.transport.request("POST","/data/alexa/unlink-list",fields={"alexa_list_id":alexa_list_id}) or b"{}"))
+    async def unlink_anylist_list(self,anylist_list_id:str)->JSONMapping:
+        return cast(JSONMapping, json.loads(await self.transport.request("POST","/data/alexa/unlink-anylist-list",fields={"anylist_list_id":anylist_list_id}) or b"{}"))
+    async def set_enabled_lists(self,enabled:list[str],disabled:list[str])->JSONMapping:
         a=PB.PBValue();a.stringValue.extend(enabled);b=PB.PBValue();b.stringValue.extend(disabled)
         raw=await self.transport.request("POST","/data/alexa/set-is-enabled-for-alexa-for-list-ids",fields={"enabled_list_ids":encode(a),"disabled_list_ids":encode(b)})
-        return json.loads(raw or b"{}")
+        return cast(JSONMapping, json.loads(raw or b"{}"))
 
 
 class WebStateService:
@@ -205,7 +208,20 @@ class WebStateService:
 class RawAPI:
     """Official-protocol escape hatch: no invented endpoint semantics, just the same multipart/protobuf transport."""
     def __init__(self,transport:AnyListTransport):self.transport=transport
-    async def request(self,method:str,endpoint:str,*,fields=None,authenticated:bool=True)->bytes:
+    async def request(
+        self,
+        method: str,
+        endpoint: str,
+        *,
+        fields: Mapping[str, bytes | str | int | float] | None = None,
+        authenticated: bool = True,
+    ) -> bytes:
         return await self.transport.request(method,endpoint,fields=fields,authenticated=authenticated)
-    async def post_proto(self,endpoint:str,*,fields,response_type:str|None=None):
+    async def post_proto(
+        self,
+        endpoint: str,
+        *,
+        fields: Mapping[str, Message | bytes | str | int | float],
+        response_type: str | None = None,
+    ) -> Message | bytes | None:
         return await self.transport.post_proto(endpoint,fields=fields,response_type=response_type)

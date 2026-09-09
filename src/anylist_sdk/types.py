@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Mapping
+from typing import TypeAlias
+
+from google.protobuf.message import Message
 
 
 class Domain(StrEnum):
@@ -32,7 +34,7 @@ class AuthTokens:
 @dataclass(slots=True, frozen=True)
 class OperationAck:
     processed_operation_ids: tuple[str, ...]
-    raw_response: Any
+    raw_response: Message
 
     @property
     def processed_ids(self) -> tuple[str, ...]:
@@ -45,7 +47,7 @@ class AutocompleteSuggestion:
     text: str
     source: str
     score: float = 0.0
-    payload: Any = None
+    payload: Message | str | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -54,4 +56,6 @@ class MatchRange:
     length: int
 
 
-JSONMapping = Mapping[str, Any]
+JSONScalar: TypeAlias = str | int | float | bool | None
+JSONValue: TypeAlias = JSONScalar | list["JSONValue"] | dict[str, "JSONValue"]
+JSONMapping: TypeAlias = dict[str, JSONValue]

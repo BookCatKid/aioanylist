@@ -7,8 +7,21 @@ from google.protobuf.message import Message
 from uuid import UUID
 
 from ..identifiers import uuid4_hex, uuid5_hex
-from ..operations import QueueSpec
-from ..proto import PB
+from ..operations import OperationJournal, QueueSpec
+from ..proto import (
+    PB,
+    PBCalendarEvent,
+    PBCalendarEventListItem,
+    PBCalendarLabel,
+    PBCalendarResponse,
+    PBIcon,
+    PBItemPackageSize,
+    PBItemQuantity,
+    PBMealPlanSetICalendarEnabledRequestResponse,
+    PBMealPlanTemplate,
+    PBMealPlanTemplateGroup,
+    PBMealPlanTemplateGroupItem,
+)
 from ..state import AnyListState, clone
 from ..transport import AnyListTransport
 from .base import OperationService, clone_message
@@ -17,21 +30,32 @@ _ROOT_TEMPLATE_GROUP_NAMESPACE = UUID(hex="3da9450f605a455ca3aadaf230998b4d")
 
 
 class MealPlanService(OperationService):
-    def __init__(self,transport:AnyListTransport,state:AnyListState,*,user_id:str,journal=None):
+    def __init__(
+        self,
+        transport: AnyListTransport,
+        state: AnyListState,
+        *,
+        user_id: str,
+        journal: OperationJournal | None = None,
+    ) -> None:
         super().__init__(transport,state,user_id=user_id,
             spec=QueueSpec(f"{user_id}:meal-plan","/data/meal-planning-calendar/update",
                            "PBCalendarOperation","PBCalendarOperationList"),journal=journal)
         self.queue.on_response=self._on_response
-        self.on_event_updated: Callable[[Message, Message, bool], Awaitable[None] | None] | None = None
-        self.on_event_removed: Callable[[Message, bool], Awaitable[None] | None] | None = None
-    async def _notify_event_updated(self, new: Message, old: Message, flush: bool) -> None:
+        self.on_event_updated: Callable[
+            [PBCalendarEvent, PBCalendarEvent, bool], Awaitable[None] | None
+        ] | None = None
+        self.on_event_removed: Callable[[PBCalendarEvent, bool], Awaitable[None] | None] | None = None
+    async def _notify_event_updated(
+        self, new: PBCalendarEvent, old: PBCalendarEvent, flush: bool
+    ) -> None:
         if self.on_event_updated is None:
             return
         result = self.on_event_updated(new, old, flush)
         if result is not None:
             await result
 
-    async def _notify_event_removed(self, event: Message, flush: bool) -> None:
+    async def _notify_event_removed(self, event: PBCalendarEvent, flush: bool) -> None:
         if self.on_event_removed is None:
             return
         result = self.on_event_removed(event, flush)
@@ -55,16 +79,23 @@ class MealPlanService(OperationService):
                 if int(current.logicalTimestamp)==0:await self.refresh()
                 else:self.state.meal_plan_logical_timestamp=int(current.logicalTimestamp)
                 break
-    async def operation(self,handler_id:str,*,flush:bool=True,operation_version:int|None=None,**fields):
+    async def operation(
+        self,
+        handler_id: str,
+        *,
+        flush: bool = True,
+        operation_version: int | None = None,
+        **fields: Any,
+    ) -> str:
         if self.state.meal_plan_calendar_id and "calendarId" not in fields:
             fields["calendarId"]=self.state.meal_plan_calendar_id
         return await super().operation(handler_id,flush=flush,operation_version=operation_version,**fields)
-    def events(self):return list(self.state.meal_plan_events.values())
-    def labels(self):return list(self.state.meal_plan_labels.values())
-    def templates(self):return list(self.state.meal_plan_templates.values())
-    def template_groups(self):return list(self.state.meal_plan_template_groups.values())
+    def events(self) -> list[PBCalendarEvent]:return list(self.state.meal_plan_events.values())
+    def labels(self) -> list[PBCalendarLabel]:return list(self.state.meal_plan_labels.values())
+    def templates(self) -> list[PBMealPlanTemplate]:return list(self.state.meal_plan_templates.values())
+    def template_groups(self) -> list[PBMealPlanTemplateGroup]:return list(self.state.meal_plan_template_groups.values())
 
-    async def refresh(self) -> Message | None:
+    async def refresh(self) -> PBCalendarResponse | None:
         # CalendarManager.xp returns before issuing /get while calendar edits are queued.
         if self.queue.pending_count:
             return None
@@ -79,11 +110,11 @@ class MealPlanService(OperationService):
         )
         if response is None:
             return None
-        assert isinstance(response, Message)
+        assert isinstance(response, PB.PBCalendarResponse)
         self.state.apply_meal_plan(response)
         return response
 
-    async def save_event(self,event:Message,*,event_type:int|None=None,is_new:bool|None=None,handler_id:str|None=None,flush:bool=True)->Message:
+    async def save_event(self,event:PBCalendarEvent,*,event_type:int|None=None,is_new:bool|None=None,handler_id:str|None=None,flush:bool=True)->PBCalendarEvent:
         e=clone_message(event)
         if not e.identifier:e.identifier=uuid4_hex()
         if event_type is not None:
@@ -110,7 +141,7 @@ class MealPlanService(OperationService):
             fields["eventType"] = int(e.eventType)
         await self.operation("delete-event",flush=flush,**fields)
         await self._notify_event_removed(e,flush)
-    async def save_events(self,events:Sequence[Message],*,flush:bool=True)->None:
+    async def save_events(self,events:Sequence[PBCalendarEvent],*,flush:bool=True)->None:
         vals=[]
         for e in events:
             x=clone_message(e)
@@ -135,7 +166,7 @@ class MealPlanService(OperationService):
         await self.operation("set-date-for-events",updatedEvents=vals,flush=flush)
         for current,old in changes:
             await self._notify_event_updated(current,old,flush)
-    async def add_event_list_item(self,event_id:str,item:Message,*,flush:bool=True)->Message:
+    async def add_event_list_item(self,event_id:str,item:PBCalendarEventListItem,*,flush:bool=True)->PBCalendarEventListItem:
         e=self.state.meal_plan_events.get(event_id) or self.state.meal_plan_template_events.get(event_id)
         if e is None: raise KeyError(event_id)
         old_event=clone_message(e);x=clone_message(item)
@@ -144,7 +175,7 @@ class MealPlanService(OperationService):
         await self.operation("add-event-list-item",updatedEventListItem=x,updatedEvent=clone_message(e),eventType=int(e.eventType),flush=flush)
         await self._notify_event_updated(e,old_event,flush)
         return e.eventListItems[-1]
-    async def update_event_list_item(self,event_id:str,item_id:str,updated:Message,*,handler_id:str="set-event-list-item-name",flush:bool=True)->None:
+    async def update_event_list_item(self,event_id:str,item_id:str,updated:PBCalendarEventListItem,*,handler_id:str="set-event-list-item-name",flush:bool=True)->None:
         e=self.state.meal_plan_events.get(event_id) or self.state.meal_plan_template_events.get(event_id)
         if e is None: raise KeyError(event_id)
         old_event=clone_message(e)
@@ -173,7 +204,7 @@ class MealPlanService(OperationService):
             raise KeyError(event_id)
         by_id = {str(item.identifier): clone_message(item) for item in event.eventListItems}
         original_order = [str(item.identifier) for item in event.eventListItems]
-        reordered: list[Message] = []
+        reordered: list[PBCalendarEventListItem] = []
         used: set[str] = set()
         for item_id in ids:
             item = by_id.get(str(item_id))
@@ -196,8 +227,8 @@ class MealPlanService(OperationService):
         )
 
     async def save_label(
-        self, label: Message, *, is_new: bool | None = None, flush: bool = True
-    ) -> Message:
+        self, label: PBCalendarLabel, *, is_new: bool | None = None, flush: bool = True
+    ) -> PBCalendarLabel:
         x = clone_message(label)
         if not x.identifier:
             x.identifier = uuid4_hex()
@@ -249,12 +280,12 @@ class MealPlanService(OperationService):
 
     async def save_template(
         self,
-        template: Message,
+        template: PBMealPlanTemplate,
         *,
         parent_group_id: str | None = None,
         is_new: bool | None = None,
         flush: bool = True,
-    ) -> Message:
+    ) -> PBMealPlanTemplate:
         x = clone_message(template)
         if not x.identifier:
             x.identifier = uuid4_hex()
@@ -318,8 +349,14 @@ class MealPlanService(OperationService):
         )
 
     async def _set_event_field(
-        self, event_id: str, field: str, value, handler_id: str, *, flush: bool = True
-    ) -> Message:
+        self,
+        event_id: str,
+        field: str,
+        value: Any,
+        handler_id: str,
+        *,
+        flush: bool = True,
+    ) -> PBCalendarEvent:
         event = self.state.meal_plan_events.get(event_id) or self.state.meal_plan_template_events.get(event_id)
         if event is None:
             raise KeyError(event_id)
@@ -338,12 +375,12 @@ class MealPlanService(OperationService):
         await self._notify_event_updated(event, old_event, flush)
         return event
 
-    async def set_event_title(self, event_id: str, title: str, *, flush: bool = True) -> Message:
+    async def set_event_title(self, event_id: str, title: str, *, flush: bool = True) -> PBCalendarEvent:
         return await self._set_event_optional_text(
             event_id, "title", title, "set-event-title", flush=flush
         )
 
-    async def set_event_details(self, event_id: str, details: str, *, flush: bool = True) -> Message:
+    async def set_event_details(self, event_id: str, details: str, *, flush: bool = True) -> PBCalendarEvent:
         return await self._set_event_optional_text(
             event_id, "details", details, "set-event-details", flush=flush
         )
@@ -356,7 +393,7 @@ class MealPlanService(OperationService):
         handler_id: str,
         *,
         flush: bool = True,
-    ) -> Message:
+    ) -> PBCalendarEvent:
         event = self.state.meal_plan_events.get(event_id) or self.state.meal_plan_template_events.get(event_id)
         if event is None:
             raise KeyError(event_id)
@@ -375,14 +412,14 @@ class MealPlanService(OperationService):
         return event
 
     async def set_event_icon(
-        self, event_id: str, icon: str | Message, *, flush: bool = True
-    ) -> Message:
+        self, event_id: str, icon: str | PBIcon, *, flush: bool = True
+    ) -> PBCalendarEvent:
         value = icon if isinstance(icon, Message) else PB.PBIcon(iconName=icon)
         return await self._set_event_field(event_id, "icon", value, "set-event-icon", flush=flush)
 
     async def set_event_label(
         self, event_id: str, label_id: str, *, flush: bool = True
-    ) -> Message:
+    ) -> PBCalendarEvent:
         event = self.state.meal_plan_events.get(event_id) or self.state.meal_plan_template_events.get(event_id)
         if event is None:
             raise KeyError(event_id)
@@ -413,7 +450,7 @@ class MealPlanService(OperationService):
 
     async def set_event_label_sort_index(
         self, event_id: str, sort_index: int, *, flush: bool = True
-    ) -> Message:
+    ) -> PBCalendarEvent:
         event = self.state.meal_plan_events.get(event_id) or self.state.meal_plan_template_events.get(event_id)
         if event is None:
             raise KeyError(event_id)
@@ -444,7 +481,7 @@ class MealPlanService(OperationService):
         )
 
     async def set_event_list_item_quantity(
-        self, event_id: str, item_id: str, quantity: Message, *, flush: bool = True
+        self, event_id: str, item_id: str, quantity: PBItemQuantity, *, flush: bool = True
     ) -> None:
         event, index = self._event_list_item(event_id, item_id)
         updated = clone_message(event.eventListItems[index])
@@ -454,7 +491,7 @@ class MealPlanService(OperationService):
         )
 
     async def set_event_list_item_package_size(
-        self, event_id: str, item_id: str, package_size: Message, *, flush: bool = True
+        self, event_id: str, item_id: str, package_size: PBItemPackageSize, *, flush: bool = True
     ) -> None:
         event, index = self._event_list_item(event_id, item_id)
         updated = clone_message(event.eventListItems[index])
@@ -467,7 +504,7 @@ class MealPlanService(OperationService):
             flush=flush,
         )
 
-    def _event_list_item(self, event_id: str, item_id: str) -> tuple[Message, int]:
+    def _event_list_item(self, event_id: str, item_id: str) -> tuple[PBCalendarEvent, int]:
         event = self.state.meal_plan_events.get(event_id) or self.state.meal_plan_template_events.get(event_id)
         if event is None:
             raise KeyError(event_id)
@@ -505,15 +542,15 @@ class MealPlanService(OperationService):
 
     async def set_template_name(
         self, template_id: str, name: str, *, flush: bool = True
-    ) -> Message:
+    ) -> PBMealPlanTemplate:
         template = self._template(template_id)
         template.name = name
         await self.operation("set-template-name", updatedTemplate=clone_message(template), flush=flush)
         return template
 
     async def set_template_icon(
-        self, template_id: str, icon: str | Message, *, flush: bool = True
-    ) -> Message:
+        self, template_id: str, icon: str | PBIcon, *, flush: bool = True
+    ) -> PBMealPlanTemplate:
         template = self._template(template_id)
         value = icon if isinstance(icon, Message) else PB.PBIcon(iconName=icon)
         template.icon.CopyFrom(value)
@@ -522,7 +559,7 @@ class MealPlanService(OperationService):
 
     async def add_template_day_ids(
         self, template_id: str, day_ids: Sequence[str], *, flush: bool = True
-    ) -> Message:
+    ) -> PBMealPlanTemplate:
         template = self._template(template_id)
         for day_id in day_ids:
             if day_id not in template.dayIds:
@@ -541,7 +578,7 @@ class MealPlanService(OperationService):
         *,
         event_ids: Sequence[str] = (),
         flush: bool = True,
-    ) -> Message:
+    ) -> PBMealPlanTemplate:
         template = self._template(template_id)
         remove = set(day_ids)
         kept = [x for x in template.dayIds if x not in remove]
@@ -570,7 +607,7 @@ class MealPlanService(OperationService):
 
     async def set_template_day_ids(
         self, template_id: str, day_ids: Sequence[str], *, flush: bool = True
-    ) -> Message:
+    ) -> PBMealPlanTemplate:
         template = self._template(template_id)
         del template.dayIds[:]
         template.dayIds.extend(day_ids)
@@ -580,7 +617,7 @@ class MealPlanService(OperationService):
     async def set_template_day_id_for_events(
         self, event_ids: Sequence[str], day_id: str, *, flush: bool = True
     ) -> None:
-        updated: list[Message] = []
+        updated: list[PBCalendarEvent] = []
         for event_id in event_ids:
             event = self.state.meal_plan_template_events.get(event_id)
             if event is None or event.templateDayId == day_id:
@@ -598,7 +635,7 @@ class MealPlanService(OperationService):
 
     async def create_root_template_group(
         self, *, group_id: str | None = None, flush: bool = True
-    ) -> Message:
+    ) -> PBMealPlanTemplateGroup:
         calendar_id = self.state.meal_plan_calendar_id or ""
         identifier = group_id or uuid5_hex(calendar_id, _ROOT_TEMPLATE_GROUP_NAMESPACE)
         group = PB.PBMealPlanTemplateGroup(
@@ -614,10 +651,10 @@ class MealPlanService(OperationService):
         name: str,
         parent_group_id: str,
         *,
-        icon: str | Message | None = None,
+        icon: str | PBIcon | None = None,
         group_id: str | None = None,
         flush: bool = True,
-    ) -> Message:
+    ) -> PBMealPlanTemplateGroup:
         group = PB.PBMealPlanTemplateGroup(
             identifier=group_id or uuid4_hex(),
             calendarId=self.state.meal_plan_calendar_id or "",
@@ -680,7 +717,7 @@ class MealPlanService(OperationService):
         )
 
     async def set_ordered_template_group_items(
-        self, group_id: str, items: Sequence[Message], *, flush: bool = True
+        self, group_id: str, items: Sequence[PBMealPlanTemplateGroupItem], *, flush: bool = True
     ) -> None:
         group = self._template_group(group_id)
         del group.items[:]
@@ -695,7 +732,7 @@ class MealPlanService(OperationService):
 
     async def move_template_group_items(
         self,
-        items: Sequence[Message],
+        items: Sequence[PBMealPlanTemplateGroupItem],
         old_parent_id: str,
         new_parent_id: str,
         *,
@@ -741,7 +778,7 @@ class MealPlanService(OperationService):
 
     async def set_template_group_items_sort_order(
         self, group_id: str, sort_order: int, *, flush: bool = True
-    ) -> Message:
+    ) -> PBMealPlanTemplateGroup:
         group = self._template_group(group_id)
         group.groupSettings.itemsSortOrder = sort_order
         partial = PB.PBMealPlanTemplateGroup(identifier=group_id)
@@ -753,7 +790,7 @@ class MealPlanService(OperationService):
 
     async def set_template_group_groups_sort_position(
         self, group_id: str, position: int, *, flush: bool = True
-    ) -> Message:
+    ) -> PBMealPlanTemplateGroup:
         group = self._template_group(group_id)
         group.groupSettings.groupsSortPosition = position
         partial = PB.PBMealPlanTemplateGroup(identifier=group_id)
@@ -764,7 +801,7 @@ class MealPlanService(OperationService):
         return group
 
     def _refresh_event_sort_index(
-        self, event: Message, old_event: Message | None = None
+        self, event: PBCalendarEvent, old_event: PBCalendarEvent | None = None
     ) -> None:
         """Mirror CalendarOperationManager.dR orderAddedSortIndex assignment."""
         should_recompute = old_event is None
@@ -778,7 +815,7 @@ class MealPlanService(OperationService):
         if not should_recompute:
             return
 
-        candidates: list[Message]
+        candidates: list[PBCalendarEvent]
         if event_type == int(PB.PBCalendarEventType.MealPlanQueueEvent):
             candidates = [
                 value
@@ -809,31 +846,31 @@ class MealPlanService(OperationService):
         )
         event.orderAddedSortIndex = maximum + 1
 
-    def _event_store(self, event_type: int) -> dict[str, Message]:
+    def _event_store(self, event_type: int) -> dict[str, PBCalendarEvent]:
         if int(event_type) == int(PB.PBCalendarEventType.MealPlanTemplateEvent):
             return self.state.meal_plan_template_events
         return self.state.meal_plan_events
 
-    def _template(self, template_id: str) -> Message:
+    def _template(self, template_id: str) -> PBMealPlanTemplate:
         template = self.state.meal_plan_templates.get(template_id)
         if template is None:
             raise KeyError(template_id)
         return template
 
-    def _template_group(self, group_id: str) -> Message:
+    def _template_group(self, group_id: str) -> PBMealPlanTemplateGroup:
         group = self.state.meal_plan_template_groups.get(group_id)
         if group is None:
             raise KeyError(group_id)
         return group
 
-    async def set_icalendar_enabled(self,enabled:bool)->Message:
+    async def set_icalendar_enabled(self,enabled:bool)->PBMealPlanSetICalendarEnabledRequestResponse:
         request=PB.PBMealPlanSetICalendarEnabledRequest(shouldEnableIcalendarGeneration=enabled)
         response = await self.transport.post_proto(
             "/data/meal-planning-calendar/set-icalendar-enabled",
             fields={"icalendar_request":request},
             response_type="PBMealPlanSetICalendarEnabledRequestResponse",
         )
-        assert isinstance(response, Message)
+        assert isinstance(response, PB.PBMealPlanSetICalendarEnabledRequestResponse)
         return response
     async def send_as_email(self,email:str,markup:str)->bytes:
         return await self.transport.request(

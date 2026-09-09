@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from fractions import Fraction
 
 from ..normalization import trim_whitespace_and_punctuation
-from ..proto import PB
+from ..proto import PB, PBItemPackageSize, PBItemQuantity, PBItemQuantityAndPackageSize
 
 _VULGAR = {
     "½": Fraction(1, 2), "⅓": Fraction(1, 3), "⅔": Fraction(2, 3),
@@ -342,7 +342,9 @@ def _match_unit_or_package(rest: str) -> tuple[str, str]:
     return "", value
 
 
-def parse_package_size(text: str, *, require_unit: bool = True, decimal_separator: str = "."):
+def parse_package_size(
+    text: str, *, require_unit: bool = True, decimal_separator: str = "."
+) -> PBItemPackageSize | None:
     raw = trim_whitespace_and_punctuation(text)
     if not raw:
         return None
@@ -372,7 +374,9 @@ def parse_package_size(text: str, *, require_unit: bool = True, decimal_separato
     return out
 
 
-def parse_quantity_and_package_size(text: str, *, decimal_separator: str = "."):
+def parse_quantity_and_package_size(
+    text: str, *, decimal_separator: str = "."
+) -> PBItemQuantityAndPackageSize | None:
     raw = text.strip()
     if not raw:
         return None
@@ -441,7 +445,7 @@ def parse_quantity_and_package_size(text: str, *, decimal_separator: str = "."):
     return result if result.HasField("quantityPb") or result.HasField("packageSizePb") else None
 
 
-def replace_quantity_amount(quantity, new_amount: str):
+def replace_quantity_amount(quantity: PBItemQuantity, new_amount: str) -> PBItemQuantity:
     out = PB.PBItemQuantity()
     out.CopyFrom(quantity)
     value = amount_as_float(new_amount)

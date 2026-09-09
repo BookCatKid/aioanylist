@@ -11,6 +11,7 @@ This project deliberately does **not** use unofficial AnyList clients as protoco
 - Incremental aggregate synchronization and durable operation queues.
 - Shopping lists, starter/favorite/recent lists, folders, categories, settings, recipes, meal planning, photos, sharing, account data, and official auxiliary endpoints.
 - Client-side behavior used by AnyList Web: normalization, stemming, quantity/package parsing, categorization/tag data, autocomplete, recipe parsing, recipe-to-list provenance, derived totals, and deterministic identifiers.
+- PEP 561 typed public API, including schema-generated stubs for the dynamic protobuf models.
 - No Home Assistant assumptions.
 
 ## Status
@@ -26,11 +27,24 @@ from anylist_sdk import AnyListClient
 async with AnyListClient() as client:
     await client.sign_in("you@example.com", "password")
     await client.load(realtime=True)
+    assert client.lists is not None
     for shopping_list in client.lists.all():
         print(shopping_list.name)
 ```
 
 The low-level protobuf namespace is available as `anylist_sdk.proto.PB`, and each operation-backed service exposes `operation(...)` for official handlers whose high-level convenience wrapper is not needed by an application.
+
+## Typing
+
+The normal client/service/state surface is fully annotated and the distribution includes a
+`py.typed` marker. The protobuf implementation remains generated dynamically at runtime from
+AnyList's embedded official schema, while `anylist_sdk.proto` ships a `.pyi` generated from the
+same schema so editors and type checkers still see concrete models and fields. For example,
+`ShoppingList.items` is typed as a repeated collection of `ListItem`, and recipe ingredients
+are `PBIngredient` values rather than generic protobuf `Message` objects.
+
+The checked-in protobuf stub is reproducible with `tools/generate_proto_stubs.py`; `--check`
+fails when the schema and stub drift. The test suite also runs a strict mypy consumer fixture.
 
 ## Live conformance
 

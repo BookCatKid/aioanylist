@@ -7,7 +7,7 @@ from uuid import UUID
 from google.protobuf.message import Message
 
 from ..identifiers import uuid4_hex, uuid5_hex
-from ..operations import QueueSpec
+from ..operations import OperationJournal, QueueSpec
 from ..derived import (
     add_item_ingredient,
     event_list_item_to_item_ingredient,
@@ -31,9 +31,28 @@ from ..normalization import canonical_category_match_id
 from ..parsing.quantity import normalize_unit
 from ..stemming import stem_words
 from .starter import favorite_list_id, recent_list_id
-from ..proto import PB
+from ..proto import (
+    PB,
+    ListItem,
+    PBCalendarEvent,
+    PBItemIngredient,
+    PBItemPackageSize,
+    PBItemPrice,
+    PBItemQuantity,
+    PBListCategorizationRule,
+    PBListCategory,
+    PBListCategoryGroup,
+    PBListItemCategoryAssignment,
+    PBNotificationLocation,
+    PBRecipe,
+    PBStore,
+    PBStoreFilter,
+    ShoppingList,
+    ShoppingListsResponse,
+)
 from ..state import AnyListState, clone
 from ..transport import AnyListTransport
+from ..types import OperationAck
 from .base import OperationService, clone_message
 
 # Official web client namespace used by list categorization-rule IDs.
@@ -60,7 +79,14 @@ def category_rule_identifier(item_name: str, category_group_id: str, list_id: st
 class ShoppingListsService(OperationService):
     """Shopping-list API with optimistic protobuf-backed state."""
 
-    def __init__(self, transport: AnyListTransport, state: AnyListState, *, user_id: str, journal=None):
+    def __init__(
+        self,
+        transport: AnyListTransport,
+        state: AnyListState,
+        *,
+        user_id: str,
+        journal: OperationJournal | None = None,
+    ) -> None:
         super().__init__(
             transport,
             state,
@@ -92,7 +118,9 @@ class ShoppingListsService(OperationService):
         self.legacy_queue.on_response = self._on_legacy_response
         self.on_store_filter_removed: Callable[[str, str, bool], Awaitable[None]] | None = None
         self.on_category_group_removed: Callable[[str, str, bool], Awaitable[None]] | None = None
-        self.on_items_became_recent: Callable[[str, Sequence[Message], bool, bool], Awaitable[None]] | None = None
+        self.on_items_became_recent: Callable[
+            [str, Sequence[ListItem], bool, bool], Awaitable[None]
+        ] | None = None
         self.on_folder_refresh_requested: Callable[[], Awaitable[object]] | None = None
         self._refresh_after_legacy_queue = False
         self._refresh_after_v2_queue = False
@@ -175,13 +203,13 @@ class ShoppingListsService(OperationService):
         if refresh_lists:
             await self.refresh()
 
-    def all(self) -> list[Message]:
+    def all(self) -> list[ShoppingList]:
         return list(self.state.shopping_lists.values())
 
-    def get(self, list_id: str) -> Message | None:
+    def get(self, list_id: str) -> ShoppingList | None:
         return self.state.shopping_lists.get(list_id)
 
-    def item(self, list_id: str, item_id: str) -> Message | None:
+    def item(self, list_id: str, item_id: str) -> ListItem | None:
         return self.state.get_item(list_id, item_id)
 
     def has_pending_new_list(self) -> bool:
@@ -190,7 +218,7 @@ class ShoppingListsService(OperationService):
             for op in self.legacy_queue._pending
         )
 
-    def remove_list_local(self, list_id: str) -> Message | None:
+    def remove_list_local(self, list_id: str) -> ShoppingList | None:
         """Apply ShoppingListManager.qB's local list-removal side effects.
 
         Folder membership and PBListSettings queueing are coordinated by the client/folder
@@ -202,7 +230,7 @@ class ShoppingListsService(OperationService):
         self.state._drop_list_local_state(list_id)
         return removed
 
-    async def refresh(self) -> Message | None:
+    async def refresh(self) -> ShoppingListsResponse | None:
         # gQ() never fetches list snapshots over pending local edits.  Legacy and v2 queues
         # share one deferred-refresh flag in the web manager; keep one flag per Python queue
         # so the acknowledgement that actually drains the pending work resumes the fetch.
@@ -224,18 +252,18 @@ class ShoppingListsService(OperationService):
         )
         if response is None:
             return None
-        assert isinstance(response, Message)
+        assert isinstance(response, PB.ShoppingListsResponse)
         self.state.apply_shopping_lists(response)
         return response
 
     @staticmethod
-    def _find_item_index(lst: Message, item_id: str) -> int:
+    def _find_item_index(lst: ShoppingList, item_id: str) -> int:
         for idx, item in enumerate(lst.items):
             if item.identifier == item_id:
                 return idx
         return -1
 
-    async def create(self, name: str, *, list_id: str | None = None, flush: bool = True) -> Message:
+    async def create(self, name: str, *, list_id: str | None = None, flush: bool = True) -> ShoppingList:
         list_id = list_id or uuid4_hex()
         lst = PB.ShoppingList(identifier=list_id, name=name)
         self.state.shopping_lists[list_id] = clone(lst)
@@ -295,14 +323,14 @@ class ShoppingListsService(OperationService):
         *,
         item_id: str | None = None,
         details: str | None = None,
-        quantity: Message | None = None,
-        package_size: Message | None = None,
+        quantity: PBItemQuantity | None = None,
+        package_size: PBItemPackageSize | None = None,
         category_match_id: str | None = None,
         store_ids: Sequence[str] = (),
         product_upc: str | None = None,
         flush: bool = True,
         handler_id: str = "add-shopping-list-item",
-    ) -> Message:
+    ) -> ListItem:
         lst = self._require_list(list_id)
         item = PB.ListItem(identifier=item_id or uuid4_hex(), listId=list_id, name=name)
         if details is not None:
@@ -338,13 +366,13 @@ class ShoppingListsService(OperationService):
     async def add_items(
         self,
         list_id: str,
-        items: Iterable[Message],
+        items: Iterable[ListItem],
         *,
         flush: bool = True,
         handler_id: str = "bulk-add-list-items",
-    ) -> list[Message]:
+    ) -> list[ListItem]:
         lst = self._require_list(list_id)
-        clones: list[Message] = []
+        clones: list[ListItem] = []
         for source in items:
             item = clone_message(source)
             item.listId = list_id
@@ -374,7 +402,7 @@ class ShoppingListsService(OperationService):
             )
         if flush:
             await self.flush()
-        result: list[Message] = []
+        result: list[ListItem] = []
         for item in clones:
             stored = self.item(list_id, item.identifier)
             if stored is not None:
@@ -384,12 +412,12 @@ class ShoppingListsService(OperationService):
     async def revive_matching_item(
         self,
         list_id: str,
-        source_item: Message,
+        source_item: ListItem,
         *,
-        store_filter: Message | None = None,
-        selected_category: Message | None = None,
+        store_filter: PBStoreFilter | None = None,
+        selected_category: PBListCategory | None = None,
         flush: bool = True,
-    ) -> Message | None:
+    ) -> ListItem | None:
         """Revive the current-list item represented by an autocomplete item.
 
         The web add-item controller treats current-list autocomplete rows specially: it
@@ -532,7 +560,7 @@ class ShoppingListsService(OperationService):
             flush=flush,
         )
 
-    async def set_quantity(self, list_id: str, item_id: str, quantity: Message, *, flush: bool = True) -> None:
+    async def set_quantity(self, list_id: str, item_id: str, quantity: PBItemQuantity, *, flush: bool = True) -> None:
         item = self._require_item(list_id, item_id)
         current = item.quantityPb if item.HasField("quantityPb") else PB.PBItemQuantity()
         if quantity_equal(current, quantity):
@@ -551,7 +579,7 @@ class ShoppingListsService(OperationService):
             "set-list-item-quantity-v2", listId=list_id, listItemId=item_id, listItem=partial, flush=flush
         )
 
-    async def set_package_size(self, list_id: str, item_id: str, package_size: Message, *, flush: bool = True) -> None:
+    async def set_package_size(self, list_id: str, item_id: str, package_size: PBItemPackageSize, *, flush: bool = True) -> None:
         item = self._require_item(list_id, item_id)
         current = item.packageSizePb if item.HasField("packageSizePb") else PB.PBItemPackageSize()
         if package_size_equal(current, package_size):
@@ -589,7 +617,7 @@ class ShoppingListsService(OperationService):
             listId=list_id, listItemId=item_id, listItem=partial, flush=flush,
         )
 
-    async def set_price_quantity(self, list_id: str, item_id: str, quantity: Message, *, flush: bool = True) -> None:
+    async def set_price_quantity(self, list_id: str, item_id: str, quantity: PBItemQuantity, *, flush: bool = True) -> None:
         item = self._require_item(list_id, item_id)
         current = item.priceQuantityPb if item.HasField("priceQuantityPb") else PB.PBItemQuantity()
         if quantity_equal(current, quantity):
@@ -599,7 +627,7 @@ class ShoppingListsService(OperationService):
         partial.priceQuantityPb.CopyFrom(quantity)
         await self.operation("set-list-item-price-quantity", listId=list_id, listItemId=item_id, listItem=partial, flush=flush)
 
-    async def set_price_package_size(self, list_id: str, item_id: str, package: Message, *, flush: bool = True) -> None:
+    async def set_price_package_size(self, list_id: str, item_id: str, package: PBItemPackageSize, *, flush: bool = True) -> None:
         item = self._require_item(list_id, item_id)
         current = item.pricePackageSizePb if item.HasField("pricePackageSizePb") else PB.PBItemPackageSize()
         if package_size_equal(current, package):
@@ -629,7 +657,7 @@ class ShoppingListsService(OperationService):
         partial = PB.ListItem(identifier=item_id, listId=list_id, pricePackageSizeShouldOverrideItemPackageSize=value)
         await self.operation("set-list-item-price-package-size-should-override-item-package-size", listId=list_id, listItemId=item_id, listItem=partial, flush=flush)
 
-    async def assign_category(self, list_id: str, item_id: str, assignment: Message, *, flush: bool = True) -> None:
+    async def assign_category(self, list_id: str, item_id: str, assignment: PBListItemCategoryAssignment, *, flush: bool = True) -> None:
         item = self._require_item(list_id, item_id)
         if not assignment.categoryGroupId:
             return
@@ -682,7 +710,7 @@ class ShoppingListsService(OperationService):
         item.storeIds.remove(store_id)
         await self.operation("remove-list-item-store-id", listId=list_id, listItemId=item_id, updatedValue=store_id, flush=flush)
 
-    async def save_price(self, list_id: str, item_id: str, price: Message, *, flush: bool = True) -> None:
+    async def save_price(self, list_id: str, item_id: str, price: PBItemPrice, *, flush: bool = True) -> None:
         item = self._require_item(list_id, item_id)
         store_id = str(getattr(price, "storeId", "") or "")
         empty = (not price.HasField("amount") or float(price.amount) == 0.0) and not (price.details or "")
@@ -776,7 +804,7 @@ class ShoppingListsService(OperationService):
         lst = self._require_list(list_id)
         requested = list(dict.fromkeys(item_ids))
         selected = set(requested)
-        changed_items: list[Message] = []
+        changed_items: list[ListItem] = []
         for item in lst.items:
             if item.identifier in selected and bool(item.checked) != checked:
                 item.checked = checked
@@ -807,7 +835,7 @@ class ShoppingListsService(OperationService):
         *,
         remember_recent: bool = True,
         flush: bool = True,
-    ) -> list[Message]:
+    ) -> list[ListItem]:
         lst = self._require_list(list_id)
         selected = set(item_ids)
         removed = [clone_message(x) for x in lst.items if x.identifier in selected]
@@ -825,7 +853,7 @@ class ShoppingListsService(OperationService):
             await self.on_items_became_recent(list_id, removed, False, flush)
         return removed
 
-    async def clear(self, list_id: str, *, flush: bool = True) -> list[Message]:
+    async def clear(self, list_id: str, *, flush: bool = True) -> list[ListItem]:
         """Remove every item while mirroring AnyList Web's recents behavior."""
         lst = self._require_list(list_id)
         items = [clone_message(item) for item in lst.items]
@@ -840,7 +868,7 @@ class ShoppingListsService(OperationService):
             flush=flush,
         )
 
-    async def remove_checked(self, list_id: str, *, flush: bool = True) -> list[Message]:
+    async def remove_checked(self, list_id: str, *, flush: bool = True) -> list[ListItem]:
         """Remove all crossed-off items, preserving their recents entries."""
         lst = self._require_list(list_id)
         items = [clone_message(item) for item in lst.items if bool(item.checked)]
@@ -888,7 +916,7 @@ class ShoppingListsService(OperationService):
         longitude: float,
         location_id: str | None = None,
         flush: bool = True,
-    ) -> Message | None:
+    ) -> PBNotificationLocation | None:
         lst = self._require_list(list_id)
         # AnyList's AK() helper treats latitude+longitude as the location identity.
         # A duplicate is rejected locally and no operation is queued.
@@ -937,7 +965,7 @@ class ShoppingListsService(OperationService):
     ) -> None:
         lst = self._require_list(list_id)
         wanted = set(item_ids)
-        changed: list[Message] = []
+        changed: list[ListItem] = []
         for item in lst.items:
             if item.identifier not in wanted:
                 continue
@@ -972,23 +1000,23 @@ class ShoppingListsService(OperationService):
             "remove-store-id-from-all-items", listId=list_id, updatedValue=store_id, flush=flush
         )
 
-    def _store_index(self, list_id: str) -> dict[str, Message]:
+    def _store_index(self, list_id: str) -> dict[str, PBStore]:
         return self.state.list_stores.setdefault(list_id, {})
 
-    def _store_filter_index(self, list_id: str) -> dict[str, Message]:
+    def _store_filter_index(self, list_id: str) -> dict[str, PBStoreFilter]:
         return self.state.list_store_filters.setdefault(list_id, {})
 
-    def _category_index(self, list_id: str) -> dict[str, Message]:
+    def _category_index(self, list_id: str) -> dict[str, PBListCategory]:
         return self.state.list_categories.setdefault(list_id, {})
 
-    def _category_group_index(self, list_id: str) -> dict[str, Message]:
+    def _category_group_index(self, list_id: str) -> dict[str, PBListCategoryGroup]:
         return self.state.list_category_groups.setdefault(list_id, {})
 
-    def _categorization_rule_index(self, list_id: str) -> dict[str, Message]:
+    def _categorization_rule_index(self, list_id: str) -> dict[str, PBListCategorizationRule]:
         return self.state.list_categorization_rules.setdefault(list_id, {})
 
     async def save_store(
-        self, list_id: str, store: Message, *, is_new: bool = False, flush: bool = True
+        self, list_id: str, store: PBStore, *, is_new: bool = False, flush: bool = True
     ) -> str:
         updated = clone_message(store)
         if not updated.listId:
@@ -1007,7 +1035,7 @@ class ShoppingListsService(OperationService):
             flush=flush,
         )
 
-    async def delete_store(self, list_id: str, store: Message, *, flush: bool = True) -> str:
+    async def delete_store(self, list_id: str, store: PBStore, *, flush: bool = True) -> str:
         self._store_index(list_id).pop(str(store.identifier), None)
         return await self.operation(
             "delete-store",
@@ -1034,7 +1062,7 @@ class ShoppingListsService(OperationService):
         )
 
     async def save_store_filter(
-        self, list_id: str, store_filter: Message, *, is_new: bool = False, flush: bool = True
+        self, list_id: str, store_filter: PBStoreFilter, *, is_new: bool = False, flush: bool = True
     ) -> str:
         updated = clone_message(store_filter)
         if not updated.listId:
@@ -1052,7 +1080,7 @@ class ShoppingListsService(OperationService):
         )
 
     async def delete_store_filter(
-        self, list_id: str, store_filter: Message, *, flush: bool = True
+        self, list_id: str, store_filter: PBStoreFilter, *, flush: bool = True
     ) -> str:
         filter_id = str(store_filter.identifier)
         self._store_filter_index(list_id).pop(filter_id, None)
@@ -1087,7 +1115,7 @@ class ShoppingListsService(OperationService):
 
     async def save_list_category(
         self,
-        category: Message,
+        category: PBListCategory,
         *,
         handler_id: str = "create-category",
         flush: bool = True,
@@ -1102,24 +1130,24 @@ class ShoppingListsService(OperationService):
             flush=flush,
         )
 
-    async def migrate_list_category(self, category: Message, *, flush: bool = True) -> str:
+    async def migrate_list_category(self, category: PBListCategory, *, flush: bool = True) -> str:
         return await self.save_list_category(category, handler_id="migrate-list-category", flush=flush)
 
     async def rename_list_category(
-        self, category: Message, name: str, *, flush: bool = True
+        self, category: PBListCategory, name: str, *, flush: bool = True
     ) -> str:
         updated = clone_message(category)
         updated.name = name
         return await self.save_list_category(updated, handler_id="set-category-name", flush=flush)
 
     async def set_list_category_icon(
-        self, category: Message, icon: str, *, flush: bool = True
+        self, category: PBListCategory, icon: str, *, flush: bool = True
     ) -> str:
         updated = clone_message(category)
         updated.icon = icon
         return await self.save_list_category(updated, handler_id="set-category-icon", flush=flush)
 
-    def _store_category_group(self, group: Message) -> None:
+    def _store_category_group(self, group: PBListCategoryGroup) -> None:
         list_id = str(group.listId)
         categories = self._category_index(list_id)
         for category in group.categories:
@@ -1130,7 +1158,7 @@ class ShoppingListsService(OperationService):
 
     async def save_category_group(
         self,
-        group: Message,
+        group: PBListCategoryGroup,
         *,
         handler_id: str = "create-category-group",
         flush: bool = True,
@@ -1151,12 +1179,12 @@ class ShoppingListsService(OperationService):
             flush=flush,
         )
 
-    async def migrate_category_group(self, group: Message, *, flush: bool = True) -> str:
+    async def migrate_category_group(self, group: PBListCategoryGroup, *, flush: bool = True) -> str:
         return await self.save_category_group(
             group, handler_id="migrate-list-category-group", flush=flush
         )
 
-    def _default_category_group(self, list_id: str) -> Message | None:
+    def _default_category_group(self, list_id: str) -> PBListCategoryGroup | None:
         groups = self._category_group_index(list_id)
         preferred_id = uuid5_hex(list_id, _CATEGORY_GROUP_NAMESPACE)
         preferred = groups.get(preferred_id)
@@ -1170,7 +1198,7 @@ class ShoppingListsService(OperationService):
         return min(groups.values(), key=lambda value: (str(value.name or "").casefold(), str(value.identifier)))
 
     async def delete_category_group(
-        self, group: Message, *, flush: bool = True
+        self, group: PBListCategoryGroup, *, flush: bool = True
     ) -> str | None:
         list_id = str(group.listId)
         groups = self._category_group_index(list_id)
@@ -1214,7 +1242,7 @@ class ShoppingListsService(OperationService):
         )
 
     async def rename_category_group(
-        self, group: Message, name: str, *, flush: bool = True
+        self, group: PBListCategoryGroup, name: str, *, flush: bool = True
     ) -> str:
         updated = clone_message(group)
         updated.name = name
@@ -1223,7 +1251,7 @@ class ShoppingListsService(OperationService):
         )
 
     async def set_default_category(
-        self, group: Message, category_id: str, *, flush: bool = True
+        self, group: PBListCategoryGroup, category_id: str, *, flush: bool = True
     ) -> str:
         updated = clone_message(group)
         updated.defaultCategoryId = category_id
@@ -1232,7 +1260,7 @@ class ShoppingListsService(OperationService):
         )
 
     async def set_sorted_category_ids(
-        self, group: Message, category_ids: Sequence[str], *, flush: bool = True
+        self, group: PBListCategoryGroup, category_ids: Sequence[str], *, flush: bool = True
     ) -> str:
         list_id = str(group.listId)
         category_index = self._category_index(list_id)
@@ -1270,7 +1298,7 @@ class ShoppingListsService(OperationService):
         )
 
     async def remove_category_ids(
-        self, group: Message, categories: Sequence[Message], *, flush: bool = True
+        self, group: PBListCategoryGroup, categories: Sequence[PBListCategory], *, flush: bool = True
     ) -> str:
         list_id = str(group.listId)
         index = self._category_index(list_id)
@@ -1295,7 +1323,7 @@ class ShoppingListsService(OperationService):
         return operation_id
 
     async def save_categorization_rule(
-        self, rule: Message, *, flush: bool = True
+        self, rule: PBListCategorizationRule, *, flush: bool = True
     ) -> str:
         updated = clone_message(rule)
         self._categorization_rule_index(str(updated.listId))[str(updated.identifier)] = clone_message(updated)
@@ -1308,7 +1336,7 @@ class ShoppingListsService(OperationService):
         )
 
     async def bulk_save_categorization_rules(
-        self, list_id: str, rules: Sequence[Message], *, flush: bool = True
+        self, list_id: str, rules: Sequence[PBListCategorizationRule], *, flush: bool = True
     ) -> None:
         index = self._categorization_rule_index(list_id)
         for rule in rules:
@@ -1325,7 +1353,7 @@ class ShoppingListsService(OperationService):
             await self.flush()
 
     async def migrate_categorization_rules(
-        self, list_id: str, rules: Sequence[Message], *, flush: bool = True
+        self, list_id: str, rules: Sequence[PBListCategorizationRule], *, flush: bool = True
     ) -> None:
         index = self._categorization_rule_index(list_id)
         for rule in rules:
@@ -1342,7 +1370,7 @@ class ShoppingListsService(OperationService):
             await self.flush()
 
     async def remove_categorization_rules_for_category_ids(
-        self, group: Message, category_ids: Sequence[str], *, flush: bool = True
+        self, group: PBListCategoryGroup, category_ids: Sequence[str], *, flush: bool = True
     ) -> str:
         list_id = str(group.listId)
         category_ids_set = {str(x) for x in category_ids}
@@ -1376,8 +1404,8 @@ class ShoppingListsService(OperationService):
         )
 
     def _saved_item_for_recipe_ingredient(
-        self, list_id: str, item_ingredient: Message
-    ) -> Message | None:
+        self, list_id: str, item_ingredient: PBItemIngredient
+    ) -> ListItem | None:
         """Find the favorite/recent item AnyList Web uses to enrich a new recipe item."""
         ingredient = item_ingredient.ingredient if item_ingredient.HasField("ingredient") else PB.PBIngredient()
         wanted_words = stem_words(((ingredient.name or "").lower()).split(" "))
@@ -1413,8 +1441,8 @@ class ShoppingListsService(OperationService):
         return None
 
     async def add_recipe_ingredient(
-        self, list_id: str, item_ingredient: Message, *, flush: bool = True
-    ) -> Message:
+        self, list_id: str, item_ingredient: PBItemIngredient, *, flush: bool = True
+    ) -> ListItem:
         """Merge a recipe ingredient into its deterministic shopping-list item.
 
         Mirrors the web client's provenance model: the deterministic ID is derived from
@@ -1474,7 +1502,7 @@ class ShoppingListsService(OperationService):
         return item
 
     async def _remove_recipe_ingredient_from_item(
-        self, list_id: str, item_id: str, item_ingredient: Message, *, flush: bool = True
+        self, list_id: str, item_id: str, item_ingredient: PBItemIngredient, *, flush: bool = True
     ) -> bool:
         """Remove provenance from a known item ID, matching the web client's ``BK`` path."""
         item = self.item(list_id, item_id)
@@ -1497,7 +1525,7 @@ class ShoppingListsService(OperationService):
         return True
 
     async def remove_recipe_ingredient(
-        self, list_id: str, item_ingredient: Message, *, flush: bool = True
+        self, list_id: str, item_ingredient: PBItemIngredient, *, flush: bool = True
     ) -> bool:
         item_id = recipe_list_item_identifier(item_ingredient, list_id)
         return await self._remove_recipe_ingredient_from_item(
@@ -1505,7 +1533,7 @@ class ShoppingListsService(OperationService):
         )
 
     async def _update_recipe_ingredient_at_item(
-        self, list_id: str, item_id: str, item_ingredient: Message, *, flush: bool = True
+        self, list_id: str, item_id: str, item_ingredient: PBItemIngredient, *, flush: bool = True
     ) -> bool:
         """Replace/add provenance without reviving a checked item.
 
@@ -1527,10 +1555,10 @@ class ShoppingListsService(OperationService):
     async def sync_recipe_update(
         self,
         list_id: str,
-        new_recipe: Message,
-        old_recipe: Message,
+        new_recipe: PBRecipe,
+        old_recipe: PBRecipe,
         *,
-        events: dict[str, Message] | None = None,
+        events: dict[str, PBCalendarEvent] | None = None,
         flush: bool = True,
     ) -> int:
         """Reconcile recipe-derived shopping items after a recipe edit.
@@ -1617,9 +1645,9 @@ class ShoppingListsService(OperationService):
     async def sync_recipe_event_update(
         self,
         list_id: str,
-        new_event: Message,
-        old_event: Message,
-        recipe: Message,
+        new_event: PBCalendarEvent,
+        old_event: PBCalendarEvent,
+        recipe: PBRecipe,
         *,
         flush: bool = True,
     ) -> int:
@@ -1653,7 +1681,7 @@ class ShoppingListsService(OperationService):
         return changed
 
     async def sync_event_list_update(
-        self, list_id: str, new_event: Message, old_event: Message, *, flush: bool = True
+        self, list_id: str, new_event: PBCalendarEvent, old_event: PBCalendarEvent, *, flush: bool = True
     ) -> int:
         """Reconcile free-form meal event list items with shopping provenance (official bR path)."""
         lst = self.get(list_id)
@@ -1709,7 +1737,7 @@ class ShoppingListsService(OperationService):
         lst = self.get(list_id)
         if lst is None:
             return 0
-        matches: list[tuple[str, Message]] = []
+        matches: list[tuple[str, PBItemIngredient]] = []
         for item in list(lst.items):
             for source in list(item.ingredients):
                 if (getattr(source, "eventId", "") or "") == event_id:
@@ -1731,7 +1759,7 @@ class ShoppingListsService(OperationService):
         lst = self.get(list_id)
         if lst is None:
             return 0
-        matches: list[Message] = []
+        matches: list[PBItemIngredient] = []
         for item in list(lst.items):
             for source in list(item.ingredients):
                 if (getattr(source, "recipeId", "") or "") == recipe_id:
@@ -1748,7 +1776,7 @@ class ShoppingListsService(OperationService):
         op = self.legacy_queue.new_operation(handler_id, **fields)
         return await self.legacy_queue.enqueue(op, flush=flush)
 
-    async def flush(self):
+    async def flush(self) -> OperationAck | None:
         # Flush both queues just as the web manager checks both queues.
         a = await self.legacy_queue.flush()
         b = await self.queue.flush()
@@ -1757,13 +1785,13 @@ class ShoppingListsService(OperationService):
     async def restore(self) -> int:
         return await self.legacy_queue.restore() + await self.queue.restore()
 
-    def _require_list(self, list_id: str) -> Message:
+    def _require_list(self, list_id: str) -> ShoppingList:
         value = self.get(list_id)
         if value is None:
             raise KeyError(f"Unknown shopping list {list_id}")
         return value
 
-    def _require_item(self, list_id: str, item_id: str) -> Message:
+    def _require_item(self, list_id: str, item_id: str) -> ListItem:
         value = self.item(list_id, item_id)
         if value is None:
             raise KeyError(f"Unknown list item {item_id} in {list_id}")

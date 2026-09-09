@@ -4,10 +4,9 @@ import json
 from datetime import date
 from functools import cmp_to_key, lru_cache
 from pathlib import Path
+from typing import cast
 from urllib.parse import urlparse
 from uuid import UUID
-
-from google.protobuf.message import Message
 
 from .identifiers import uuid4_hex, uuid5_hex
 from .normalization import collapse_whitespace, localized_sort_key, normalized_for_search, remove_diacritics
@@ -23,7 +22,24 @@ from .parsing.quantity import (
     parse_quantity_and_package_size,
     scale_quantity_text,
 )
-from .proto import PB
+from .proto import (
+    PB,
+    ListItem,
+    PBCalendarEvent,
+    PBCalendarEventDescriptor,
+    PBCalendarEventListItem,
+    PBIcon,
+    PBIngredient,
+    PBItemIngredient,
+    PBItemPackageSize,
+    PBItemPrice,
+    PBItemQuantity,
+    PBMealPlanTemplateGroupItem,
+    PBRecipe,
+    PBRecipeCollection,
+    PBRecipeCollectionSettings,
+    PBRecipeCookingState,
+)
 from .stemming import stem_words
 
 _SOURCE_COLLECTION_NAMESPACE = UUID(hex="6d86f27f66474ca6a540fcf62af29e59")
@@ -34,10 +50,10 @@ _NOT_IN_COLLECTION_ID = "74267bf441d04dbc9dda96910dd3ba58"
 @lru_cache(maxsize=1)
 def recipe_source_aliases() -> dict[str, str]:
     path = Path(__file__).with_name("data") / "recipe_source_aliases.json"
-    return json.loads(path.read_text(encoding="utf-8"))
+    return cast(dict[str, str], json.loads(path.read_text(encoding="utf-8")))
 
 
-def source_domain(recipe: Message) -> str | None:
+def source_domain(recipe: PBRecipe) -> str | None:
     value = getattr(recipe, "sourceUrl", "") or ""
     if not value:
         return None
@@ -52,7 +68,7 @@ def source_domain(recipe: Message) -> str | None:
     return host[4:] if host.startswith("www.") else host
 
 
-def source_display_name(recipe: Message) -> str | None:
+def source_display_name(recipe: PBRecipe) -> str | None:
     value = (getattr(recipe, "sourceName", "") or "") or source_domain(recipe)
     if not value:
         return None
@@ -61,7 +77,7 @@ def source_display_name(recipe: Message) -> str | None:
     return recipe_source_aliases().get(value.lower(), value)
 
 
-def normalized_source_name(recipe: Message) -> str:
+def normalized_source_name(recipe: PBRecipe) -> str:
     value = source_display_name(recipe)
     if not value:
         return ""
@@ -76,12 +92,12 @@ def source_collection_identifier(normalized_name: str) -> str:
 
 
 def source_smart_collection(
-    recipes: list[Message],
+    recipes: list[PBRecipe],
     normalized_name: str,
     *,
     unknown_name: str = "Unknown Source",
-    saved_settings: Message | None = None,
-) -> Message:
+    saved_settings: PBRecipeCollectionSettings | None = None,
+) -> PBRecipeCollection:
     collection_id = source_collection_identifier(normalized_name)
     matching = [r for r in recipes if normalized_source_name(r) == normalized_name]
     display = source_display_name(matching[0]) if matching else None
@@ -107,12 +123,14 @@ def source_smart_collection(
 
 
 def source_smart_collections(
-    recipes: list[Message], *, saved_settings: dict[str, Message] | None = None
-) -> list[Message]:
+    recipes: list[PBRecipe],
+    *,
+    saved_settings: dict[str, PBRecipeCollectionSettings] | None = None,
+) -> list[PBRecipeCollection]:
     # eh.hh builds a JS object while walking recipes in manager order, then returns its
     # values. UUID-like keys retain insertion order, so source buckets are first-seen order.
     names = list(dict.fromkeys(normalized_source_name(r) for r in recipes))
-    out: list[Message] = []
+    out: list[PBRecipeCollection] = []
     for name in names:
         identifier = source_collection_identifier(name)
         out.append(
@@ -125,7 +143,9 @@ def source_smart_collections(
     return out
 
 
-def recipes_not_in_collection(recipes: list[Message], collections: list[Message]) -> list[Message]:
+def recipes_not_in_collection(
+    recipes: list[PBRecipe], collections: list[PBRecipeCollection]
+) -> list[PBRecipe]:
     assigned: set[str] = set()
     for collection in collections:
         # Ignore client-derived smart collections when computing the synthetic bucket.
@@ -136,12 +156,12 @@ def recipes_not_in_collection(recipes: list[Message], collections: list[Message]
 
 
 def not_in_collection_smart_collection(
-    recipes: list[Message],
-    collections: list[Message],
+    recipes: list[PBRecipe],
+    collections: list[PBRecipeCollection],
     *,
     name: str = "Not in a Collection",
-    saved_settings: Message | None = None,
-) -> Message:
+    saved_settings: PBRecipeCollectionSettings | None = None,
+) -> PBRecipeCollection:
     """Build the synthetic collection produced by AnyList Web's ``eh.fh`` helper."""
     collection = PB.PBRecipeCollection(identifier=_NOT_IN_COLLECTION_ID, name=name)
     collection.recipeIds.extend(
@@ -161,7 +181,7 @@ def not_in_collection_smart_collection(
     return collection
 
 
-def duplicate_recipe_ids(collection: Message) -> list[str]:
+def duplicate_recipe_ids(collection: PBRecipeCollection) -> list[str]:
     seen: set[str] = set()
     dupes: list[str] = []
     for recipe_id in collection.recipeIds:
@@ -176,14 +196,14 @@ def duplicate_recipe_ids(collection: Message) -> list[str]:
 
 
 
-def _recipe_name_compare(a: Message, b: Message) -> int:
+def _recipe_name_compare(a: PBRecipe, b: PBRecipe) -> int:
     ka = localized_sort_key((getattr(a, "name", "") or "").lower())
     kb = localized_sort_key((getattr(b, "name", "") or "").lower())
     return -1 if ka < kb else 1 if ka > kb else 0
 
 
 def _meal_history_for_recipe(
-    recipe_id: str, events: list[Message] | tuple[Message, ...], *, today: str
+    recipe_id: str, events: list[PBCalendarEvent] | tuple[PBCalendarEvent, ...], *, today: str
 ) -> tuple[str, int]:
     """Return AnyList Web's last-prepared date and prepared count for a recipe."""
     calendar_type = PB.PBCalendarEventType.MealPlanCalendarEvent
@@ -203,12 +223,12 @@ def _meal_history_for_recipe(
 
 
 def sort_recipes(
-    recipes: list[Message] | tuple[Message, ...],
-    settings: Message | None,
+    recipes: list[PBRecipe] | tuple[PBRecipe, ...],
+    settings: PBRecipeCollectionSettings | None,
     *,
-    meal_plan_events: list[Message] | tuple[Message, ...] = (),
+    meal_plan_events: list[PBCalendarEvent] | tuple[PBCalendarEvent, ...] = (),
     today: str | None = None,
-) -> list[Message]:
+) -> list[PBRecipe]:
     """Sort recipes with the exact ordering rules used by AnyList Web.
 
     Manual order is preserved. For Date Prepared and Times Prepared the web client derives
@@ -226,7 +246,7 @@ def sort_recipes(
     today_value = today or date.today().isoformat()
     history_cache: dict[str, tuple[str, int]] = {}
 
-    def history(recipe: Message) -> tuple[str, int]:
+    def history(recipe: PBRecipe) -> tuple[str, int]:
         rid = str(getattr(recipe, "identifier", "") or "")
         if rid not in history_cache:
             history_cache[rid] = _meal_history_for_recipe(
@@ -234,7 +254,7 @@ def sort_recipes(
             )
         return history_cache[rid]
 
-    def cmp(a: Message, b: Message) -> int:
+    def cmp(a: PBRecipe, b: PBRecipe) -> int:
         name_cmp = _recipe_name_compare(a, b)
         if order == int(enum.AlphabeticalSortOrder):
             return -name_cmp if reversed_direction else name_cmp
@@ -288,21 +308,21 @@ def sort_recipes(
     return values
 
 
-def effective_recipe_scale_factor(recipe: Message | None) -> float:
+def effective_recipe_scale_factor(recipe: PBRecipe | None) -> float:
     if recipe is None:
         return 1.0
     value = float(getattr(recipe, "scaleFactor", 0.0) or 0.0)
     return value or 1.0
 
 
-def effective_event_scale_factor(event: Message | None) -> float:
+def effective_event_scale_factor(event: PBCalendarEvent | None) -> float:
     if event is None:
         return 1.0
     value = float(getattr(event, "recipeScaleFactor", 0.0) or 0.0)
     return value or 1.0
 
 
-def full_ingredient_string(ingredient: Message, *, quantity: str | None = None) -> str:
+def full_ingredient_string(ingredient: PBIngredient, *, quantity: str | None = None) -> str:
     amount = (getattr(ingredient, "quantity", "") or "") if quantity is None else quantity
     name = getattr(ingredient, "name", "") or ""
     note = getattr(ingredient, "note", "") or ""
@@ -317,8 +337,8 @@ def full_ingredient_string(ingredient: Message, *, quantity: str | None = None) 
 
 
 def ingredient_to_item_ingredient(
-    ingredient: Message, recipe: Message, event: Message | None = None
-) -> Message:
+    ingredient: PBIngredient, recipe: PBRecipe, event: PBCalendarEvent | None = None
+) -> PBItemIngredient:
     """Port ``PBIngredient.toItemIngredientWithRecipeAndEvent`` from AnyList Web.
 
     This is intentionally protobuf-in/protobuf-out: the provenance object is part of the
@@ -380,7 +400,7 @@ def ingredient_to_item_ingredient(
         out.packageSizePb.CopyFrom(package)
     return out
 
-def normalized_raw_package_size(package: Message | None) -> str:
+def normalized_raw_package_size(package: PBItemPackageSize | None) -> str:
     if package is None:
         return ""
     raw = getattr(package, "rawPackageSize", "") or ""
@@ -398,7 +418,7 @@ def normalized_raw_package_size(package: Message | None) -> str:
     return f"{normalized} {remainder}".strip() if remainder else normalized
 
 
-def recipe_list_item_identifier(item_ingredient: Message, list_id: str) -> str:
+def recipe_list_item_identifier(item_ingredient: PBItemIngredient, list_id: str) -> str:
     package = item_ingredient.packageSizePb if item_ingredient.HasField("packageSizePb") else PB.PBItemPackageSize()
     quantity = item_ingredient.quantityPb if item_ingredient.HasField("quantityPb") else PB.PBItemQuantity()
     ingredient = item_ingredient.ingredient if item_ingredient.HasField("ingredient") else PB.PBIngredient()
@@ -410,7 +430,7 @@ def recipe_list_item_identifier(item_ingredient: Message, list_id: str) -> str:
     return uuid5_hex(seed, list_id)
 
 
-def same_recipe_ingredient(a: Message, b: Message) -> bool:
+def same_recipe_ingredient(a: PBItemIngredient, b: PBItemIngredient) -> bool:
     a_ing = a.ingredient.identifier if a.HasField("ingredient") else ""
     b_ing = b.ingredient.identifier if b.HasField("ingredient") else ""
     return (
@@ -420,7 +440,7 @@ def same_recipe_ingredient(a: Message, b: Message) -> bool:
     )
 
 
-def add_item_ingredient(item: Message, ingredient: Message) -> None:
+def add_item_ingredient(item: ListItem, ingredient: PBItemIngredient) -> None:
     for index, existing in enumerate(item.ingredients):
         if same_recipe_ingredient(existing, ingredient):
             item.ingredients[index].CopyFrom(ingredient)
@@ -428,7 +448,7 @@ def add_item_ingredient(item: Message, ingredient: Message) -> None:
     item.ingredients.add().CopyFrom(ingredient)
 
 
-def remove_item_ingredient(item: Message, ingredient: Message) -> bool:
+def remove_item_ingredient(item: ListItem, ingredient: PBItemIngredient) -> bool:
     for index, existing in enumerate(item.ingredients):
         if same_recipe_ingredient(existing, ingredient):
             del item.ingredients[index]
@@ -436,17 +456,17 @@ def remove_item_ingredient(item: Message, ingredient: Message) -> bool:
     return False
 
 
-def item_quantity(item: Message) -> Message:
+def item_quantity(item: ListItem) -> PBItemQuantity:
     return item.quantityPb if item.HasField("quantityPb") else PB.PBItemQuantity()
 
 
-def ingredient_package_size(item: Message) -> Message:
+def ingredient_package_size(item: ListItem) -> PBItemPackageSize:
     if item.ingredients and item.ingredients[0].HasField("packageSizePb"):
         return item.ingredients[0].packageSizePb
     return PB.PBItemPackageSize()
 
 
-def total_ingredient_quantity(item: Message) -> Message | None:
+def total_ingredient_quantity(item: ListItem) -> PBItemQuantity | None:
     if not item.ingredients:
         return None
     out = PB.PBItemQuantity()
@@ -484,32 +504,32 @@ def total_ingredient_quantity(item: Message) -> Message | None:
     return out
 
 
-def list_quantity(item: Message) -> Message:
+def list_quantity(item: ListItem) -> PBItemQuantity:
     if item.ingredients and not bool(getattr(item, "itemQuantityShouldOverrideIngredientQuantity", False)):
         return total_ingredient_quantity(item) or PB.PBItemQuantity()
     return item_quantity(item)
 
 
-def active_quantity_for_total_cost(item: Message) -> Message:
+def active_quantity_for_total_cost(item: ListItem) -> PBItemQuantity:
     if bool(getattr(item, "priceQuantityShouldOverrideItemQuantity", False)):
         return item.priceQuantityPb if item.HasField("priceQuantityPb") else PB.PBItemQuantity()
     return list_quantity(item)
 
 
-def total_cost(item: Message, price: Message) -> float:
+def total_cost(item: ListItem, price: PBItemPrice) -> float:
     amount = float(getattr(price, "amount", 0.0) or 0.0)
     quantity = active_quantity_for_total_cost(item)
     multiplier = amount_as_float(quantity.amount or "") if quantity.amount else 1.0
     return amount * multiplier
 
 
-def active_package_size(item: Message) -> Message:
+def active_package_size(item: ListItem) -> PBItemPackageSize:
     if bool(getattr(item, "pricePackageSizeShouldOverrideItemPackageSize", False)):
         return item.pricePackageSizePb if item.HasField("pricePackageSizePb") else PB.PBItemPackageSize()
     return item.packageSizePb if item.HasField("packageSizePb") else PB.PBItemPackageSize()
 
 
-def unit_price(item: Message, price: Message) -> float:
+def unit_price(item: ListItem, price: PBItemPrice) -> float:
     amount = float(getattr(price, "amount", 0.0) or 0.0)
     package = active_package_size(item)
     divisor = amount_as_float(package.size or "") if package.size else 0.0
@@ -518,7 +538,7 @@ def unit_price(item: Message, price: Message) -> float:
     return amount / divisor
 
 
-def display_quantity_and_package_size(quantity: Message | None, package: Message | None) -> str:
+def display_quantity_and_package_size(quantity: PBItemQuantity | None, package: PBItemPackageSize | None) -> str:
     """Plain-text form used by AnyList when a meal-plan list item becomes an ingredient."""
     q = (getattr(quantity, "rawQuantity", "") or "") if quantity is not None else ""
     p = (getattr(package, "rawPackageSize", "") or "") if package is not None else ""
@@ -527,7 +547,7 @@ def display_quantity_and_package_size(quantity: Message | None, package: Message
     return q or p
 
 
-def event_list_item_to_item_ingredient(item: Message, event: Message) -> Message:
+def event_list_item_to_item_ingredient(item: PBCalendarEventListItem, event: PBCalendarEvent) -> PBItemIngredient:
     """Port PBCalendarEventListItem.toItemIngredientWithEvent from AnyList Web."""
     quantity = item.quantityPb if item.HasField("quantityPb") else PB.PBItemQuantity()
     package = item.packageSizePb if item.HasField("packageSizePb") else PB.PBItemPackageSize()
@@ -561,7 +581,7 @@ def event_list_item_to_item_ingredient(item: Message, event: Message) -> Message
     return out
 
 
-def recipe_servings_after_scaling(recipe: Message, event: Message | None = None) -> str:
+def recipe_servings_after_scaling(recipe: PBRecipe, event: PBCalendarEvent | None = None) -> str:
     """Port PBRecipe.servingsAfterScalingForEvent."""
     servings = str(getattr(recipe, "servings", "") or "")
     if not servings:
@@ -581,7 +601,7 @@ def recipe_servings_after_scaling(recipe: Message, event: Message | None = None)
     return servings[:first_digit] + scaled if first_digit > 0 else scaled
 
 
-def recipe_ingredients_excluding_headings(recipe: Message, enabled: bool = True) -> list[Message] | None:
+def recipe_ingredients_excluding_headings(recipe: PBRecipe, enabled: bool = True) -> list[PBIngredient] | None:
     """Port PBRecipe.ingredientsExcludingHeadings's intentionally gated behavior."""
     if not enabled:
         return None
@@ -596,13 +616,13 @@ def recipe_heading_text(value: str) -> str:
     return value[2:] if is_recipe_heading(value) else value
 
 
-def recipe_prep_steps_excluding_headings(recipe: Message, enabled: bool = True) -> list[str] | None:
+def recipe_prep_steps_excluding_headings(recipe: PBRecipe, enabled: bool = True) -> list[str] | None:
     if not enabled:
         return None
     return [step for step in recipe.preparationSteps if not is_recipe_heading(step)]
 
 
-def duplicate_ingredient(ingredient: Message) -> Message:
+def duplicate_ingredient(ingredient: PBIngredient) -> PBIngredient:
     """Duplicate an ingredient exactly like PBIngredient.duplicateIngredient."""
     out = PB.PBIngredient(identifier=uuid4_hex())
     for field in ("rawIngredient", "name", "quantity", "note"):
@@ -614,7 +634,7 @@ def duplicate_ingredient(ingredient: Message) -> Message:
     return out
 
 
-def duplicate_recipe(recipe: Message) -> Message:
+def duplicate_recipe(recipe: PBRecipe) -> PBRecipe:
     """Port PBRecipe.duplicateRecipe; server-owned/derived fields are deliberately omitted."""
     out = PB.PBRecipe(identifier=uuid4_hex())
     for field in ("name", "icon", "note", "sourceName", "sourceUrl"):
@@ -634,7 +654,7 @@ def duplicate_recipe(recipe: Message) -> Message:
     return out
 
 
-def cooking_states_equal(a: Message, b: Message | None) -> bool:
+def cooking_states_equal(a: PBRecipeCookingState, b: PBRecipeCookingState | None) -> bool:
     if b is None:
         return False
     return (
@@ -649,7 +669,7 @@ def cooking_states_equal(a: Message, b: Message | None) -> bool:
     )
 
 
-def icons_equal(a: Message, b: Message | None) -> bool:
+def icons_equal(a: PBIcon, b: PBIcon | None) -> bool:
     if b is None:
         return False
     return (getattr(a, "iconName", "") or "") == (getattr(b, "iconName", "") or "") and (
@@ -657,71 +677,79 @@ def icons_equal(a: Message, b: Message | None) -> bool:
     ) == (getattr(b, "tintHexColor", "") or "")
 
 
-def icon_resource_path(icon: Message) -> str:
+def icon_resource_path(icon: PBIcon) -> str:
     return f"icon_sets/{getattr(icon, 'iconName', '')}.png"
 
 
-def calendar_event_descriptor(event_id: str, event_type: int) -> Message:
+def calendar_event_descriptor(event_id: str, event_type: int) -> PBCalendarEventDescriptor:
     return PB.PBCalendarEventDescriptor(eventId=event_id, eventType=event_type)
 
 
-def descriptor_for_calendar_event(event_id: str) -> Message:
+def descriptor_for_calendar_event(event_id: str) -> PBCalendarEventDescriptor:
     return calendar_event_descriptor(event_id, PB.PBCalendarEventType.MealPlanCalendarEvent)
 
 
-def descriptor_for_queue_event(event_id: str) -> Message:
+def descriptor_for_queue_event(event_id: str) -> PBCalendarEventDescriptor:
     return calendar_event_descriptor(event_id, PB.PBCalendarEventType.MealPlanQueueEvent)
 
 
-def descriptor_for_favorite_event(event_id: str) -> Message:
+def descriptor_for_favorite_event(event_id: str) -> PBCalendarEventDescriptor:
     return calendar_event_descriptor(event_id, PB.PBCalendarEventType.MealPlanFavoriteEvent)
 
 
-def descriptor_for_template_event(event_id: str) -> Message:
+def descriptor_for_template_event(event_id: str) -> PBCalendarEventDescriptor:
     return calendar_event_descriptor(event_id, PB.PBCalendarEventType.MealPlanTemplateEvent)
 
 
-def event_descriptor(event: Message) -> Message:
+def event_descriptor(event: PBCalendarEvent) -> PBCalendarEventDescriptor:
     return calendar_event_descriptor(str(event.identifier), int(event.eventType))
 
 
-def descriptors_equal(a: Message, b: Message | None) -> bool:
+def descriptors_equal(
+    a: PBCalendarEventDescriptor, b: PBCalendarEventDescriptor | None
+) -> bool:
     return b is not None and a.eventId == b.eventId and int(a.eventType) == int(b.eventType)
 
 
-def descriptor_is_calendar_event(descriptor: Message) -> bool:
+def descriptor_is_calendar_event(descriptor: PBCalendarEventDescriptor) -> bool:
     return int(descriptor.eventType) == int(PB.PBCalendarEventType.MealPlanCalendarEvent)
 
 
-def descriptor_is_queue_event(descriptor: Message) -> bool:
+def descriptor_is_queue_event(descriptor: PBCalendarEventDescriptor) -> bool:
     return int(descriptor.eventType) == int(PB.PBCalendarEventType.MealPlanQueueEvent)
 
 
-def descriptor_is_favorite_event(descriptor: Message) -> bool:
+def descriptor_is_favorite_event(descriptor: PBCalendarEventDescriptor) -> bool:
     return int(descriptor.eventType) == int(PB.PBCalendarEventType.MealPlanFavoriteEvent)
 
 
-def descriptor_is_template_event(descriptor: Message) -> bool:
+def descriptor_is_template_event(descriptor: PBCalendarEventDescriptor) -> bool:
     return int(descriptor.eventType) == int(PB.PBCalendarEventType.MealPlanTemplateEvent)
 
 
-def template_group_item_for_template(template_id: str) -> Message:
+def template_group_item_for_template(template_id: str) -> PBMealPlanTemplateGroupItem:
     return PB.PBMealPlanTemplateGroupItem(
         identifier=template_id, itemType=PB.PBMealPlanTemplateGroupItem.Type.Template
     )
 
 
-def template_group_item_for_group(group_id: str) -> Message:
+def template_group_item_for_group(group_id: str) -> PBMealPlanTemplateGroupItem:
     return PB.PBMealPlanTemplateGroupItem(
         identifier=group_id, itemType=PB.PBMealPlanTemplateGroupItem.Type.Group
     )
 
 
-def template_group_items_equal(a: Message, b: Message) -> bool:
+def template_group_items_equal(a: PBMealPlanTemplateGroupItem, b: PBMealPlanTemplateGroupItem) -> bool:
     return int(a.itemType) == int(b.itemType) and a.identifier == b.identifier
 
 
-def event_list_items_equal(a: Message, b: Message, *, ignore_identifier: bool = False, normalized: bool = False) -> bool:
+def event_list_items_equal(
+    a: PBCalendarEventListItem,
+    b: PBCalendarEventListItem,
+    *,
+    ignore_identifier: bool = False,
+    normalized: bool = False,
+) -> bool:
     if not ignore_identifier and a.identifier != b.identifier:
         return False
     a_name = a.name or ""
@@ -743,7 +771,12 @@ def event_list_items_equal(a: Message, b: Message, *, ignore_identifier: bool = 
     return quantity_equal(aq, bq) and package_size_equal(ap, bp)
 
 
-def event_list_item_arrays_equal(a, b, *, ignore_identifier: bool = False) -> bool:
+def event_list_item_arrays_equal(
+    a: list[PBCalendarEventListItem] | tuple[PBCalendarEventListItem, ...],
+    b: list[PBCalendarEventListItem] | tuple[PBCalendarEventListItem, ...],
+    *,
+    ignore_identifier: bool = False,
+) -> bool:
     left = list(a or ())
     right = list(b or ())
     if len(left) != len(right):

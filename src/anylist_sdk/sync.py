@@ -5,6 +5,7 @@ from collections.abc import Awaitable, Callable
 
 from google.protobuf.message import Message
 
+from .proto import PB, PBUserDataResponse
 from .state import AnyListState
 from .transport import AnyListTransport
 from .types import Domain
@@ -21,7 +22,7 @@ class SyncCoordinator:
         self.transport = transport
         self.state = state
         self._lock = asyncio.Lock()
-        self._inflight: asyncio.Task[Message | None] | None = None
+        self._inflight: asyncio.Task[PBUserDataResponse | None] | None = None
         self._listeners: list[SyncListener] = []
         self._field_guards: dict[str, FieldGuard] = {}
         self._busy_callbacks: dict[str, BusyCallback] = {}
@@ -46,7 +47,7 @@ class SyncCoordinator:
                 await result
 
     @staticmethod
-    def _domains_in(response: Message) -> set[Domain]:
+    def _domains_in(response: PBUserDataResponse) -> set[Domain]:
         mapping = {
             "shoppingListsResponse": Domain.SHOPPING_LISTS,
             "listFoldersResponse": Domain.LIST_FOLDERS,
@@ -61,7 +62,7 @@ class SyncCoordinator:
         }
         return {domain for field, domain in mapping.items() if response.HasField(field)}
 
-    def _filter_busy_fields(self, response: Message) -> Message:
+    def _filter_busy_fields(self, response: PBUserDataResponse) -> PBUserDataResponse:
         """Mirror each official manager's `queue.bl() -> return` snapshot guard."""
         filtered = response.__class__()
         filtered.CopyFrom(response)
@@ -76,7 +77,7 @@ class SyncCoordinator:
                 callback()
         return filtered
 
-    async def _refresh_once(self, *, full: bool) -> Message | None:
+    async def _refresh_once(self, *, full: bool) -> PBUserDataResponse | None:
         fields: dict[str, Message] = {"client_info": self.state.user_data_client_info()}
         if not full and self.state.loaded_once:
             fields["timestamps"] = self.state.user_data_timestamps()
@@ -85,14 +86,14 @@ class SyncCoordinator:
         )
         if response is None:
             return None
-        assert isinstance(response, Message)
+        assert isinstance(response, PB.PBUserDataResponse)
         filtered = self._filter_busy_fields(response)
         domains = self._domains_in(filtered)
         self.state.apply_user_data(filtered)
         await self._notify(domains)
         return response
 
-    async def refresh(self, *, full: bool = False) -> Message | None:
+    async def refresh(self, *, full: bool = False) -> PBUserDataResponse | None:
         # Coalesce callers so HA-like consumers cannot accidentally trigger N identical refreshes.
         async with self._lock:
             current = self._inflight

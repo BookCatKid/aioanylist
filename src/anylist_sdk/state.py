@@ -1,20 +1,65 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Iterable
+from typing import Iterable, TypeVar
 
 from google.protobuf.message import Message
 
-from .proto import PB
+from .proto import (
+    PB,
+    ListItem,
+    PBCalendarEvent,
+    PBCalendarLabel,
+    PBCategorizedItemsList,
+    PBCategoryGrouping,
+    PBEmailUserIDPair,
+    PBIdentifierList,
+    PBListCategorizationRule,
+    PBListCategory,
+    PBListCategoryGroup,
+    PBListFolder,
+    PBListFolderTimestamps,
+    PBListFoldersResponse,
+    PBListResponse,
+    PBListSettings,
+    PBListSettingsList,
+    PBLogicalTimestampList,
+    PBMealPlanTemplate,
+    PBMealPlanTemplateGroup,
+    PBMobileAppSettings,
+    PBRecipe,
+    PBRecipeCollection,
+    PBRecipeCollectionSettings,
+    PBRecipeDataResponse,
+    PBRecipeLinkRequest,
+    PBStore,
+    PBStoreFilter,
+    PBTimestampList,
+    PBUserCategory,
+    PBUserCategoryData,
+    PBUserDataClientInfo,
+    PBUserDataClientTimestamps,
+    PBUserDataResponse,
+    PBAccountInfoResponse,
+    PBCalendarResponse,
+    ShoppingList,
+    ShoppingListsResponse,
+    StarterList,
+    StarterListBatchResponse,
+    StarterListsResponseV2,
+)
 
 
-def clone(message: Message) -> Message:
+_MessageT = TypeVar("_MessageT", bound=Message)
+
+
+def clone(message: _MessageT) -> _MessageT:
     out = message.__class__()
     out.CopyFrom(message)
     return out
 
 
-def by_identifier(values: Iterable[Message]) -> dict[str, Message]:
+def by_identifier(values: Iterable[_MessageT]) -> dict[str, _MessageT]:
     return {str(v.identifier): clone(v) for v in values if getattr(v, "identifier", "")}
 
 
@@ -23,76 +68,76 @@ class AnyListState:
     """In-memory mirror of the official web client's synchronized domains."""
 
     user_id: str | None = None
-    shopping_lists: dict[str, Message] = field(default_factory=dict)
+    shopping_lists: dict[str, ShoppingList] = field(default_factory=dict)
     ordered_shopping_list_ids: list[str] = field(default_factory=list)
-    list_responses: dict[str, Message] = field(default_factory=dict)
+    list_responses: dict[str, PBListResponse] = field(default_factory=dict)
     # PBListResponse carries synchronized list-local domains that are independent of the
     # ShoppingList protobuf itself.  AnyList Web keeps each of these in an indexed manager.
-    list_stores: dict[str, dict[str, Message]] = field(default_factory=dict)
-    list_store_filters: dict[str, dict[str, Message]] = field(default_factory=dict)
-    list_category_groups: dict[str, dict[str, Message]] = field(default_factory=dict)
-    list_categories: dict[str, dict[str, Message]] = field(default_factory=dict)
-    list_categorization_rules: dict[str, dict[str, Message]] = field(default_factory=dict)
-    list_folders: dict[str, Message] = field(default_factory=dict)
+    list_stores: dict[str, dict[str, PBStore]] = field(default_factory=dict)
+    list_store_filters: dict[str, dict[str, PBStoreFilter]] = field(default_factory=dict)
+    list_category_groups: dict[str, dict[str, PBListCategoryGroup]] = field(default_factory=dict)
+    list_categories: dict[str, dict[str, PBListCategory]] = field(default_factory=dict)
+    list_categorization_rules: dict[str, dict[str, PBListCategorizationRule]] = field(default_factory=dict)
+    list_folders: dict[str, PBListFolder] = field(default_factory=dict)
     root_folder_id: str | None = None
     list_data_id: str | None = None
     has_migrated_list_ordering: bool = False
 
-    recipes: dict[str, Message] = field(default_factory=dict)
-    recipe_collections: dict[str, Message] = field(default_factory=dict)
+    recipes: dict[str, PBRecipe] = field(default_factory=dict)
+    recipe_collections: dict[str, PBRecipeCollection] = field(default_factory=dict)
     recipe_collection_ids: list[str] = field(default_factory=list)
-    all_recipes_collection: Message | None = None
+    all_recipes_collection: PBRecipeCollection | None = None
     recipe_data_id: str | None = None
     recipe_timestamp: float = 0.0
     recipe_max_count: int | None = None
-    pending_recipe_link_requests: list[Message] = field(default_factory=list)
-    recipe_link_requests_to_confirm: list[Message] = field(default_factory=list)
-    linked_recipe_users: list[Message] = field(default_factory=list)
-    system_recipe_collection_settings: dict[str, Message] = field(default_factory=dict)
+    pending_recipe_link_requests: list[PBRecipeLinkRequest] = field(default_factory=list)
+    recipe_link_requests_to_confirm: list[PBRecipeLinkRequest] = field(default_factory=list)
+    linked_recipe_users: list[PBEmailUserIDPair] = field(default_factory=list)
+    system_recipe_collection_settings: dict[str, PBRecipeCollectionSettings] = field(default_factory=dict)
 
     meal_plan_calendar_id: str | None = None
     meal_plan_logical_timestamp: int = 0
     meal_plan_response_version: int = 0
-    meal_plan_events: dict[str, Message] = field(default_factory=dict)
-    meal_plan_labels: dict[str, Message] = field(default_factory=dict)
-    meal_plan_templates: dict[str, Message] = field(default_factory=dict)
-    meal_plan_template_events: dict[str, Message] = field(default_factory=dict)
-    meal_plan_template_groups: dict[str, Message] = field(default_factory=dict)
+    meal_plan_events: dict[str, PBCalendarEvent] = field(default_factory=dict)
+    meal_plan_labels: dict[str, PBCalendarLabel] = field(default_factory=dict)
+    meal_plan_templates: dict[str, PBMealPlanTemplate] = field(default_factory=dict)
+    meal_plan_template_events: dict[str, PBCalendarEvent] = field(default_factory=dict)
+    meal_plan_template_groups: dict[str, PBMealPlanTemplateGroup] = field(default_factory=dict)
 
-    categorized_items: dict[str, Message] = field(default_factory=dict)
+    categorized_items: dict[str, ListItem] = field(default_factory=dict)
     categorized_items_timestamp: float = 0.0
     categorized_items_timestamp_id: str = ""
 
-    user_categories: dict[str, Message] = field(default_factory=dict)
-    category_groupings: dict[str, Message] = field(default_factory=dict)
+    user_categories: dict[str, PBUserCategory] = field(default_factory=dict)
+    category_groupings: dict[str, PBCategoryGrouping] = field(default_factory=dict)
     user_categories_timestamp: float = 0.0
     user_category_data_id: str = ""
     user_categories_requires_refresh_timestamp: float = 0.0
     has_migrated_category_orderings: bool = False
 
-    list_settings: dict[str, Message] = field(default_factory=dict)
+    list_settings: dict[str, PBListSettings] = field(default_factory=dict)
     list_settings_timestamp: float = 0.0
     list_settings_timestamp_id: str = ""
-    starter_list_settings: dict[str, Message] = field(default_factory=dict)
+    starter_list_settings: dict[str, PBListSettings] = field(default_factory=dict)
     starter_list_settings_timestamp: float = 0.0
     starter_list_settings_timestamp_id: str = ""
 
-    starter_lists: dict[str, Message] = field(default_factory=dict)
-    recent_item_lists: dict[str, Message] = field(default_factory=dict)
-    favorite_item_lists: dict[str, Message] = field(default_factory=dict)
+    starter_lists: dict[str, StarterList] = field(default_factory=dict)
+    recent_item_lists: dict[str, StarterList] = field(default_factory=dict)
+    favorite_item_lists: dict[str, StarterList] = field(default_factory=dict)
     ordered_starter_list_ids: list[str] = field(default_factory=list)
     ordered_starter_list_ids_timestamp: float = 0.0
     ordered_starter_list_ids_timestamp_id: str = ""
     has_migrated_user_favorites: bool = False
 
-    mobile_app_settings: Message | None = None
-    account_info: Message | None = None
+    mobile_app_settings: PBMobileAppSettings | None = None
+    account_info: PBAccountInfoResponse | None = None
     loaded_once: bool = False
 
-    def get_list(self, list_id: str) -> Message | None:
+    def get_list(self, list_id: str) -> ShoppingList | None:
         return self.shopping_lists.get(list_id)
 
-    def get_item(self, list_id: str, item_id: str) -> Message | None:
+    def get_item(self, list_id: str, item_id: str) -> ListItem | None:
         shopping_list = self.shopping_lists.get(list_id)
         if shopping_list is None:
             return None
@@ -103,7 +148,7 @@ class AnyListState:
 
     @staticmethod
     def _merge_index(
-        index: dict[str, Message], values: Iterable[Message], deleted_ids: Iterable[str] = ()
+        index: dict[str, _MessageT], values: Iterable[_MessageT], deleted_ids: Iterable[str] = ()
     ) -> None:
         for identifier in deleted_ids:
             index.pop(str(identifier), None)
@@ -121,10 +166,12 @@ class AnyListState:
         self.list_categorization_rules.pop(list_id, None)
 
     @staticmethod
-    def _list_index(container: dict[str, dict[str, Message]], list_id: str) -> dict[str, Message]:
+    def _list_index(
+        container: dict[str, dict[str, _MessageT]], list_id: str
+    ) -> dict[str, _MessageT]:
         return container.setdefault(list_id, {})
 
-    def apply_list_response(self, detail: Message) -> None:
+    def apply_list_response(self, detail: PBListResponse) -> None:
         """Apply ShoppingListManager.hQ semantics for one PBListResponse."""
         list_id = str(detail.listId or "")
         if not list_id:
@@ -179,7 +226,7 @@ class AnyListState:
         )
         self.list_responses[list_id] = clone(detail)
 
-    def apply_shopping_lists(self, response: Message) -> None:
+    def apply_shopping_lists(self, response: ShoppingListsResponse) -> None:
         for identifier in response.unknownIds:
             list_id = str(identifier)
             self.shopping_lists.pop(list_id, None)
@@ -197,7 +244,7 @@ class AnyListState:
         for detail in response.listResponses:
             self.apply_list_response(detail)
 
-    def apply_list_folders(self, response: Message) -> None:
+    def apply_list_folders(self, response: PBListFoldersResponse) -> None:
         # ListFolderManager.DB rejects the entire response unless both identities are
         # present. Applying a malformed full response would otherwise clear good state.
         if not response.listDataId or not response.rootFolderId:
@@ -213,7 +260,7 @@ class AnyListState:
             self.list_folders.clear()
         self._merge_index(self.list_folders, response.listFolders, response.deletedFolderIds)
 
-    def apply_recipes(self, response: Message) -> None:
+    def apply_recipes(self, response: PBRecipeDataResponse) -> None:
         """Apply the official incremental PBRecipeDataResponse semantics."""
         # RecipeManager.FX ignores malformed/empty responses that lack the recipe-data ID.
         if not response.recipeDataId:
@@ -256,7 +303,7 @@ class AnyListState:
         for key, value in response.settingsMapForSystemCollections.items():
             self.system_recipe_collection_settings[str(key)] = clone(value)
 
-    def apply_recipes_full(self, response: Message) -> None:
+    def apply_recipes_full(self, response: PBRecipeDataResponse) -> None:
         """Apply RecipeManager.MX semantics used by the unlink-recipes response."""
         if response.HasField("timestamp"):
             self.recipe_timestamp = float(response.timestamp)
@@ -275,7 +322,11 @@ class AnyListState:
 
     @staticmethod
     def _apply_delta(
-        index: dict[str, Message], values: Iterable[Message], deleted_ids: Iterable[str], *, full: bool
+        index: dict[str, _MessageT],
+        values: Iterable[_MessageT],
+        deleted_ids: Iterable[str],
+        *,
+        full: bool,
     ) -> None:
         if full:
             index.clear()
@@ -286,7 +337,7 @@ class AnyListState:
             if value_id:
                 index[str(value_id)] = clone(value)
 
-    def apply_meal_plan(self, response: Message) -> None:
+    def apply_meal_plan(self, response: PBCalendarResponse) -> None:
         # MealPlanManager.Zq rejects malformed calendars and response versions older than
         # the client's supported version. A changed calendar ID is accepted only on a full
         # sync; accepting a delta for another calendar would corrupt the current mirror.
@@ -327,7 +378,7 @@ class AnyListState:
             full=full,
         )
 
-    def apply_categorized_items(self, response: Message) -> None:
+    def apply_categorized_items(self, response: PBCategorizedItemsList) -> None:
         if response.HasField("timestamp"):
             self.categorized_items_timestamp = float(response.timestamp.timestamp)
             self.categorized_items_timestamp_id = str(response.timestamp.identifier)
@@ -343,7 +394,7 @@ class AnyListState:
             if normalized.identifier:
                 self.categorized_items[str(normalized.identifier)] = normalized
 
-    def apply_user_categories(self, response: Message) -> None:
+    def apply_user_categories(self, response: PBUserCategoryData) -> None:
         self.user_category_data_id = str(response.identifier)
         self.user_categories_timestamp = float(response.timestamp)
         if response.HasField("requiresRefreshTimestamp"):
@@ -356,7 +407,7 @@ class AnyListState:
         self._merge_index(self.user_categories, response.categories)
         self._merge_index(self.category_groupings, response.groupings)
 
-    def apply_list_settings(self, response: Message, *, starter: bool = False) -> None:
+    def apply_list_settings(self, response: PBListSettingsList, *, starter: bool = False) -> None:
         target = self.starter_list_settings if starter else self.list_settings
         if response.HasField("timestamp"):
             if starter:
@@ -381,7 +432,7 @@ class AnyListState:
             target[str(value.listId or "")] = clone(value)
 
     @staticmethod
-    def _apply_starter_batch(target: dict[str, Message], batch: Message) -> None:
+    def _apply_starter_batch(target: dict[str, StarterList], batch: StarterListBatchResponse) -> None:
         if batch.includesAllLists:
             target.clear()
         for identifier in batch.unknownListIds:
@@ -390,7 +441,7 @@ class AnyListState:
             if item.HasField("starterList"):
                 target[str(item.starterList.identifier)] = clone(item.starterList)
 
-    def apply_starter_lists(self, response: Message) -> None:
+    def apply_starter_lists(self, response: StarterListsResponseV2) -> None:
         if response.HasField("hasMigratedUserFavorites"):
             self.has_migrated_user_favorites = bool(response.hasMigratedUserFavorites)
         if response.HasField("userListsResponse"):
@@ -400,7 +451,7 @@ class AnyListState:
         if response.HasField("favoriteItemListsResponse"):
             self._apply_starter_batch(self.favorite_item_lists, response.favoriteItemListsResponse)
 
-    def apply_ordered_starter_ids(self, response: Message) -> None:
+    def apply_ordered_starter_ids(self, response: PBIdentifierList) -> None:
         self.ordered_starter_list_ids = list(response.identifiers)
         if response.HasField("timestamp"):
             self.ordered_starter_list_ids_timestamp = float(response.timestamp)
@@ -409,10 +460,10 @@ class AnyListState:
             if self.user_id:
                 self.ordered_starter_list_ids_timestamp_id = self.user_id
 
-    def apply_mobile_settings(self, response: Message) -> None:
+    def apply_mobile_settings(self, response: PBMobileAppSettings) -> None:
         self.mobile_app_settings = clone(response)
 
-    def apply_user_data(self, response: Message) -> None:
+    def apply_user_data(self, response: PBUserDataResponse) -> None:
         if response.HasField("mobileAppSettingsResponse"):
             self.apply_mobile_settings(response.mobileAppSettingsResponse)
         if response.HasField("shoppingListsResponse"):
@@ -437,7 +488,7 @@ class AnyListState:
             self.apply_ordered_starter_ids(response.orderedStarterListIdsResponse)
         self.loaded_once = True
 
-    def shopping_list_timestamps(self) -> Message:
+    def shopping_list_timestamps(self) -> PBTimestampList:
         out = PB.PBTimestampList()
         for value in self.shopping_lists.values():
             ts = out.timestamps.add()
@@ -445,7 +496,7 @@ class AnyListState:
             ts.timestamp = value.timestamp
         return out
 
-    def shopping_list_logical_timestamps(self) -> Message:
+    def shopping_list_logical_timestamps(self) -> PBLogicalTimestampList:
         out = PB.PBLogicalTimestampList()
         for value in self.shopping_lists.values():
             ts = out.timestamps.add()
@@ -453,7 +504,7 @@ class AnyListState:
             ts.logicalTimestamp = value.logicalClockTime
         return out
 
-    def list_folder_timestamps(self) -> Message:
+    def list_folder_timestamps(self) -> PBListFolderTimestamps:
         out = PB.PBListFolderTimestamps()
         if self.root_folder_id:
             out.rootFolderId = self.root_folder_id
@@ -463,7 +514,7 @@ class AnyListState:
             ts.timestamp = value.timestamp
         return out
 
-    def _starter_timestamps(self, source: dict[str, Message]) -> Message:
+    def _starter_timestamps(self, source: dict[str, StarterList]) -> PBTimestampList:
         out = PB.PBTimestampList()
         for value in source.values():
             ts = out.timestamps.add()
@@ -471,7 +522,7 @@ class AnyListState:
             ts.timestamp = value.timestamp
         return out
 
-    def user_data_timestamps(self) -> Message:
+    def user_data_timestamps(self) -> PBUserDataClientTimestamps:
         out = PB.PBUserDataClientTimestamps()
         out.shoppingListTimestamps.CopyFrom(self.shopping_list_timestamps())
         out.shoppingListLogicalTimestamps.CopyFrom(self.shopping_list_logical_timestamps())
@@ -506,7 +557,7 @@ class AnyListState:
             out.mobileAppSettingsTimestamp.timestamp = self.mobile_app_settings.timestamp
         return out
 
-    def user_data_client_info(self) -> Message:
+    def user_data_client_info(self) -> PBUserDataClientInfo:
         out = PB.PBUserDataClientInfo()
         out.mealPlanningCalendarClientInfo.supportedResponseVersion = 1
         out.mealPlanningCalendarClientInfo.processedResponseVersion = self.meal_plan_response_version

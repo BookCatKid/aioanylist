@@ -16,10 +16,20 @@ from ..item_semantics import (
     quantity_to_deprecated_string,
 )
 from ..normalization import localized_sort_key
-from ..operations import OperationQueue, QueueSpec
-from ..proto import PB
+from ..operations import OperationJournal, OperationQueue, QueueSpec
+from ..proto import (
+    PB,
+    ListItem,
+    PBIdentifierList,
+    PBItemPackageSize,
+    PBItemPrice,
+    PBItemQuantity,
+    StarterList,
+    StarterListsResponseV2,
+)
 from ..state import AnyListState, clone
 from ..transport import AnyListTransport
+from ..types import OperationAck
 from .base import OperationService, clone_message
 
 _FAVORITE_NAMESPACE = UUID(hex="839503408980408581879d73a33ec4c1")
@@ -41,7 +51,7 @@ def aggregate_favorites_id() -> str:
     return _AGGREGATE_FAVORITES_ID
 
 
-def enrich_item_from_starter(base: Message, source: Message) -> Message:
+def enrich_item_from_starter(base: ListItem, source: ListItem) -> ListItem:
     """Fill fields missing from a newly-created item from a starter-list item.
 
     This mirrors StarterList.GQ in AnyList Web.  The official client first creates a fresh
@@ -90,7 +100,7 @@ class StarterListsService(OperationService):
         state: AnyListState,
         *,
         user_id: str,
-        journal=None,
+        journal: OperationJournal | None = None,
     ) -> None:
         super().__init__(
             transport,
@@ -149,22 +159,22 @@ class StarterListsService(OperationService):
         else:
             await self.refresh_order()
 
-    def all(self) -> list[Message]:
+    def all(self) -> list[StarterList]:
         return list(self.state.starter_lists.values())
 
-    def recent(self) -> list[Message]:
+    def recent(self) -> list[StarterList]:
         return list(self.state.recent_item_lists.values())
 
-    def favorites(self) -> list[Message]:
+    def favorites(self) -> list[StarterList]:
         return list(self.state.favorite_item_lists.values())
 
-    def favorite_for_shopping_list(self, shopping_list_id: str) -> Message | None:
+    def favorite_for_shopping_list(self, shopping_list_id: str) -> StarterList | None:
         return self.state.favorite_item_lists.get(favorite_list_id(shopping_list_id))
 
-    def recent_for_shopping_list(self, shopping_list_id: str) -> Message | None:
+    def recent_for_shopping_list(self, shopping_list_id: str) -> StarterList | None:
         return self.state.recent_item_lists.get(recent_list_id(shopping_list_id))
 
-    def aggregate_favorites(self, preferred_list_id: str | None = None) -> Message:
+    def aggregate_favorites(self, preferred_list_id: str | None = None) -> StarterList:
         """Return the official synthetic aggregate "Favorite Items" starter list.
 
         ``preferred_list_id`` is a *favorite starter-list* identifier, matching FG's
@@ -176,7 +186,7 @@ class StarterListsService(OperationService):
             name="Favorite Items",
             starterListType=PB.StarterList.Type.FavoriteItemsType,
         )
-        sources: list[Message] = []
+        sources: list[StarterList] = []
         if preferred_list_id is not None:
             preferred = self.state.favorite_item_lists.get(preferred_list_id)
             if preferred is not None:
@@ -186,7 +196,7 @@ class StarterListsService(OperationService):
             for key, value in self.state.favorite_item_lists.items()
             if key != preferred_list_id
         )
-        selected: list[Message] = []
+        selected: list[ListItem] = []
         for source_list in sources:
             for item in source_list.items:
                 if any(items_equal(item, existing) for existing in selected):
@@ -196,7 +206,7 @@ class StarterListsService(OperationService):
                 selected.append(copied)
         return result
 
-    def autocomplete_items(self, list_id: str) -> list[Message]:
+    def autocomplete_items(self, list_id: str) -> list[ListItem]:
         """Project a starter list to the item order/filter used by autocomplete.
 
         Favorites/user starter lists preserve their stored order.  Recent items are newest
@@ -206,7 +216,7 @@ class StarterListsService(OperationService):
         lst = self._require(list_id)
         if not self._is_recent(lst):
             return list(lst.items)
-        result: list[Message] = []
+        result: list[ListItem] = []
         seen_enriched_names: set[str] = set()
         for item in reversed(lst.items):
             if item.recipeId or item.ingredients:
@@ -220,7 +230,7 @@ class StarterListsService(OperationService):
                 seen_enriched_names.add(name)
         return result
 
-    def ordered_user_lists(self, *, alphabetical: bool = False) -> list[Message]:
+    def ordered_user_lists(self, *, alphabetical: bool = False) -> list[StarterList]:
         """Return user starter lists using StarterListsManager.WG ordering semantics."""
         legacy_favorites_id = hashlib.md5(f"{self.user_id}-favorites".encode()).hexdigest()
         values = [
@@ -231,7 +241,7 @@ class StarterListsService(OperationService):
         if alphabetical:
             return sorted(values, key=lambda value: localized_sort_key(str(value.name)))
 
-        result: list[Message] = []
+        result: list[StarterList] = []
         seen: set[str] = set()
         for identifier in self.state.ordered_starter_list_ids:
             if identifier == legacy_favorites_id:
@@ -245,14 +255,14 @@ class StarterListsService(OperationService):
                 result.append(value)
         return result
 
-    def get(self, list_id: str) -> Message | None:
+    def get(self, list_id: str) -> StarterList | None:
         return (
             self.state.starter_lists.get(list_id)
             or self.state.recent_item_lists.get(list_id)
             or self.state.favorite_item_lists.get(list_id)
         )
 
-    async def refresh(self) -> Message | None:
+    async def refresh(self) -> StarterListsResponseV2 | None:
         if self.queue.pending_count:
             self._refresh_after_queue = True
             return None
@@ -273,11 +283,11 @@ class StarterListsService(OperationService):
         )
         if response is None:
             return None
-        assert isinstance(response, Message)
+        assert isinstance(response, PB.StarterListsResponseV2)
         self.state.apply_starter_lists(response)
         return response
 
-    async def refresh_order(self) -> Message | None:
+    async def refresh_order(self) -> PBIdentifierList | None:
         if self.order_queue.pending_count:
             return None
         timestamp = PB.PBTimestamp(
@@ -291,7 +301,7 @@ class StarterListsService(OperationService):
         )
         if response is None:
             return None
-        assert isinstance(response, Message)
+        assert isinstance(response, PB.PBIdentifierList)
         self.state.apply_ordered_starter_ids(response)
         return response
 
@@ -303,7 +313,7 @@ class StarterListsService(OperationService):
         user_list_id: str | None = None,
         starter_type: int | None = None,
         flush: bool = True,
-    ) -> Message:
+    ) -> StarterList:
         lst = PB.StarterList(
             identifier=list_id or uuid4_hex(), name=name, userId=self.user_id
         )
@@ -322,7 +332,7 @@ class StarterListsService(OperationService):
         )
         return self.state.starter_lists[lst.identifier]
 
-    async def ensure_favorites(self, shopping_list_id: str, *, flush: bool = True) -> Message:
+    async def ensure_favorites(self, shopping_list_id: str, *, flush: bool = True) -> StarterList:
         identifier = favorite_list_id(shopping_list_id)
         existing = self.state.favorite_item_lists.get(identifier)
         if existing is not None:
@@ -342,7 +352,7 @@ class StarterListsService(OperationService):
         )
         return self.state.favorite_item_lists[identifier]
 
-    async def ensure_recents(self, shopping_list_id: str, *, flush: bool = True) -> Message:
+    async def ensure_recents(self, shopping_list_id: str, *, flush: bool = True) -> StarterList:
         identifier = recent_list_id(shopping_list_id)
         existing = self.state.recent_item_lists.get(identifier)
         if existing is not None:
@@ -371,8 +381,8 @@ class StarterListsService(OperationService):
         await self.operation("remove-starter-list", listId=list_id, flush=flush)
 
     async def add_item(
-        self, list_id: str, item: Message, *, flush: bool = True
-    ) -> Message:
+        self, list_id: str, item: ListItem, *, flush: bool = True
+    ) -> ListItem:
         lst = self._require(list_id)
         await self._trim_recents_for_add(lst, 1, flush=False)
         x = clone_message(item)
@@ -390,8 +400,8 @@ class StarterListsService(OperationService):
         return lst.items[-1]
 
     async def bulk_add_items(
-        self, list_id: str, items: Sequence[Message], *, flush: bool = True
-    ) -> list[Message]:
+        self, list_id: str, items: Sequence[ListItem], *, flush: bool = True
+    ) -> list[ListItem]:
         if not items:
             return []
         lst = self._require(list_id)
@@ -400,8 +410,8 @@ class StarterListsService(OperationService):
             incoming = incoming[-_RECENT_LIMIT:]
         await self._trim_recents_for_add(lst, len(incoming), flush=False)
 
-        added: list[Message] = []
-        clones: list[Message] = []
+        added: list[ListItem] = []
+        clones: list[ListItem] = []
         for item in incoming:
             x = clone_message(item)
             if not x.identifier:
@@ -428,11 +438,11 @@ class StarterListsService(OperationService):
     async def record_recent_items(
         self,
         shopping_list_id: str,
-        items: Sequence[Message],
+        items: Sequence[ListItem],
         *,
         skip_existing: bool = False,
         flush: bool = True,
-    ) -> list[Message]:
+    ) -> list[ListItem]:
         """Mirror AnyList Web's shopping-item -> recents promotion.
 
         Equivalent existing recent items are removed and replaced with unchecked clones
@@ -443,7 +453,7 @@ class StarterListsService(OperationService):
             return []
         recent = await self.ensure_recents(shopping_list_id, flush=False)
         existing_to_remove: list[str] = []
-        to_add: list[Message] = []
+        to_add: list[ListItem] = []
         for source in items:
             existing = next((value for value in recent.items if items_equal(source, value)), None)
             if existing is not None and skip_existing:
@@ -516,7 +526,7 @@ class StarterListsService(OperationService):
 
     async def set_item_name(
         self, list_id: str, item_id: str, name: str, *, flush: bool = True
-    ) -> Message:
+    ) -> ListItem:
         item = self._require_item(list_id, item_id)
         original = str(item.name)
         item.name = name
@@ -532,7 +542,7 @@ class StarterListsService(OperationService):
 
     async def set_item_details(
         self, list_id: str, item_id: str, details: str, *, flush: bool = True
-    ) -> Message:
+    ) -> ListItem:
         item = self._require_item(list_id, item_id)
         original = str(item.details)
         item.details = details
@@ -548,7 +558,7 @@ class StarterListsService(OperationService):
 
     async def set_product_upc(
         self, list_id: str, item_id: str, upc: str, *, flush: bool = True
-    ) -> Message:
+    ) -> ListItem:
         item = self._require_item(list_id, item_id)
         original = str(item.productUpc)
         if upc == original:
@@ -566,7 +576,7 @@ class StarterListsService(OperationService):
 
     async def set_photo(
         self, list_id: str, item_id: str, photo_id: str | None, *, flush: bool = True
-    ) -> Message:
+    ) -> ListItem:
         item = self._require_item(list_id, item_id)
         del item.photoIds[:]
         if photo_id:
@@ -582,8 +592,8 @@ class StarterListsService(OperationService):
         return item
 
     async def set_quantity(
-        self, list_id: str, item_id: str, quantity: Message, *, flush: bool = True
-    ) -> Message:
+        self, list_id: str, item_id: str, quantity: PBItemQuantity, *, flush: bool = True
+    ) -> ListItem:
         item = self._require_item(list_id, item_id)
         current = item.quantityPb if item.HasField("quantityPb") else PB.PBItemQuantity()
         if quantity_equal(current, quantity):
@@ -609,7 +619,7 @@ class StarterListsService(OperationService):
 
     async def set_quantity_override(
         self, list_id: str, item_id: str, value: bool, *, flush: bool = True
-    ) -> Message:
+    ) -> ListItem:
         item = self._require_item(list_id, item_id)
         if bool(item.itemQuantityShouldOverrideIngredientQuantity) == value:
             return item
@@ -629,8 +639,8 @@ class StarterListsService(OperationService):
         return item
 
     async def set_price_quantity(
-        self, list_id: str, item_id: str, quantity: Message, *, flush: bool = True
-    ) -> Message:
+        self, list_id: str, item_id: str, quantity: PBItemQuantity, *, flush: bool = True
+    ) -> ListItem:
         item = self._require_item(list_id, item_id)
         current = item.priceQuantityPb if item.HasField("priceQuantityPb") else PB.PBItemQuantity()
         if quantity_equal(current, quantity):
@@ -649,7 +659,7 @@ class StarterListsService(OperationService):
 
     async def set_price_quantity_override(
         self, list_id: str, item_id: str, value: bool, *, flush: bool = True
-    ) -> Message:
+    ) -> ListItem:
         item = self._require_item(list_id, item_id)
         if bool(item.priceQuantityShouldOverrideItemQuantity) == value:
             return item
@@ -669,8 +679,8 @@ class StarterListsService(OperationService):
         return item
 
     async def set_package_size(
-        self, list_id: str, item_id: str, package_size: Message, *, flush: bool = True
-    ) -> Message:
+        self, list_id: str, item_id: str, package_size: PBItemPackageSize, *, flush: bool = True
+    ) -> ListItem:
         item = self._require_item(list_id, item_id)
         current = item.packageSizePb if item.HasField("packageSizePb") else PB.PBItemPackageSize()
         if package_size_equal(current, package_size):
@@ -689,7 +699,7 @@ class StarterListsService(OperationService):
 
     async def set_package_override(
         self, list_id: str, item_id: str, value: bool, *, flush: bool = True
-    ) -> Message:
+    ) -> ListItem:
         item = self._require_item(list_id, item_id)
         if bool(item.itemPackageSizeShouldOverrideIngredientPackageSize) == value:
             return item
@@ -709,8 +719,8 @@ class StarterListsService(OperationService):
         return item
 
     async def set_price_package_size(
-        self, list_id: str, item_id: str, package_size: Message, *, flush: bool = True
-    ) -> Message:
+        self, list_id: str, item_id: str, package_size: PBItemPackageSize, *, flush: bool = True
+    ) -> ListItem:
         item = self._require_item(list_id, item_id)
         current = item.pricePackageSizePb if item.HasField("pricePackageSizePb") else PB.PBItemPackageSize()
         if package_size_equal(current, package_size):
@@ -729,7 +739,7 @@ class StarterListsService(OperationService):
 
     async def set_price_package_override(
         self, list_id: str, item_id: str, value: bool, *, flush: bool = True
-    ) -> Message:
+    ) -> ListItem:
         item = self._require_item(list_id, item_id)
         if bool(item.pricePackageSizeShouldOverrideItemPackageSize) == value:
             return item
@@ -750,7 +760,7 @@ class StarterListsService(OperationService):
 
     async def add_store(
         self, list_id: str, item_id: str, store_id: str, *, flush: bool = True
-    ) -> Message:
+    ) -> ListItem:
         item = self._require_item(list_id, item_id)
         if store_id in item.storeIds:
             return item
@@ -766,7 +776,7 @@ class StarterListsService(OperationService):
 
     async def remove_store(
         self, list_id: str, item_id: str, store_id: str, *, flush: bool = True
-    ) -> Message:
+    ) -> ListItem:
         item = self._require_item(list_id, item_id)
         if store_id not in item.storeIds:
             return item
@@ -858,8 +868,8 @@ class StarterListsService(OperationService):
         )
 
     async def save_price(
-        self, list_id: str, item_id: str, price: Message, *, flush: bool = True
-    ) -> Message:
+        self, list_id: str, item_id: str, price: PBItemPrice, *, flush: bool = True
+    ) -> ListItem:
         item = self._require_item(list_id, item_id)
         store_id = str(getattr(price, "storeId", "") or "")
         empty = (not price.HasField("amount") or float(price.amount) == 0.0) and not (price.details or "")
@@ -886,7 +896,7 @@ class StarterListsService(OperationService):
 
     async def remove_price(
         self, list_id: str, item_id: str, store_id: str | None, *, flush: bool = True
-    ) -> Message:
+    ) -> ListItem:
         item = self._require_item(list_id, item_id)
         kept = [clone_message(p) for p in item.prices if str(p.storeId) != str(store_id or "")]
         del item.prices[:]
@@ -913,7 +923,7 @@ class StarterListsService(OperationService):
         )
         return await self.order_queue.enqueue(op, flush=flush)
 
-    async def flush(self):
+    async def flush(self) -> OperationAck | None:
         a = await super().flush()
         b = await self.order_queue.flush()
         return b or a
@@ -922,7 +932,7 @@ class StarterListsService(OperationService):
         return await super().restore() + await self.order_queue.restore()
 
     async def _trim_recents_for_add(
-        self, lst: Message, count: int, *, flush: bool
+        self, lst: StarterList, count: int, *, flush: bool
     ) -> None:
         if not self._is_recent(lst) or count <= 0:
             return
@@ -933,11 +943,11 @@ class StarterListsService(OperationService):
         await self.bulk_remove_items(lst.identifier, ids, flush=flush)
 
     @staticmethod
-    def _is_recent(lst: Message) -> bool:
+    def _is_recent(lst: StarterList) -> bool:
         return int(lst.starterListType) == int(PB.StarterList.Type.RecentItemsType)
 
     @staticmethod
-    def _is_bare_item(item: Message) -> bool:
+    def _is_bare_item(item: ListItem) -> bool:
         quantity = item.quantityPb if item.HasField("quantityPb") else PB.PBItemQuantity()
         price_quantity = (
             item.priceQuantityPb if item.HasField("priceQuantityPb") else PB.PBItemQuantity()
@@ -964,13 +974,13 @@ class StarterListsService(OperationService):
             and not item.prices
         )
 
-    def _require(self, list_id: str) -> Message:
+    def _require(self, list_id: str) -> StarterList:
         x = self.get(list_id)
         if x is None:
             raise KeyError(list_id)
         return x
 
-    def _require_item(self, list_id: str, item_id: str) -> Message:
+    def _require_item(self, list_id: str, item_id: str) -> ListItem:
         lst = self._require(list_id)
         for item in lst.items:
             if item.identifier == item_id:

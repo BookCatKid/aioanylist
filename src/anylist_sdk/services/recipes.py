@@ -8,22 +8,40 @@ from google.protobuf.message import Message
 
 from ..identifiers import uuid4_hex
 from ..derived import not_in_collection_smart_collection, sort_recipes, source_smart_collections
-from ..operations import QueueSpec
-from ..proto import PB
+from ..operations import OperationJournal, QueueSpec
+from ..proto import (
+    PB,
+    PBIcon,
+    PBIngredient,
+    PBRecipe,
+    PBRecipeCollection,
+    PBRecipeCollectionSettings,
+    PBRecipeDataResponse,
+    PBRecipeLinkRequest,
+    PBRecipeLinkRequestResponse,
+    PBRecipeWebImportResponse,
+)
 from ..state import AnyListState, clone
 from ..transport import AnyListTransport
 from .base import OperationService, clone_message
 
 
 class RecipesService(OperationService):
-    def __init__(self, transport: AnyListTransport, state: AnyListState, *, user_id: str, journal=None):
+    def __init__(
+        self,
+        transport: AnyListTransport,
+        state: AnyListState,
+        *,
+        user_id: str,
+        journal: OperationJournal | None = None,
+    ) -> None:
         super().__init__(transport, state, user_id=user_id,
             spec=QueueSpec(f"{user_id}:recipes", "/data/user-recipe-data/update",
                            "PBRecipeOperation", "PBRecipeOperationList"), journal=journal)
         self.user_id = user_id
         self.queue.on_response = self._on_response
         self.on_recipe_removed: Callable[[str, bool], Awaitable[None]] | None = None
-        self.on_recipe_updated: Callable[[Message, Message, bool], Awaitable[None]] | None = None
+        self.on_recipe_updated: Callable[[PBRecipe, PBRecipe, bool], Awaitable[None]] | None = None
 
     async def _on_response(self, response: Message) -> None:
         if not response.originalTimestamps or not response.newTimestamps:
@@ -34,22 +52,22 @@ class RecipesService(OperationService):
         else:
             await self.refresh()
 
-    def all(self) -> list[Message]:
+    def all(self) -> list[PBRecipe]:
         return list(self.state.recipes.values())
 
-    def get(self, recipe_id: str) -> Message | None:
+    def get(self, recipe_id: str) -> PBRecipe | None:
         return self.state.recipes.get(recipe_id)
 
-    def collections(self) -> list[Message]:
+    def collections(self) -> list[PBRecipeCollection]:
         return list(self.state.recipe_collections.values())
 
-    def source_collections(self) -> list[Message]:
+    def source_collections(self) -> list[PBRecipeCollection]:
         """Return the client-derived per-source smart collections used by AnyList Web."""
         return source_smart_collections(
             self.all(), saved_settings=self.state.system_recipe_collection_settings
         )
 
-    def not_in_collection(self) -> Message:
+    def not_in_collection(self) -> PBRecipeCollection:
         """Return AnyList Web's synthetic ``Not in a Collection`` collection."""
         identifier = "74267bf441d04dbc9dda96910dd3ba58"
         return not_in_collection_smart_collection(
@@ -60,12 +78,12 @@ class RecipesService(OperationService):
 
     def sorted(
         self,
-        recipes: Sequence[Message] | None = None,
+        recipes: Sequence[PBRecipe] | None = None,
         *,
-        settings: Message | None = None,
+        settings: PBRecipeCollectionSettings | None = None,
         collection_id: str | None = None,
         today: str | None = None,
-    ) -> list[Message]:
+    ) -> list[PBRecipe]:
         """Return recipes ordered with AnyList Web's client-side collection sorter."""
         if collection_id is not None:
             collection = self._collection(collection_id)
@@ -85,7 +103,7 @@ class RecipesService(OperationService):
             today=today,
         )
 
-    async def refresh(self, *, desktop_import_extension: bool = False) -> Message | None:
+    async def refresh(self, *, desktop_import_extension: bool = False) -> PBRecipeDataResponse | None:
         # RecipeManager.Sp returns before issuing either recipe-data read when the edit queue
         # has pending operations.
         if self.queue.pending_count:
@@ -105,7 +123,7 @@ class RecipesService(OperationService):
         )
         if response is None:
             return None
-        assert isinstance(response, Message)
+        assert isinstance(response, PB.PBRecipeDataResponse)
         self.state.apply_recipes(response)
         return response
 
@@ -114,7 +132,7 @@ class RecipesService(OperationService):
             fields["recipeDataId"] = self.state.recipe_data_id
         return await super().operation(handler_id, flush=flush, **fields)
 
-    async def save(self, recipe: Message, *, from_web_import: bool = False, flush: bool = True) -> Message:
+    async def save(self, recipe: PBRecipe, *, from_web_import: bool = False, flush: bool = True) -> PBRecipe:
         recipe = clone_message(recipe)
         if not recipe.identifier:
             recipe.identifier = uuid4_hex()
@@ -141,10 +159,10 @@ class RecipesService(OperationService):
             await self.on_recipe_updated(recipe, previous, flush)
         return self.state.recipes[recipe.identifier]
 
-    async def create(self, name: str, *, ingredients: Sequence[Message] = (),
+    async def create(self, name: str, *, ingredients: Sequence[PBIngredient] = (),
                      preparation_steps: Sequence[str] = (), servings: str | None = None,
                      source_name: str | None = None, source_url: str | None = None,
-                     flush: bool = True) -> Message:
+                     flush: bool = True) -> PBRecipe:
         recipe = PB.PBRecipe(identifier=uuid4_hex(), name=name)
         for ingredient in ingredients:
             recipe.ingredients.add().CopyFrom(ingredient)
@@ -189,7 +207,7 @@ class RecipesService(OperationService):
         await self.operation("remove-recipe-ids", recipeIds=ids, flush=flush)
 
     async def create_collection(self, name: str, *, collection_id: str | None = None,
-                                flush: bool = True) -> Message:
+                                flush: bool = True) -> PBRecipeCollection:
         collection = PB.PBRecipeCollection(identifier=collection_id or uuid4_hex(), name=name)
         self.state.recipe_collections[collection.identifier] = clone(collection)
         self.state.recipe_collection_ids.append(collection.identifier)
@@ -251,7 +269,7 @@ class RecipesService(OperationService):
         del collection.recipeIds[:]; collection.recipeIds.extend(recipe_ids)
         await self.operation("set-ordered-recipe-ids-for-collection", recipeCollection=clone_message(collection), flush=flush)
 
-    async def set_collection_icon(self, collection_id: str, icon: str | Message, *, flush: bool = True) -> None:
+    async def set_collection_icon(self, collection_id: str, icon: str | PBIcon, *, flush: bool = True) -> None:
         c = self._collection(collection_id)
         value = icon if isinstance(icon, Message) else PB.PBIcon(iconName=icon)
         c.collectionSettings.icon.CopyFrom(value)
@@ -279,8 +297,8 @@ class RecipesService(OperationService):
 
     async def set_system_collection_recipe_sort(
         self, collection_id: str, sort_order: int, *, reversed: bool = False, flush: bool = True
-    ) -> Message:
-        settings: Any = self.state.system_recipe_collection_settings.get(collection_id)
+    ) -> PBRecipeCollectionSettings:
+        settings = self.state.system_recipe_collection_settings.get(collection_id)
         if settings is None:
             settings = PB.PBRecipeCollectionSettings()
         else:
@@ -297,8 +315,8 @@ class RecipesService(OperationService):
 
     async def set_system_collection_collection_sort(
         self, collection_id: str, sort_order: int, *, reversed: bool = False, flush: bool = True
-    ) -> Message:
-        settings: Any = self.state.system_recipe_collection_settings.get(collection_id)
+    ) -> PBRecipeCollectionSettings:
+        settings = self.state.system_recipe_collection_settings.get(collection_id)
         if settings is None:
             settings = PB.PBRecipeCollectionSettings()
         else:
@@ -313,13 +331,13 @@ class RecipesService(OperationService):
         )
         return settings
 
-    async def web_import(self, url: str, *, html: str | None = None) -> Message:
+    async def web_import(self, url: str, *, html: str | None = None) -> PBRecipeWebImportResponse:
         fields: dict[str, bytes | str] = {"url": url}
         if html is not None: fields["html"] = html
         response = await self.transport.post_proto(
             "/data/recipes/web-import", fields=fields, response_type="PBRecipeWebImportResponse"
         )
-        assert isinstance(response, Message)
+        assert isinstance(response, PB.PBRecipeWebImportResponse)
         return response
 
     async def send_as_email(
@@ -345,7 +363,7 @@ class RecipesService(OperationService):
             "POST", "/data/recipes/send-as-email", fields=fields
         )
 
-    async def request_link(self, email: str) -> Message:
+    async def request_link(self, email: str) -> PBRecipeLinkRequestResponse:
         req = PB.PBRecipeLinkRequest(
             identifier=uuid4_hex(), requestingUserId=self.user_id, confirmingEmail=email
         )
@@ -354,7 +372,7 @@ class RecipesService(OperationService):
             fields={"link_request": req},
             response_type="PBRecipeLinkRequestResponse",
         )
-        assert isinstance(response, Message)
+        assert isinstance(response, PB.PBRecipeLinkRequestResponse)
         # OX treats a successful link request as a full recipe-data replacement.
         if (
             response is not None
@@ -364,18 +382,18 @@ class RecipesService(OperationService):
             self._apply_full_recipe_response(response.recipeDataResponse)
         return response
 
-    async def accept_link(self, request: Message | str) -> Message:
+    async def accept_link(self, request: PBRecipeLinkRequest | str) -> PBRecipeDataResponse:
         request_id = request if isinstance(request, str) else str(request.identifier)
         response = await self.transport.post_proto(
             "/data/user-recipe-data/accept-recipe-link-request",
             fields={"link_request_id": request_id, "user_id": self.user_id},
             response_type="PBRecipeDataResponse",
         )
-        assert isinstance(response, Message)
+        assert isinstance(response, PB.PBRecipeDataResponse)
         self._apply_full_recipe_response(response)
         return response
 
-    async def cancel_link(self, request: Message) -> Message | None:
+    async def cancel_link(self, request: PBRecipeLinkRequest) -> PBRecipeDataResponse | None:
         # RecipeManager.DX is intentionally a no-op unless the request belongs to one of
         # the two current link-request collections.  Compare identifiers because state
         # snapshots are cloned protobufs rather than the same JS object identity.
@@ -394,11 +412,11 @@ class RecipesService(OperationService):
             fields={"link_request": request},
             response_type="PBRecipeDataResponse",
         )
-        assert isinstance(response, Message)
+        assert isinstance(response, PB.PBRecipeDataResponse)
         self._apply_full_recipe_response(response)
         return response
 
-    async def unlink(self, user_id: str) -> Message:
+    async def unlink(self, user_id: str) -> PBRecipeDataResponse:
         # The web client posts the linked user's ID as a plain multipart string and receives
         # a fresh PBRecipeDataResponse, which becomes the new local recipe/link state.
         response = await self.transport.post_proto(
@@ -406,20 +424,20 @@ class RecipesService(OperationService):
             fields={"user_id": user_id},
             response_type="PBRecipeDataResponse",
         )
-        assert isinstance(response, Message)
+        assert isinstance(response, PB.PBRecipeDataResponse)
         # The official unlink callback uses RecipeManager.MX, a full replacement,
         # rather than the normal incremental FX merge path.
         self._apply_full_recipe_response(response)
         return response
 
-    def _apply_full_recipe_response(self, response: Message) -> None:
+    def _apply_full_recipe_response(self, response: PBRecipeDataResponse) -> None:
         # RecipeManager.MX ignores full replacement responses while recipe edits remain
         # queued, preserving the optimistic local state until those edits are reconciled.
         if self.queue.pending_count:
             return
         self.state.apply_recipes_full(response)
 
-    def _collection(self, cid: str) -> Message:
+    def _collection(self, cid: str) -> PBRecipeCollection:
         if self.state.all_recipes_collection is not None and self.state.all_recipes_collection.identifier == cid:
             return self.state.all_recipes_collection
         c = self.state.recipe_collections.get(cid)

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TypeVar
 
 from google.protobuf.message import Message
 
-from ..operations import OperationQueue, QueueSpec
+from ..operations import OperationJournal, OperationQueue, QueueSpec
 from ..proto import message_class
 from ..state import AnyListState
 from ..transport import AnyListTransport
+from ..types import OperationAck
 
 
 class OperationService:
@@ -20,7 +21,7 @@ class OperationService:
         *,
         user_id: str,
         spec: QueueSpec,
-        journal: Any = None,
+        journal: OperationJournal | None = None,
     ) -> None:
         self.transport = transport
         self.state = state
@@ -45,13 +46,13 @@ class OperationService:
         )
         return await self.queue.enqueue(op, flush=flush)
 
-    async def flush(self):
+    async def flush(self) -> OperationAck | None:
         return await self.queue.flush()
 
     def pause(self) -> None:
         self.queue.pause()
 
-    async def resume(self, *, flush: bool = True):
+    async def resume(self, *, flush: bool = True) -> OperationAck | None:
         return await self.queue.resume(flush=flush)
 
     async def restore(self) -> int:
@@ -81,7 +82,10 @@ def partial_message(type_name: str, **fields: Any) -> Message:
     return msg
 
 
-def clone_message(msg: Message) -> Message:
+_MessageT = TypeVar("_MessageT", bound=Message)
+
+
+def clone_message(msg: _MessageT) -> _MessageT:
     out = msg.__class__()
     out.CopyFrom(msg)
     return out

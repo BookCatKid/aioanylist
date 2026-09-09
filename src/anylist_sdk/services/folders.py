@@ -1,18 +1,26 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
+from typing import Any
 from google.protobuf.message import Message
 
 from ..identifiers import uuid4_hex
-from ..operations import QueueSpec
-from ..proto import PB
+from ..operations import OperationJournal, QueueSpec
+from ..proto import PB, PBIcon, PBListFolder, PBListFolderItem, PBListFoldersResponse
 from ..state import AnyListState, clone
 from ..transport import AnyListTransport
 from .base import OperationService, clone_message
 
 
 class FoldersService(OperationService):
-    def __init__(self, transport: AnyListTransport, state: AnyListState, *, user_id: str, journal=None):
+    def __init__(
+        self,
+        transport: AnyListTransport,
+        state: AnyListState,
+        *,
+        user_id: str,
+        journal: OperationJournal | None = None,
+    ) -> None:
         super().__init__(transport, state, user_id=user_id,
             spec=QueueSpec(f"{user_id}:list-folders", "/data/list-folders/update",
                            "PBListFolderOperation", "PBListFolderOperationList"), journal=journal)
@@ -43,13 +51,15 @@ class FoldersService(OperationService):
             if self.on_shopping_refresh_requested is not None:
                 await self.on_shopping_refresh_requested()
 
-    async def operation(self, handler_id: str, *, flush: bool = True, **fields):
+    async def operation(
+        self, handler_id: str, *, flush: bool = True, **fields: Any
+    ) -> str:
         if self.state.list_data_id and "listDataId" not in fields:
             fields["listDataId"] = self.state.list_data_id
         return await super().operation(handler_id, flush=flush, **fields)
 
-    def all(self): return list(self.state.list_folders.values())
-    def get(self, folder_id: str): return self.state.list_folders.get(folder_id)
+    def all(self) -> list[PBListFolder]: return list(self.state.list_folders.values())
+    def get(self, folder_id: str) -> PBListFolder | None: return self.state.list_folders.get(folder_id)
 
     def has_pending_delete_items(self) -> bool:
         return any(
@@ -57,7 +67,7 @@ class FoldersService(OperationService):
             for op in self.queue._pending
         )
 
-    async def refresh(self) -> Message | None:
+    async def refresh(self) -> PBListFoldersResponse | None:
         if self.queue.pending_count:
             return None
         fields: dict[str, Message | str] = {}
@@ -74,12 +84,12 @@ class FoldersService(OperationService):
         )
         if response is None:
             return None
-        assert isinstance(response, Message)
+        assert isinstance(response, PB.PBListFoldersResponse)
         self.state.apply_list_folders(response)
         return response
 
     async def create(self, name: str, *, parent_id: str | None = None, hex_color: str | None = None,
-                     flush: bool = True) -> Message:
+                     flush: bool = True) -> PBListFolder:
         parent_id = parent_id or self.state.root_folder_id
         if not parent_id: raise RuntimeError("No root folder synchronized")
         folder = PB.PBListFolder(identifier=uuid4_hex(), name=name)
@@ -106,7 +116,7 @@ class FoldersService(OperationService):
         p=PB.PBListFolder(identifier=folder_id); p.folderSettings.folderHexColor=color
         await self.operation("set-folder-hex-color", listFolder=p, flush=flush)
 
-    async def set_icon(self, folder_id: str, icon: str | Message, *, flush: bool=True) -> None:
+    async def set_icon(self, folder_id: str, icon: str | PBIcon, *, flush: bool=True) -> None:
         f=self._require(folder_id)
         value = icon if isinstance(icon, Message) else PB.PBIcon(iconName=icon)
         f.folderSettings.icon.CopyFrom(value)
@@ -124,13 +134,13 @@ class FoldersService(OperationService):
         p=PB.PBListFolder(identifier=folder_id); p.folderSettings.folderSortPosition=value
         await self.operation("set-folder-sort-position", listFolder=p, flush=flush)
 
-    async def reorder(self, folder_id: str, items: Sequence[Message], *, flush: bool=True) -> None:
+    async def reorder(self, folder_id: str, items: Sequence[PBListFolderItem], *, flush: bool=True) -> None:
         f=self._require(folder_id); del f.items[:]
         for x in items: f.items.add().CopyFrom(x)
         await self.operation("set-ordered-folder-items", originalParentFolderId=folder_id,
                              folderItems=[clone_message(x) for x in items], flush=flush)
 
-    async def move(self, items: Sequence[Message], original_parent_id: str, updated_parent_id: str,
+    async def move(self, items: Sequence[PBListFolderItem], original_parent_id: str, updated_parent_id: str,
                    *, flush: bool=True) -> None:
         original = self._require(original_parent_id)
         updated = self._require(updated_parent_id)
@@ -150,7 +160,7 @@ class FoldersService(OperationService):
                              originalParentFolderId=original_parent_id,
                              updatedParentFolderId=updated_parent_id, flush=flush)
 
-    async def delete_items(self, items: Sequence[Message], parent_id: str, *, flush: bool=True) -> None:
+    async def delete_items(self, items: Sequence[PBListFolderItem], parent_id: str, *, flush: bool=True) -> None:
         parent = self._require(parent_id)
         wire_items = [clone_message(x) for x in items]
         keys = {(int(x.itemType), str(x.identifier)) for x in wire_items}

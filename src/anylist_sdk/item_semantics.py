@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
+from typing import TypeVar
+
 from google.protobuf.message import Message
 
 from .normalization import localized_sort_key, normalized_for_search
@@ -35,7 +38,14 @@ def _optional_scalar_equal(a: Message, b: Message, field: str) -> bool:
     return a_has == b_has and (not a_has or getattr(a, field) == getattr(b, field))
 
 
-def _array_matches(a, b, comparator=None) -> bool:
+_ValueT = TypeVar("_ValueT")
+
+
+def _array_matches(
+    a: Iterable[_ValueT] | None,
+    b: Iterable[_ValueT] | None,
+    comparator: Callable[[_ValueT, _ValueT], bool] | None = None,
+) -> bool:
     """AnyList's arrayMatchesArray: same length and every left value occurs on right."""
     left = list(a or ())
     right = list(b or ())
@@ -87,7 +97,7 @@ def price_equal(a: Message, b: Message) -> bool:
     return _optional_scalar_equal(a, b, "storeId")
 
 
-def prices_match(a, b) -> bool:
+def prices_match(a: Iterable[Message] | None, b: Iterable[Message] | None) -> bool:
     left = [p for p in (a or ()) if not price_empty(p)]
     right = [p for p in (b or ()) if not price_empty(p)]
     return _array_matches(left, right, price_equal)
@@ -132,7 +142,9 @@ def item_ingredient_identical(a: Message, b: Message) -> bool:
     )
 
 
-def item_ingredients_identical(a, b) -> bool:
+def item_ingredients_identical(
+    a: Iterable[Message] | None, b: Iterable[Message] | None
+) -> bool:
     left = list(a or ())
     remaining = list(b or ())
     if len(left) != len(remaining):

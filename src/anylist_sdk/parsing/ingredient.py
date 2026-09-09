@@ -4,7 +4,7 @@ import re
 
 from ..identifiers import uuid4_hex
 from ..normalization import trim_whitespace_and_punctuation
-from ..proto import PB
+from ..proto import PB, PBIngredient
 from .quantity import parse_leading_amount
 
 _NOTE_RE = re.compile(
@@ -87,7 +87,7 @@ def split_ingredient_note(name: str) -> tuple[str, str]:
     return name[: match.start()].strip(), match.group(1).strip()
 
 
-def parse_ingredient_line(line: str):
+def parse_ingredient_line(line: str) -> PBIngredient | None:
     if not line.strip():
         return None
     if line.startswith("# ") and len(line) > 2:
@@ -107,8 +107,8 @@ def parse_ingredient_line(line: str):
     return ingredient
 
 
-def parse_ingredient_lines(text: str) -> list:
-    result = []
+def parse_ingredient_lines(text: str) -> list[PBIngredient]:
+    result: list[PBIngredient] = []
     for line in text.splitlines():
         if not line.strip():
             continue
