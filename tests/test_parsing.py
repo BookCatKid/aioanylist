@@ -69,8 +69,51 @@ def test_ingredient_heading_note_and_raw_preservation() -> None:
 
 
 def test_numbered_recipe_steps_absorb_continuations() -> None:
-    steps = parse_recipe_steps("1. Heat pan\nKeep it hot\n2) Add onions")
+    steps = parse_recipe_steps("1. Heat pan\nKeep it hot\n2. Add onions")
     assert steps == ["Heat pan\n\nKeep it hot", "Add onions"]
+
+
+def test_recipe_step_numbering_matches_official_dot_only_prefix() -> None:
+    # The web regex is /^\d+[.]?\s*/: both the period and whitespace are optional, so
+    # "2)" matches only its leading digit and leaves the ')' in the resulting step text.
+    assert parse_recipe_steps("1. Heat pan\n2) Add onions") == ["Heat pan", ") Add onions"]
+
+
+def test_ingredient_size_adjective_is_name_not_quantity() -> None:
+    ingredient = parse_ingredient_line("1/2 small head cabbage")
+    assert ingredient.quantity == "1/2"
+    assert ingredient.name == "small head cabbage"
+
+
+def test_ingredient_raw_line_and_heading_shape_match_official_paste_parser() -> None:
+    ingredient = parse_ingredient_line("  1 cup onions  ")
+    assert ingredient.rawIngredient == "  1 cup onions  "
+    heading = parse_ingredient_line("# Sauce ")
+    assert heading.isHeading is True
+    assert heading.name == "Sauce "
+    assert not heading.HasField("rawIngredient")
+
+
+@pytest.mark.parametrize(
+    ("raw", "value"),
+    [("2 - 3", 2.0), ("1/2 - 3/4", 0.5), ("1.25 cups", 1.25)],
+)
+def test_amount_as_float_matches_parsefloat_prefix_semantics(raw: str, value: float) -> None:
+    assert math.isclose(amount_as_float(raw), value)
+
+
+def test_quantity_raw_text_excludes_parsed_package_size() -> None:
+    parsed = parse_quantity_and_package_size("2 cans (28 Ounce)")
+    assert parsed is not None
+    assert parsed.quantityPb.amount == "2"
+    assert parsed.quantityPb.unit.lower() == "cans"
+    assert parsed.quantityPb.rawQuantity.lower() == "2 cans"
+    assert parsed.packageSizePb.rawPackageSize.lower() == "28 ounce"
+
+    parsed = parse_quantity_and_package_size("1 12-ounce bottle")
+    assert parsed is not None
+    assert parsed.quantityPb.rawQuantity == "1"
+    assert parsed.packageSizePb.rawPackageSize.lower() == "12-ounce bottle"
 
 
 def test_scale_quantity_text_preserves_surrounding_text() -> None:

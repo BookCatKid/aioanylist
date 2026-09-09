@@ -123,25 +123,33 @@ def amount_as_float(raw: str, *, decimal_separator: str = ".") -> float:
         return 0.0
     text = normalize_digits(raw.strip())
     # Mixed fraction with whitespace or dash, including vulgar/superscript forms.
-    mixed = re.fullmatch(
-        rf"(\d+)(?:\s+|[{_DASH_CLASS}])\s*(\d+\s*[\/⁄]\s*\d+|[{' '.join(_VULGAR)}]|[⁰¹²³⁴⁵⁶⁷⁸⁹]+\s*[\/⁄]\s*[₀₁₂₃₄₅₆₇₈₉]+)",
+    mixed = re.match(
+        rf"^(\d+)(?:\s+|[{_DASH_CLASS}])\s*(\d+\s*[\/⁄]\s*\d+|[{''.join(_VULGAR)}]|[⁰¹²³⁴⁵⁶⁷⁸⁹]+\s*[\/⁄]\s*[₀₁₂₃₄₅₆₇₈₉]+)",
         text,
     )
     if mixed:
         return float(mixed.group(1)) + _fraction_value(mixed.group(2))
-    if text and text[-1] in _VULGAR:
-        prefix = text[:-1].strip()
-        return (float(prefix) if prefix else 0.0) + float(_VULGAR[text[-1]])
-    frac = _fraction_value(text)
-    if frac:
-        return frac
+    vulgar = re.match(rf"^(\d*)\s*([{''.join(_VULGAR)}])", text)
+    if vulgar:
+        return (float(vulgar.group(1)) if vulgar.group(1) else 0.0) + float(
+            _VULGAR[vulgar.group(2)]
+        )
+    frac_match = re.match(
+        r"^(\d+\s*[\/⁄]\s*\d+|[⁰¹²³⁴⁵⁶⁷⁸⁹]+\s*[\/⁄]\s*[₀₁₂₃₄₅₆₇₈₉]+)",
+        text,
+    )
+    if frac_match:
+        frac = _fraction_value(frac_match.group(1))
+        if frac:
+            return frac
     if decimal_separator == ".":
         text = re.sub(r"(\d),(\d{3})(?!\d)", r"\1\2", text)
-    text = text.replace(",", ".")
-    try:
-        return float(text)
-    except ValueError:
-        return 0.0
+    # JavaScript parseFloat consumes the leading numeric prefix rather than requiring the
+    # entire string to be numeric.  PBItemQuantity.amount may itself contain a range such as
+    # "2 - 3", so this behavior is observable in amountAsDouble/derived quantity helpers.
+    text = text.replace(",", ".", 1)
+    numeric = re.match(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)", text)
+    return float(numeric.group(0)) if numeric else 0.0
 
 
 def _numeric_atom_pattern() -> str:
@@ -303,7 +311,11 @@ def parse_quantity_and_package_size(text: str, *, decimal_separator: str = "."):
             p.casefold().rstrip(".") for p in _PACKAGE_WORDS
         }
         if is_measurement or is_container:
-            quantity = PB.PBItemQuantity(amount=amount.raw, unit=unit.strip(), rawQuantity=raw)
+            quantity = PB.PBItemQuantity(
+                amount=amount.raw,
+                unit=unit.strip(),
+                rawQuantity=f"{amount.raw} {unit.strip()}",
+            )
 
         if parenthetical:
             package = parse_package_size(parenthetical.group(1), require_unit=True, decimal_separator=decimal_separator)
@@ -319,16 +331,21 @@ def parse_quantity_and_package_size(text: str, *, decimal_separator: str = "."):
     else:
         # "1 (6-oz can)" or plain numeric quantity.
         if parenthetical:
-            quantity = PB.PBItemQuantity(amount=amount.raw, rawQuantity=raw)
+            quantity = PB.PBItemQuantity(amount=amount.raw, rawQuantity=amount.raw)
             package = parse_package_size(parenthetical.group(1), require_unit=True, decimal_separator=decimal_separator)
         else:
             # Try to interpret the remainder as package size before falling back to bare quantity.
             package_candidate = parse_package_size(rest, require_unit=True, decimal_separator=decimal_separator)
             if package_candidate is not None and rest:
-                quantity = PB.PBItemQuantity(amount=amount.raw, rawQuantity=raw)
+                quantity = PB.PBItemQuantity(amount=amount.raw, rawQuantity=amount.raw)
                 package = package_candidate
             else:
-                quantity = PB.PBItemQuantity(amount=amount.raw, rawQuantity=raw)
+                quantity = PB.PBItemQuantity(amount=amount.raw, rawQuantity=amount.raw)
+
+    # vP initially stores only the parsed amount/unit.  It restores the complete original
+    # string to rawQuantity only when no package-size parse succeeded.
+    if quantity is not None and package is None:
+        quantity.rawQuantity = raw
 
     # Official behavior preserves the entire original user input in rawQuantity when a quantity is
     # accepted and no conflicting package-only parse takes over.

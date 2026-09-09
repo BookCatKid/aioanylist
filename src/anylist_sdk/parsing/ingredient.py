@@ -28,7 +28,8 @@ _PACKAGE_OR_UNIT = re.compile(
     r"blocks?|bags?|parts?|sticks?|heads?|bars?|ears?|jars?|inches?|tubs?|small|medium|large)\b\.?",
     re.I,
 )
-_NUMBERED_STEP = re.compile(r"^\s*(?:step\s+)?(\d+)\s*(?:[.)\]:-]|\s)\s*(.+)$", re.I)
+_NUMBERED_STEP = re.compile(r"^\d+[.]?\s*", re.I)
+_STEP_TRIM = re.compile(r"^[\s,\-•–—]+|[\s,\-•–—]+$")
 
 
 def split_quantity_prefix(line: str) -> tuple[str, str]:
@@ -40,13 +41,16 @@ def split_quantity_prefix(line: str) -> tuple[str, str]:
     remainder = rest.lstrip()
     unit = _PACKAGE_OR_UNIT.match(remainder)
     if unit:
-        consumed += rest[: len(rest) - len(remainder)] + unit.group(0)
-        remainder = remainder[unit.end() :]
-        # Include a directly attached parenthetical package-size expression.
-        p = re.match(r"^\s*(\([^()]+\))", remainder)
-        if p:
-            consumed += remainder[: p.end()]
-            remainder = remainder[p.end() :]
+        # sP moves a trailing size adjective back to the ingredient-name side rather than
+        # treating it as part of the quantity (e.g. "1/2 small head cabbage").
+        if unit.group(0).rstrip(".").casefold() not in {"small", "medium", "large"}:
+            consumed += rest[: len(rest) - len(remainder)] + unit.group(0)
+            remainder = remainder[unit.end() :]
+            # Include a directly attached parenthetical package-size expression.
+            p = re.match(r"^\s*(\([^()]+\))", remainder)
+            if p:
+                consumed += remainder[: p.end()]
+                remainder = remainder[p.end() :]
     return trim_whitespace_and_punctuation(consumed), trim_whitespace_and_punctuation(remainder)
 
 
@@ -58,16 +62,16 @@ def split_ingredient_note(name: str) -> tuple[str, str]:
 
 
 def parse_ingredient_line(line: str):
-    raw = line.strip()
-    if not raw:
+    if not line.strip():
         return None
-    ingredient = PB.PBIngredient(identifier=uuid4_hex(), rawIngredient=raw)
-    if raw.startswith("# "):
+    if line.startswith("# ") and len(line) > 2:
+        ingredient = PB.PBIngredient(identifier=uuid4_hex())
         ingredient.isHeading = True
-        ingredient.name = raw[2:].strip()
+        ingredient.name = line[2:]
         return ingredient
 
-    quantity, remainder = split_quantity_prefix(raw)
+    ingredient = PB.PBIngredient(identifier=uuid4_hex(), rawIngredient=line)
+    quantity, remainder = split_quantity_prefix(line)
     name, note = split_ingredient_note(remainder)
     ingredient.name = name
     if quantity:
@@ -90,21 +94,26 @@ def parse_ingredient_lines(text: str) -> list:
 
 def parse_recipe_steps(text: str) -> list[str]:
     """Parse pasted directions with AnyList's numbered-step continuation behavior."""
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    if not lines:
-        return []
-    numbered_mode = any(_NUMBERED_STEP.match(line) for line in lines)
-    if not numbered_mode:
-        return lines
-
     steps: list[str] = []
-    for line in lines:
+    numbered_mode = False
+    pending = ""
+    for raw_line in text.split("\n"):
+        # The source regex is not global: replace removes one matching edge (leading first
+        # when both exist), rather than Python's ordinary strip-both-edges behavior.
+        line = _STEP_TRIM.sub("", raw_line, count=1)
+        if not line:
+            continue
         match = _NUMBERED_STEP.match(line)
         if match:
-            steps.append(match.group(2).strip())
-        elif steps:
-            steps[-1] = f"{steps[-1]}\n\n{line}"
+            line = line[match.end() :]
+            numbered_mode = True
+            if pending:
+                steps.append(pending[:-2])
+                pending = ""
+        if numbered_mode:
+            pending += line + "\n\n"
         else:
-            # Preserve preamble rather than silently dropping it.
             steps.append(line)
+    if pending:
+        steps.append(pending[:-2])
     return steps
