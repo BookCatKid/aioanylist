@@ -89,7 +89,22 @@ async def test_remove_from_collection_matches_official_one_operation_per_recipe(
     assert list(state.recipe_collections["collection"].recipeIds) == ["b"]
     operations = fake_transport.calls[-1][1]["operations"].operations
     assert len(operations) == 2
+    assert all(op.metadata.handlerId == "remove-recipes-from-collection" for op in operations)
     assert [list(op.recipeCollection.recipeIds) for op in operations] == [["a"], ["c"]]
+
+
+@pytest.mark.asyncio
+async def test_remove_absent_recipe_from_collection_is_official_noop(fake_transport) -> None:
+    state = AnyListState(user_id="user")
+    state.recipe_collections["collection"] = PB.PBRecipeCollection(
+        identifier="collection", recipeIds=["a"]
+    )
+    service = RecipesService(fake_transport, state, user_id="user")
+
+    await service.remove_from_collection("collection", ["missing"])
+
+    assert list(state.recipe_collections["collection"].recipeIds) == ["a"]
+    assert fake_transport.calls == []
 
 
 @pytest.mark.asyncio
@@ -273,6 +288,24 @@ async def test_accept_link_uses_request_id_and_user_id_and_replaces_state(fake_t
 
 
 @pytest.mark.asyncio
+async def test_accept_link_does_not_replace_recipe_state_while_edit_queue_pending(fake_transport) -> None:
+    state = AnyListState(user_id="user", recipe_data_id="old")
+    state.recipes["optimistic"] = PB.PBRecipe(identifier="optimistic", name="Local")
+    service = RecipesService(fake_transport, state, user_id="user")
+    service.queue.pause()
+    await service.queue.enqueue(service.queue.new_operation("save-recipe"), flush=False)
+    response = PB.PBRecipeDataResponse(recipeDataId="server", timestamp=10.0)
+    response.recipes.add(identifier="server-recipe", name="Server")
+    fake_transport.responses.append(response)
+
+    result = await service.accept_link("request")
+
+    assert result.recipeDataId == "server"
+    assert state.recipe_data_id == "old"
+    assert set(state.recipes) == {"optimistic"}
+
+
+@pytest.mark.asyncio
 async def test_cancel_link_posts_request_proto_and_receives_full_recipe_data(fake_transport) -> None:
     state = AnyListState(user_id="user")
     service = RecipesService(fake_transport, state, user_id="user")
@@ -321,6 +354,7 @@ async def test_add_to_collection_sends_full_collection_clone_with_only_added_ids
     await service.add_to_collection("collection", ["a", "b"])
 
     operation = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert operation.metadata.handlerId == "add-recipes-to-collection"
     sent = operation.recipeCollection
     assert sent.identifier == "collection"
     assert sent.name == "Dinner"
@@ -344,6 +378,7 @@ async def test_first_collection_sort_matches_official_settings_initialization(fa
     assert live.showOnlyRecipesWithNoCollection is False
     assert not live.HasField("useReversedSortDirection")
     operation = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert operation.metadata.handlerId == "set-recipe-collection-sort-order"
     sent = operation.recipeCollection.collectionSettings
     assert sent.recipesSortOrder == 4
     assert sent.showOnlyRecipesWithNoCollection is False
@@ -365,6 +400,78 @@ async def test_existing_collection_sort_updates_reversed_direction(fake_transpor
     assert settings.recipesSortOrder == 2
     assert settings.useReversedSortDirection is True
     assert settings.HasField("useReversedSortDirection")
+    operation = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert operation.metadata.handlerId == "set-recipe-collection-sort-order"
+
+
+@pytest.mark.asyncio
+async def test_recipe_collection_operation_contracts(fake_transport) -> None:
+    state = AnyListState(user_id="user", recipe_data_id="recipe-data")
+    state.recipes["a"] = PB.PBRecipe(identifier="a", name="A")
+    state.recipes["b"] = PB.PBRecipe(identifier="b", name="B")
+    service = RecipesService(fake_transport, state, user_id="user")
+
+    collection = await service.create_collection("Dinner", collection_id="collection")
+    created = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert created.metadata.handlerId == "new-recipe-collection"
+    assert created.recipeDataId == "recipe-data"
+    assert created.recipeCollection.identifier == "collection"
+    assert created.recipeCollection.name == "Dinner"
+
+    collection.recipeIds.extend(["a", "b"])
+    await service.rename_collection("collection", "Suppers")
+    renamed = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert renamed.metadata.handlerId == "set-recipe-collection-name"
+    assert renamed.recipeCollection.name == "Suppers"
+    assert list(renamed.recipeCollection.recipeIds) == ["a", "b"]
+
+    await service.set_collection_icon("collection", "fork")
+    icon = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert icon.metadata.handlerId == "set-recipe-collection-icon"
+    assert icon.recipeCollection.collectionSettings.icon.iconName == "fork"
+
+    await service.reorder_recipes("collection", ["b", "a"])
+    recipes = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert recipes.metadata.handlerId == "set-ordered-recipe-ids-for-collection"
+    assert list(recipes.recipeCollection.recipeIds) == ["b", "a"]
+
+    await service.reorder_collections(["collection", "other"])
+    collections = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert collections.metadata.handlerId == "set-ordered-recipe-collection-ids"
+    assert list(collections.recipeCollectionIds) == ["collection", "other"]
+
+    await service.remove_collection("collection")
+    removed = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert removed.metadata.handlerId == "remove-recipe-collection"
+    assert removed.recipeCollection.identifier == "collection"
+    assert removed.recipeCollection.name == "Suppers"
+
+
+@pytest.mark.asyncio
+async def test_recipe_system_collection_and_limit_operation_contracts(fake_transport) -> None:
+    state = AnyListState(user_id="user", recipe_data_id="recipe-data")
+    service = RecipesService(fake_transport, state, user_id="user")
+
+    await service.set_max_recipe_count(123)
+    max_count = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert max_count.metadata.handlerId == "set-max-recipe-count"
+    assert max_count.maxRecipeCount == 123
+
+    await service.set_system_collection_recipe_sort("system", 2, reversed=True)
+    recipe_sort = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert recipe_sort.metadata.handlerId == "set-system-collection-sort-order"
+    assert recipe_sort.recipeCollection.identifier == "system"
+    assert recipe_sort.recipeCollection.collectionSettings.recipesSortOrder == 2
+    assert recipe_sort.recipeCollection.collectionSettings.useReversedSortDirection is True
+
+    await service.set_system_collection_collection_sort("system", 3, reversed=True)
+    collection_sort = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert collection_sort.metadata.handlerId == "set-system-collection-collections-sort-order"
+    assert collection_sort.recipeCollection.identifier == "system"
+    settings = collection_sort.recipeCollection.collectionSettings
+    assert settings.collectionsSortOrder == 3
+    assert settings.useReversedCollectionsSortDirection is True
+    assert settings.recipesSortOrder == 2
 
 
 @pytest.mark.asyncio

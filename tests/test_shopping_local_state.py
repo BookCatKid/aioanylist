@@ -162,6 +162,233 @@ async def test_unchanged_allows_multiple_category_groups_is_official_noop(fake_t
 
 
 @pytest.mark.asyncio
+async def test_absent_allows_multiple_category_groups_to_false_is_not_noop(fake_transport) -> None:
+    svc = service(fake_transport)
+    svc.state.shopping_lists["list"] = PB.ShoppingList(identifier="list")
+
+    await svc.set_allows_multiple_category_groups("list", False)
+
+    assert len(fake_transport.calls) == 1
+    op = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert op.metadata.handlerId == "set-allows-multiple-category-groups"
+    assert op.list.HasField("allowsMultipleListCategoryGroups")
+    assert op.list.allowsMultipleListCategoryGroups is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("method_name", "field", "handler"),
+    [
+        (
+            "set_quantity_override",
+            "itemQuantityShouldOverrideIngredientQuantity",
+            "set-item-quantity-should-override-ingredient-quantity",
+        ),
+        (
+            "set_package_override",
+            "itemPackageSizeShouldOverrideIngredientPackageSize",
+            "set-item-package-size-should-override-ingredient-package-size",
+        ),
+        (
+            "set_price_quantity_override",
+            "priceQuantityShouldOverrideItemQuantity",
+            "set-list-item-price-quantity-should-override-item-quantity",
+        ),
+        (
+            "set_price_package_override",
+            "pricePackageSizeShouldOverrideItemPackageSize",
+            "set-list-item-price-package-size-should-override-item-package-size",
+        ),
+    ],
+)
+async def test_absent_override_flag_to_false_is_not_noop(
+    fake_transport, method_name: str, field: str, handler: str
+) -> None:
+    svc = service(fake_transport)
+    shopping = PB.ShoppingList(identifier="list")
+    shopping.items.add(identifier="item", listId="list")
+    svc.state.shopping_lists["list"] = shopping
+
+    await getattr(svc, method_name)("list", "item", False)
+
+    assert len(fake_transport.calls) == 1
+    op = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert op.metadata.handlerId == handler
+    assert op.listItem.HasField(field)
+    assert getattr(op.listItem, field) is False
+
+
+@pytest.mark.asyncio
+async def test_new_item_position_uses_effective_default_for_noop(fake_transport) -> None:
+    svc = service(fake_transport)
+    svc.state.shopping_lists["list"] = PB.ShoppingList(identifier="list")
+
+    await svc.set_new_item_position("list", PB.ShoppingList.NewListItemPosition.Bottom)
+
+    assert fake_transport.calls == []
+
+    await svc.set_new_item_position("list", PB.ShoppingList.NewListItemPosition.Top)
+    op = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert op.metadata.handlerId == "set-new-list-item-position"
+    assert op.list.newListItemPosition == PB.ShoppingList.NewListItemPosition.Top
+
+
+@pytest.mark.asyncio
+async def test_reorder_items_sends_full_mutated_shopping_list(fake_transport) -> None:
+    svc = service(fake_transport)
+    shopping = PB.ShoppingList(
+        identifier="list",
+        name="Groceries",
+        password="secret",
+        allowsMultipleListCategoryGroups=True,
+    )
+    shopping.items.add(identifier="a", listId="list", name="A")
+    shopping.items.add(identifier="b", listId="list", name="B")
+    svc.state.shopping_lists["list"] = shopping
+
+    await svc.reorder_items("list", ["b", "a"])
+
+    op = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert op.metadata.handlerId == "set-ordered-list-items"
+    assert op.list.identifier == "list"
+    assert op.list.name == "Groceries"
+    assert op.list.password == "secret"
+    assert op.list.allowsMultipleListCategoryGroups is True
+    assert [item.identifier for item in op.list.items] == ["b", "a"]
+
+
+@pytest.mark.asyncio
+async def test_core_shopping_item_operation_contracts(fake_transport) -> None:
+    svc = service(fake_transport)
+    shopping = PB.ShoppingList(identifier="list", name="Groceries")
+    shopping.items.add(identifier="a", listId="list", name="A", details="detail")
+    shopping.items.add(identifier="b", listId="list", name="B", checked=True)
+    svc.state.shopping_lists["list"] = shopping
+
+    await svc.set_password("list", "secret")
+    password = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert password.metadata.handlerId == "set-list-password"
+    assert password.updatedValue == "secret"
+    assert not password.HasField("originalValue")
+
+    package = PB.PBItemPackageSize(size="12", unit="oz", packageType="jar")
+    await svc.set_package_size("list", "a", package)
+    package_op = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert package_op.metadata.handlerId == "set-list-item-package-size"
+    assert package_op.listItem.identifier == "a"
+    assert package_op.listItem.listId == "list"
+    assert package_op.listItem.packageSizePb == package
+    assert not package_op.listItem.HasField("name")
+
+    await svc.set_price_matchup_tag("list", "a", "unit-price")
+    matchup = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert matchup.metadata.handlerId == "set-list-item-price-matchup-tag"
+    assert matchup.updatedValue == "unit-price"
+    assert matchup.originalValue == "unit-price"
+
+    await svc.move_item("list", "a", 1)
+    moved = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert moved.metadata.handlerId == "move-shopping-list-item-to-index"
+    assert moved.listItemId == "a"
+    assert moved.originalValue == "0"
+    assert moved.updatedValue == "1"
+    assert [item.identifier for item in svc.state.shopping_lists["list"].items] == ["b", "a"]
+
+    await svc.remove_item("list", "a")
+    removed = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert removed.metadata.handlerId == "remove-shopping-list-item"
+    assert removed.listItemId == "a"
+    assert removed.listItem.name == "A"
+    assert removed.listItem.details == "detail"
+
+
+@pytest.mark.asyncio
+async def test_bulk_cross_uncross_and_uncheck_all_operation_contracts(fake_transport) -> None:
+    svc = service(fake_transport)
+    shopping = PB.ShoppingList(identifier="list")
+    shopping.items.add(identifier="a", listId="list", checked=False)
+    shopping.items.add(identifier="b", listId="list", checked=True)
+    svc.state.shopping_lists["list"] = shopping
+
+    await svc.bulk_set_checked("list", ["a", "b"], True)
+    crossed = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert crossed.metadata.handlerId == "bulk-cross-off-list-items"
+    assert [item.identifier for item in crossed.list.items] == ["a", "b"]
+    assert all(item.checked for item in crossed.list.items)
+
+    await svc.bulk_set_checked("list", ["a", "b"], False)
+    uncrossed = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert uncrossed.metadata.handlerId == "bulk-uncross-list-items"
+    assert [item.identifier for item in uncrossed.list.items] == ["a", "b"]
+    assert all(not item.HasField("checked") for item in uncrossed.list.items)
+
+    svc.state.shopping_lists["list"].items[0].checked = True
+    await svc.uncheck_all("list")
+    uncheck = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert uncheck.metadata.handlerId == "uncheck-all"
+    assert uncheck.listId == "list"
+
+
+@pytest.mark.asyncio
+async def test_store_and_filter_v2_operation_contracts(fake_transport) -> None:
+    svc = service(fake_transport)
+    svc.state.shopping_lists["list"] = PB.ShoppingList(identifier="list")
+    store_a = PB.PBStore(identifier="a", listId="list", name="A", sortIndex=2)
+    store_b = PB.PBStore(identifier="b", listId="list", name="B", sortIndex=3)
+    svc.state.list_stores["list"] = {"a": store_a, "b": store_b}
+
+    await svc.set_sorted_store_ids("list", ["b", "a"])
+    sorted_stores = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert sorted_stores.metadata.handlerId == "set-sorted-store-ids"
+    assert sorted_stores.metadata.operationClass == PB.PBOperationMetadata.OperationClass.StoreOperation
+    assert list(sorted_stores.sortedStoreIds) == ["b", "a"]
+
+    await svc.delete_store("list", svc.state.list_stores["list"]["a"])
+    deleted_store = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert deleted_store.metadata.handlerId == "delete-store"
+    assert deleted_store.updatedStore.identifier == "a"
+    assert deleted_store.updatedStore.name == "A"
+
+    filt_a = PB.PBStoreFilter(identifier="fa", listId="list", name="A", sortIndex=4)
+    svc.state.list_store_filters["list"] = {"fa": filt_a}
+    filt_b = PB.PBStoreFilter(identifier="fb", listId="list", name="B")
+    await svc.save_store_filter("list", filt_b, is_new=True)
+    new_filter = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert new_filter.metadata.handlerId == "new-store-filter"
+    assert (
+        new_filter.metadata.operationClass
+        == PB.PBOperationMetadata.OperationClass.StoreFilterOperation
+    )
+    assert new_filter.updatedStoreFilter.sortIndex == 5
+
+    await svc.set_sorted_store_filter_ids("list", ["fb", "fa"])
+    sorted_filters = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert sorted_filters.metadata.handlerId == "set-sorted-store-filter-ids"
+    assert list(sorted_filters.sortedStoreFilterIds) == ["fb", "fa"]
+
+    await svc.delete_store_filter("list", svc.state.list_store_filters["list"]["fa"])
+    deleted_filter = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert deleted_filter.metadata.handlerId == "delete-store-filter"
+    assert deleted_filter.updatedStoreFilter.identifier == "fa"
+
+
+@pytest.mark.asyncio
+async def test_remove_store_id_from_all_items_always_sends_handler(fake_transport) -> None:
+    svc = service(fake_transport)
+    shopping = PB.ShoppingList(identifier="list")
+    shopping.items.add(identifier="a", listId="list", storeIds=["store", "other"])
+    shopping.items.add(identifier="b", listId="list", storeIds=["store"])
+    svc.state.shopping_lists["list"] = shopping
+
+    await svc.remove_store_id_from_all_items("list", "store")
+
+    assert [list(item.storeIds) for item in shopping.items] == [["other"], []]
+    op = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert op.metadata.handlerId == "remove-store-id-from-all-items"
+    assert op.updatedValue == "store"
+
+
+@pytest.mark.asyncio
 async def test_list_category_v2_operation_contracts(fake_transport) -> None:
     svc = service(fake_transport)
     category = PB.PBListCategory(
@@ -547,6 +774,28 @@ async def test_notification_location_dedupes_by_coordinates_without_queueing(fak
     assert result is None
     assert len(svc.state.shopping_lists["list"].notificationLocations) == 1
     assert fake_transport.calls == []
+
+
+@pytest.mark.asyncio
+async def test_notification_location_add_operation_contract(fake_transport) -> None:
+    svc = service(fake_transport)
+    svc.state.shopping_lists["list"] = PB.ShoppingList(identifier="list")
+
+    location = await svc.add_notification_location(
+        "list",
+        name="Market",
+        address="123 Main",
+        latitude=32.1,
+        longitude=-117.2,
+        location_id="location",
+    )
+
+    assert location.identifier == "location"
+    op = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert op.metadata.handlerId == "add-list-notification-location"
+    assert op.listId == "list"
+    assert op.notificationLocation.identifier == "location"
+    assert op.notificationLocation.name == "Market"
 
 @pytest.mark.asyncio
 async def test_quantity_update_keeps_legacy_quantity_and_skips_identical_updates(fake_transport) -> None:

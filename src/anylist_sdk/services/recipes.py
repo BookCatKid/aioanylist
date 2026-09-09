@@ -220,7 +220,10 @@ class RecipesService(OperationService):
         ids = list(recipe_ids)
         # The official web method queues one remove operation per recipe ID.  Preserve that
         # shape while still exposing an ergonomic sequence API.
+        queued = False
         for rid in ids:
+            if rid not in collection.recipeIds:
+                continue
             while rid in collection.recipeIds:
                 collection.recipeIds.remove(rid)
             partial = clone_message(collection)
@@ -229,7 +232,8 @@ class RecipesService(OperationService):
             await self.operation(
                 "remove-recipes-from-collection", recipeCollection=partial, flush=False
             )
-        if flush and ids:
+            queued = True
+        if flush and queued:
             await self.flush()
 
     async def reorder_collections(self, collection_ids: Sequence[str], *, flush: bool = True) -> None:
@@ -347,7 +351,7 @@ class RecipesService(OperationService):
             and int(response.statusCode) == 0
             and response.HasField("recipeDataResponse")
         ):
-            self.state.apply_recipes_full(response.recipeDataResponse)
+            self._apply_full_recipe_response(response.recipeDataResponse)
         return response
 
     async def accept_link(self, request: Message | str) -> Message:
@@ -358,7 +362,7 @@ class RecipesService(OperationService):
             response_type="PBRecipeDataResponse",
         )
         if response is not None:
-            self.state.apply_recipes_full(response)
+            self._apply_full_recipe_response(response)
         return response
 
     async def cancel_link(self, request: Message) -> Message | None:
@@ -381,7 +385,7 @@ class RecipesService(OperationService):
             response_type="PBRecipeDataResponse",
         )
         if response is not None:
-            self.state.apply_recipes_full(response)
+            self._apply_full_recipe_response(response)
         return response
 
     async def unlink(self, user_id: str) -> Message:
@@ -395,8 +399,15 @@ class RecipesService(OperationService):
         if response is not None:
             # The official unlink callback uses RecipeManager.MX, a full replacement,
             # rather than the normal incremental FX merge path.
-            self.state.apply_recipes_full(response)
+            self._apply_full_recipe_response(response)
         return response
+
+    def _apply_full_recipe_response(self, response: Message) -> None:
+        # RecipeManager.MX ignores full replacement responses while recipe edits remain
+        # queued, preserving the optimistic local state until those edits are reconciled.
+        if self.queue.pending_count:
+            return
+        self.state.apply_recipes_full(response)
 
     def _collection(self, cid: str) -> Message:
         if self.state.all_recipes_collection is not None and self.state.all_recipes_collection.identifier == cid:

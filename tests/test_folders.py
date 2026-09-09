@@ -30,6 +30,21 @@ async def test_new_folder_inherits_parent_settings(fake_transport) -> None:
 
 
 @pytest.mark.asyncio
+async def test_folder_list_sort_order_operation_contract(fake_transport) -> None:
+    state = AnyListState(user_id="user", list_data_id="data")
+    state.list_folders["folder"] = PB.PBListFolder(identifier="folder")
+    service = FoldersService(fake_transport, state, user_id="user")
+
+    await service.set_lists_sort_order("folder", 2)
+
+    op = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert op.metadata.handlerId == "set-lists-sort-order"
+    assert op.listDataId == "data"
+    assert op.listFolder.identifier == "folder"
+    assert op.listFolder.folderSettings.listsSortOrder == 2
+
+
+@pytest.mark.asyncio
 async def test_move_updates_both_parent_mirrors_and_exact_wire_fields(fake_transport) -> None:
     state = AnyListState(user_id="user", list_data_id="data")
     source = PB.PBListFolder(identifier="source")

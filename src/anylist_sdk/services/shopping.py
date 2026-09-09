@@ -558,7 +558,9 @@ class ShoppingListsService(OperationService):
 
     async def set_quantity_override(self, list_id: str, item_id: str, value: bool, *, flush: bool = True) -> None:
         item = self._require_item(list_id, item_id)
-        if bool(item.itemQuantityShouldOverrideIngredientQuantity) == value:
+        if item.HasField("itemQuantityShouldOverrideIngredientQuantity") and bool(
+            item.itemQuantityShouldOverrideIngredientQuantity
+        ) == value:
             return
         item.itemQuantityShouldOverrideIngredientQuantity = value
         partial = PB.ListItem(identifier=item_id, listId=list_id, itemQuantityShouldOverrideIngredientQuantity=value)
@@ -569,7 +571,9 @@ class ShoppingListsService(OperationService):
 
     async def set_package_override(self, list_id: str, item_id: str, value: bool, *, flush: bool = True) -> None:
         item = self._require_item(list_id, item_id)
-        if bool(item.itemPackageSizeShouldOverrideIngredientPackageSize) == value:
+        if item.HasField("itemPackageSizeShouldOverrideIngredientPackageSize") and bool(
+            item.itemPackageSizeShouldOverrideIngredientPackageSize
+        ) == value:
             return
         item.itemPackageSizeShouldOverrideIngredientPackageSize = value
         partial = PB.ListItem(identifier=item_id, listId=list_id, itemPackageSizeShouldOverrideIngredientPackageSize=value)
@@ -600,7 +604,9 @@ class ShoppingListsService(OperationService):
 
     async def set_price_quantity_override(self, list_id: str, item_id: str, value: bool, *, flush: bool = True) -> None:
         item = self._require_item(list_id, item_id)
-        if bool(item.priceQuantityShouldOverrideItemQuantity) == value:
+        if item.HasField("priceQuantityShouldOverrideItemQuantity") and bool(
+            item.priceQuantityShouldOverrideItemQuantity
+        ) == value:
             return
         item.priceQuantityShouldOverrideItemQuantity = value
         partial = PB.ListItem(identifier=item_id, listId=list_id, priceQuantityShouldOverrideItemQuantity=value)
@@ -608,7 +614,9 @@ class ShoppingListsService(OperationService):
 
     async def set_price_package_override(self, list_id: str, item_id: str, value: bool, *, flush: bool = True) -> None:
         item = self._require_item(list_id, item_id)
-        if bool(item.pricePackageSizeShouldOverrideItemPackageSize) == value:
+        if item.HasField("pricePackageSizeShouldOverrideItemPackageSize") and bool(
+            item.pricePackageSizeShouldOverrideItemPackageSize
+        ) == value:
             return
         item.pricePackageSizeShouldOverrideItemPackageSize = value
         partial = PB.ListItem(identifier=item_id, listId=list_id, pricePackageSizeShouldOverrideItemPackageSize=value)
@@ -705,7 +713,9 @@ class ShoppingListsService(OperationService):
         self, list_id: str, value: bool, *, flush: bool = True
     ) -> None:
         lst = self._require_list(list_id)
-        if bool(lst.allowsMultipleListCategoryGroups) == value:
+        if lst.HasField("allowsMultipleListCategoryGroups") and bool(
+            lst.allowsMultipleListCategoryGroups
+        ) == value:
             return
         lst.allowsMultipleListCategoryGroups = value
         partial = PB.ShoppingList(identifier=list_id, allowsMultipleListCategoryGroups=value)
@@ -717,6 +727,13 @@ class ShoppingListsService(OperationService):
         self, list_id: str, position: int, *, flush: bool = True
     ) -> None:
         lst = self._require_list(list_id)
+        current = (
+            int(lst.newListItemPosition)
+            if lst.HasField("newListItemPosition")
+            else PB.ShoppingList.NewListItemPosition.Bottom
+        )
+        if current == position:
+            return
         lst.newListItemPosition = position
         partial = PB.ShoppingList(identifier=list_id, newListItemPosition=position)
         await self.operation(
@@ -1346,12 +1363,10 @@ class ShoppingListsService(OperationService):
         del lst.items[:]
         for item in ordered:
             lst.items.add().CopyFrom(item)
-        # The official handler sends a partial ShoppingList whose *items* are in the new
-        # order; there is no orderedListItemIds field in the wire schema.
-        partial = PB.ShoppingList(identifier=list_id)
-        for item in ordered:
-            partial.items.add().CopyFrom(item)
-        await self.operation("set-ordered-list-items", listId=list_id, list=partial, flush=flush)
+        # ShoppingList.oF clones the complete mutated list after replacing its item array.
+        await self.operation(
+            "set-ordered-list-items", listId=list_id, list=clone_message(lst), flush=flush
+        )
 
     def _saved_item_for_recipe_ingredient(
         self, list_id: str, item_ingredient: Message
