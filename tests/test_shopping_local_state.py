@@ -12,6 +12,39 @@ def service(fake_transport):
 
 
 @pytest.mark.asyncio
+async def test_ordinary_list_and_item_operations_use_official_legacy_queue(fake_transport) -> None:
+    svc = service(fake_transport)
+
+    await svc.create("Groceries", list_id="list")
+    assert fake_transport.calls[-1][0] == "/data/shopping-lists/update"
+    create_op = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert create_op.metadata.handlerId == "new-shopping-list"
+    assert not create_op.metadata.HasField("operationClass")
+
+    await svc.add_item("list", "Milk", item_id="item")
+    assert fake_transport.calls[-1][0] == "/data/shopping-lists/update"
+    item_op = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert item_op.metadata.handlerId == "add-shopping-list-item"
+    assert not item_op.metadata.HasField("operationClass")
+
+
+@pytest.mark.asyncio
+async def test_list_local_resource_operations_use_v2_queue_with_operation_class(fake_transport) -> None:
+    svc = service(fake_transport)
+    store = PB.PBStore(identifier="store", listId="list", name="Market")
+
+    await svc.save_store("list", store, is_new=True)
+
+    assert fake_transport.calls[-1][0] == "/data/shopping-lists/update-v2"
+    operation = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert operation.metadata.handlerId == "new-store"
+    assert (
+        operation.metadata.operationClass
+        == PB.PBOperationMetadata.OperationClass.StoreOperation
+    )
+
+
+@pytest.mark.asyncio
 async def test_new_store_gets_next_sort_index_and_is_saved_optimistically(fake_transport) -> None:
     svc = service(fake_transport)
     svc.state.list_stores["list"] = {
@@ -459,7 +492,7 @@ async def test_clear_promotes_with_skip_existing_then_removes_without_duplicate_
     assert [x.identifier for x in removed] == ["a", "b"]
     assert list(svc.state.shopping_lists["list"].items) == []
     assert seen == [("list", ["a", "b"], True, False)]
-    assert svc.queue._pending[-1].metadata.handlerId == "bulk-remove-list-items"
+    assert svc.legacy_queue._pending[-1].metadata.handlerId == "bulk-remove-list-items"
 
 
 @pytest.mark.asyncio

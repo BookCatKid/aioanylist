@@ -95,6 +95,37 @@ class ShoppingListsService(OperationService):
         self._refresh_after_legacy_queue = False
         self._refresh_folders_after_legacy_queue = False
 
+    async def operation(
+        self,
+        handler_id: str,
+        *,
+        flush: bool = True,
+        operation_class: int | None = None,
+        operation_version: int | None = None,
+        **fields: Any,
+    ) -> str:
+        """Route PBListOperation to the exact official shopping queue.
+
+        ShoppingListManager's ordinary list/item mutations enqueue through PJ/UK on
+        ``/data/shopping-lists/update``.  The v2 queue is used by the separate store,
+        store-filter, list-category-group, list-category, and categorization-rule managers;
+        every operation from those managers carries a PBOperationMetadata operationClass.
+        """
+        if operation_class is None:
+            op = self.legacy_queue.new_operation(
+                handler_id,
+                operation_version=operation_version,
+                **fields,
+            )
+            return await self.legacy_queue.enqueue(op, flush=flush)
+        return await super().operation(
+            handler_id,
+            flush=flush,
+            operation_class=operation_class,
+            operation_version=operation_version,
+            **fields,
+        )
+
     async def _on_legacy_response(self, response: Message) -> None:
         needs_refresh = False
         new_by_id = {str(x.identifier): x for x in response.newTimestamps}
