@@ -6,7 +6,12 @@ from uuid import UUID
 from google.protobuf.message import Message
 
 from ..identifiers import uuid4_hex, uuid5_hex
-from ..item_semantics import items_equal, quantity_to_deprecated_string
+from ..item_semantics import (
+    items_equal,
+    package_size_equal,
+    quantity_equal,
+    quantity_to_deprecated_string,
+)
 from ..operations import OperationQueue, QueueSpec
 from ..proto import PB
 from ..state import AnyListState, clone
@@ -439,11 +444,19 @@ class StarterListsService(OperationService):
         self, list_id: str, item_id: str, quantity: Message, *, flush: bool = True
     ) -> Message:
         item = self._require_item(list_id, item_id)
+        current = item.quantityPb if item.HasField("quantityPb") else PB.PBItemQuantity()
+        if quantity_equal(current, quantity):
+            return item
         item.quantityPb.CopyFrom(quantity)
-        item.deprecatedQuantity = quantity_to_deprecated_string(quantity)
+        deprecated = quantity_to_deprecated_string(quantity)
+        if deprecated:
+            item.deprecatedQuantity = deprecated.strip()
+        else:
+            item.ClearField("deprecatedQuantity")
         partial = PB.ListItem(identifier=item_id, listId=list_id)
         partial.quantityPb.CopyFrom(quantity)
-        partial.deprecatedQuantity = item.deprecatedQuantity
+        if item.HasField("deprecatedQuantity"):
+            partial.deprecatedQuantity = item.deprecatedQuantity
         await self.operation(
             "set-list-item-quantity-v2",
             listId=list_id,
@@ -478,6 +491,9 @@ class StarterListsService(OperationService):
         self, list_id: str, item_id: str, quantity: Message, *, flush: bool = True
     ) -> Message:
         item = self._require_item(list_id, item_id)
+        current = item.priceQuantityPb if item.HasField("priceQuantityPb") else PB.PBItemQuantity()
+        if quantity_equal(current, quantity):
+            return item
         item.priceQuantityPb.CopyFrom(quantity)
         partial = PB.ListItem(identifier=item_id, listId=list_id)
         partial.priceQuantityPb.CopyFrom(quantity)
@@ -515,6 +531,9 @@ class StarterListsService(OperationService):
         self, list_id: str, item_id: str, package_size: Message, *, flush: bool = True
     ) -> Message:
         item = self._require_item(list_id, item_id)
+        current = item.packageSizePb if item.HasField("packageSizePb") else PB.PBItemPackageSize()
+        if package_size_equal(current, package_size):
+            return item
         item.packageSizePb.CopyFrom(package_size)
         partial = PB.ListItem(identifier=item_id, listId=list_id)
         partial.packageSizePb.CopyFrom(package_size)
@@ -552,6 +571,9 @@ class StarterListsService(OperationService):
         self, list_id: str, item_id: str, package_size: Message, *, flush: bool = True
     ) -> Message:
         item = self._require_item(list_id, item_id)
+        current = item.pricePackageSizePb if item.HasField("pricePackageSizePb") else PB.PBItemPackageSize()
+        if package_size_equal(current, package_size):
+            return item
         item.pricePackageSizePb.CopyFrom(package_size)
         partial = PB.ListItem(identifier=item_id, listId=list_id)
         partial.pricePackageSizePb.CopyFrom(package_size)
@@ -698,14 +720,19 @@ class StarterListsService(OperationService):
         self, list_id: str, item_id: str, price: Message, *, flush: bool = True
     ) -> Message:
         item = self._require_item(list_id, item_id)
-        store_id = str(price.storeId)
-        replaced = False
-        for index, existing in enumerate(item.prices):
-            if str(existing.storeId) == store_id:
-                item.prices[index].CopyFrom(price)
-                replaced = True
-                break
-        if not replaced:
+        store_id = str(getattr(price, "storeId", "") or "")
+        empty = (not price.HasField("amount") or float(price.amount) == 0.0) and not (price.details or "")
+        existing_index = next(
+            (idx for idx, value in enumerate(item.prices) if (value.storeId or "") == store_id),
+            -1,
+        )
+        if empty:
+            if existing_index < 0:
+                return item
+            del item.prices[existing_index]
+        elif existing_index >= 0:
+            item.prices[existing_index].CopyFrom(price)
+        else:
             item.prices.add().CopyFrom(price)
         await self.operation(
             "save-item-price",

@@ -234,3 +234,39 @@ async def test_record_recent_items_can_leave_existing_equivalent_entry_in_place(
     assert added == []
     assert [x.identifier for x in rec.items] == ["old-id"]
     assert service.queue._pending == []
+
+@pytest.mark.asyncio
+async def test_starter_quantity_and_package_setters_suppress_equal_noops():
+    service, state = make_service()
+    lst = PB.StarterList(identifier="s")
+    item = lst.items.add(identifier="i", listId="s")
+    item.quantityPb.CopyFrom(PB.PBItemQuantity(amount="2"))
+    item.packageSizePb.CopyFrom(PB.PBItemPackageSize(size="12"))
+    item.priceQuantityPb.CopyFrom(PB.PBItemQuantity(amount="3"))
+    item.pricePackageSizePb.CopyFrom(PB.PBItemPackageSize(size="16"))
+    state.starter_lists["s"] = lst
+
+    await service.set_quantity("s", "i", PB.PBItemQuantity(amount="2"), flush=False)
+    await service.set_package_size("s", "i", PB.PBItemPackageSize(size="12"), flush=False)
+    await service.set_price_quantity("s", "i", PB.PBItemQuantity(amount="3"), flush=False)
+    await service.set_price_package_size("s", "i", PB.PBItemPackageSize(size="16"), flush=False)
+
+    assert service.queue._pending == []
+
+
+@pytest.mark.asyncio
+async def test_starter_empty_price_removes_existing_and_noops_when_absent():
+    service, state = make_service()
+    lst = PB.StarterList(identifier="s")
+    item = lst.items.add(identifier="i", listId="s")
+    item.prices.add(storeId="store", amount=4.5, details="sale")
+    state.starter_lists["s"] = lst
+
+    marker = PB.PBItemPrice(storeId="store")
+    await service.save_price("s", "i", marker, flush=False)
+    assert len(item.prices) == 0
+    assert service.queue._pending[-1].metadata.handlerId == "save-item-price"
+
+    before = len(service.queue._pending)
+    await service.save_price("s", "i", marker, flush=False)
+    assert len(service.queue._pending) == before
