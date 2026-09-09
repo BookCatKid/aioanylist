@@ -9,6 +9,18 @@ from anylist_sdk.state import AnyListState
 
 
 @pytest.mark.asyncio
+async def test_recipe_refresh_returns_before_http_while_edit_queue_pending(fake_transport) -> None:
+    state = AnyListState(user_id="user", recipe_data_id="recipe-data")
+    service = RecipesService(fake_transport, state, user_id="user")
+    await service.queue.enqueue(service.queue.new_operation("save-recipe"), flush=False)
+
+    result = await service.refresh()
+
+    assert result is None
+    assert fake_transport.calls == []
+
+
+@pytest.mark.asyncio
 async def test_new_recipe_gets_creation_timestamp_and_all_recipes_membership(fake_transport) -> None:
     state = AnyListState(user_id="user", recipe_data_id="recipe-data")
     state.all_recipes_collection = PB.PBRecipeCollection(identifier="all")

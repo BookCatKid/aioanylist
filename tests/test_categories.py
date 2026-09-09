@@ -133,6 +133,30 @@ def test_categorized_sync_lowercases_server_names_before_indexing(state):
 
 
 @pytest.mark.asyncio
+async def test_user_categories_refresh_returns_before_http_while_edit_queue_pending(fake_transport) -> None:
+    state = AnyListState(user_id="user")
+    service = UserCategoriesService(fake_transport, state, user_id="user")
+    await service.queue.enqueue(service.queue.new_operation("add-category"), flush=False)
+
+    result = await service.refresh()
+
+    assert result is None
+    assert fake_transport.calls == []
+
+
+@pytest.mark.asyncio
+async def test_categorized_items_refresh_returns_before_http_while_edit_queue_pending(fake_transport) -> None:
+    state = AnyListState(user_id="user")
+    service = CategorizedItemsService(fake_transport, state, user_id="user")
+    await service.queue.enqueue(service.queue.new_operation("categorize-item"), flush=False)
+
+    result = await service.refresh()
+
+    assert result is None
+    assert fake_transport.calls == []
+
+
+@pytest.mark.asyncio
 async def test_existing_memory_category_change_only_updates_match_id(state):
     service = CategorizedItemsService(DummyTransport(), state, user_id="user1")
     key = service.memory_id("Milk", "list1")

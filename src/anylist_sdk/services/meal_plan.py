@@ -63,7 +63,10 @@ class MealPlanService(OperationService):
     def templates(self):return list(self.state.meal_plan_templates.values())
     def template_groups(self):return list(self.state.meal_plan_template_groups.values())
 
-    async def refresh(self) -> Message:
+    async def refresh(self) -> Message | None:
+        # CalendarManager.xp returns before issuing /get while calendar edits are queued.
+        if self.queue.pending_count:
+            return None
         fields: dict[str, Message | str] = {
             "client_info": self.state.user_data_client_info().mealPlanningCalendarClientInfo
         }

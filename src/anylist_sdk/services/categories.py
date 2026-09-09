@@ -62,7 +62,10 @@ class UserCategoriesService(OperationService):
     def all(self): return list(self.state.user_categories.values())
     def groupings(self): return list(self.state.category_groupings.values())
 
-    async def refresh(self) -> Message:
+    async def refresh(self) -> Message | None:
+        # CategoryManager.wp returns before HTTP while its edit queue is non-empty.
+        if self.queue.pending_count:
+            return None
         fields: dict[str, Message] = {}
         if self.state.user_category_data_id:
             fields["timestamp"] = PB.PBTimestamp(timestamp=self.state.user_categories_timestamp)
@@ -140,7 +143,10 @@ class CategorizedItemsService(OperationService):
             self.state.categorized_items_timestamp=float(response.newTimestamps[0].timestamp)
         else:
             await self.refresh()
-    async def refresh(self) -> Message:
+    async def refresh(self) -> Message | None:
+        # CategorizedListItemsManager.cp has the same pre-request queue guard.
+        if self.queue.pending_count:
+            return None
         timestamp = PB.PBTimestamp(
             identifier="last-categorized-item-timestamp",
             timestamp=self.state.categorized_items_timestamp,

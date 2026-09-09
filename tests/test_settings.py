@@ -139,11 +139,51 @@ async def test_mobile_selected_defaults_suppress_equivalent_mutations(fake_trans
     service = MobileSettingsService(fake_transport, state, user_id="user")
 
     await service.set("webSelectedListId", "default")
-    await service.set("webRecipeCollectionLayoutStyle", 1)
     await service.set("webSelectedMealPlanTab", 0)
     await service.set("webMealPlanWeekEventListType", 1)
     await service.set("webMealPlanNotesSortOrder", 5)
 
+    assert fake_transport.calls == []
+
+
+@pytest.mark.asyncio
+async def test_mobile_recipe_collection_layout_setter_compares_raw_optional_field(fake_transport) -> None:
+    state = AnyListState(user_id="user")
+    state.mobile_app_settings = PB.PBMobileAppSettings(identifier="mobile", timestamp=1.0)
+    service = MobileSettingsService(fake_transport, state, user_id="user")
+
+    # KT() defaults an absent field to 1 for reads, but QT() compares against the raw
+    # protobuf property. Therefore absent -> 1 is still a real mutation in the web client.
+    await service.set("webRecipeCollectionLayoutStyle", 1)
+
+    assert len(fake_transport.calls) == 1
+    op = fake_transport.calls[0][1]["operations"].operations[0]
+    assert op.metadata.handlerId == "set-web-recipe-collection-layout-style"
+    assert op.updatedSettings.webRecipeCollectionLayoutStyle == 1
+
+
+@pytest.mark.asyncio
+async def test_list_settings_refresh_returns_before_http_while_edit_queue_pending(fake_transport) -> None:
+    state = AnyListState(user_id="user")
+    service = ListSettingsService(fake_transport, state, user_id="user")
+    await service.queue.enqueue(service.queue.new_operation("set-should-hide-prices"), flush=False)
+
+    result = await service.refresh()
+
+    assert result is None
+    assert fake_transport.calls == []
+
+
+@pytest.mark.asyncio
+async def test_mobile_settings_refresh_returns_before_http_while_edit_queue_pending(fake_transport) -> None:
+    state = AnyListState(user_id="user")
+    state.mobile_app_settings = PB.PBMobileAppSettings(identifier="mobile", timestamp=1.0)
+    service = MobileSettingsService(fake_transport, state, user_id="user")
+    await service.queue.enqueue(service.queue.new_operation("set-web-selected-tab-id"), flush=False)
+
+    result = await service.refresh()
+
+    assert result is None
     assert fake_transport.calls == []
 
 

@@ -8,6 +8,18 @@ from anylist_sdk.state import AnyListState
 
 
 @pytest.mark.asyncio
+async def test_meal_plan_refresh_returns_before_http_while_edit_queue_pending(fake_transport) -> None:
+    state = AnyListState(user_id="user", meal_plan_calendar_id="calendar")
+    service = MealPlanService(fake_transport, state, user_id="user")
+    await service.queue.enqueue(service.queue.new_operation("new-event"), flush=False)
+
+    result = await service.refresh()
+
+    assert result is None
+    assert fake_transport.calls == []
+
+
+@pytest.mark.asyncio
 async def test_delete_label_sends_affected_event_ids_and_clears_labels(fake_transport) -> None:
     state = AnyListState(user_id="user", meal_plan_calendar_id="cal")
     label = PB.PBCalendarLabel(identifier="label", calendarId="cal", name="Dinner")

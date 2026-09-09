@@ -122,8 +122,13 @@ class ListSettingsService(OperationService):
         self._store[list_id] = value
         return value
 
-    async def refresh(self) -> Message:
+    async def refresh(self) -> Message | None:
         """Refresh list settings through the official direct-read endpoint."""
+        # dp() returns before constructing/sending the request whenever the edit queue
+        # contains pending operations. This is stronger than merely refusing to apply the
+        # eventual response: the official client does not perform the HTTP request at all.
+        if self.queue.pending_count:
+            return None
         fields: dict[str, Message] = {}
         timestamp_id = (
             self.state.starter_list_settings_timestamp_id
@@ -259,7 +264,10 @@ class MobileSettingsService(OperationService):
         if original==float(settings.timestamp):settings.timestamp=response.newTimestamps[0].timestamp
         else:await self.refresh()
 
-    async def refresh(self) -> Message:
+    async def refresh(self) -> Message | None:
+        # bp() returns immediately while mobile-settings operations are pending.
+        if self.queue.pending_count:
+            return None
         fields: dict[str, Message] = {}
         settings = self.state.mobile_app_settings
         if settings is not None:
@@ -325,8 +333,14 @@ class MobileSettingsService(OperationService):
             "webMealPlanAddEntriesScreenPinnedEntriesCollapsed",
             "webMealPlanAddEntriesScreenQueueEntriesCollapsed",
         }
-        if field in no_op_fields and _mobile_effective_value(settings, field) == value:
-            return settings
+        if field in no_op_fields:
+            if field == "webRecipeCollectionLayoutStyle":
+                # QT() compares against the raw optional protobuf property even though KT()
+                # presents an absent value as layout style 1. Thus absent -> 1 is a mutation.
+                if _present_value(settings, field) == value:
+                    return settings
+            elif _mobile_effective_value(settings, field) == value:
+                return settings
         _set_proto_field(settings, field, value)
         partial = PB.PBMobileAppSettings(identifier=settings.identifier, timestamp=settings.timestamp)
         _set_proto_field(partial, field, value)

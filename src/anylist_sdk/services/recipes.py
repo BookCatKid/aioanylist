@@ -85,7 +85,11 @@ class RecipesService(OperationService):
             today=today,
         )
 
-    async def refresh(self, *, desktop_import_extension: bool = False) -> Message:
+    async def refresh(self, *, desktop_import_extension: bool = False) -> Message | None:
+        # RecipeManager.Sp returns before issuing either recipe-data read when the edit queue
+        # has pending operations.
+        if self.queue.pending_count:
+            return None
         fields: dict[str, Message] = {}
         if self.state.recipe_data_id:
             fields["timestamp"] = PB.PBTimestamp(
