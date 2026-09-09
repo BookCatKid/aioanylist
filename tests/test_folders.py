@@ -81,6 +81,79 @@ def test_full_folder_response_clears_stale_entries() -> None:
     assert set(state.list_folders) == {"root"}
     assert state.root_folder_id == "root"
 
+
+@pytest.mark.asyncio
+async def test_folder_refresh_returns_before_http_while_edit_queue_pending(fake_transport) -> None:
+    state = AnyListState(user_id="user", list_data_id="data")
+    service = FoldersService(fake_transport, state, user_id="user")
+    service.queue.pause()
+    await service.queue.enqueue(service.queue.new_operation("set-folder-name"), flush=False)
+
+    result = await service.refresh()
+
+    assert result is None
+    assert fake_transport.calls == []
+    await service.queue.resume()
+    assert [call[0] for call in fake_transport.calls] == ["/data/list-folders/update"]
+
+
+@pytest.mark.asyncio
+async def test_folder_operation_contracts(fake_transport) -> None:
+    state = AnyListState(user_id="user", list_data_id="data", root_folder_id="root")
+    root = PB.PBListFolder(identifier="root")
+    root.folderSettings.listsSortOrder = 2
+    root.folderSettings.folderSortPosition = 1
+    root.folderSettings.folderHexColor = "AAAAAA"
+    state.list_folders["root"] = root
+    service = FoldersService(fake_transport, state, user_id="user")
+
+    child = await service.create("Child", parent_id="root", hex_color="BBBBBB")
+    create = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert create.DESCRIPTOR.name == "PBListFolderOperation"
+    assert create.metadata.handlerId == "create-new-folder"
+    assert create.metadata.userId == "user"
+    assert create.listDataId == "data"
+    assert create.updatedParentFolderId == "root"
+    assert create.listFolder.identifier == child.identifier
+    assert create.listFolder.name == "Child"
+    assert create.listFolder.folderSettings.listsSortOrder == 2
+    assert create.listFolder.folderSettings.folderSortPosition == 1
+    assert create.listFolder.folderSettings.folderHexColor == "BBBBBB"
+
+    await service.rename(child.identifier, "Renamed")
+    rename = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert rename.metadata.handlerId == "set-folder-name"
+    assert rename.listFolder.identifier == child.identifier
+    assert rename.listFolder.name == "Renamed"
+    assert {descriptor.name for descriptor, _ in rename.listFolder.ListFields()} == {
+        "identifier",
+        "name",
+    }
+
+    await service.set_hex_color(child.identifier, "CCCCCC")
+    color = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert color.metadata.handlerId == "set-folder-hex-color"
+    assert color.listFolder.identifier == child.identifier
+    assert color.listFolder.folderSettings.folderHexColor == "CCCCCC"
+
+    await service.set_folder_sort_position(child.identifier, 4)
+    position = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert position.metadata.handlerId == "set-folder-sort-position"
+    assert position.listFolder.folderSettings.folderSortPosition == 4
+
+    items = [
+        PB.PBListFolderItem(identifier="list-a", itemType=0),
+        PB.PBListFolderItem(identifier="list-b", itemType=0),
+    ]
+    await service.reorder(child.identifier, items)
+    reorder = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert reorder.metadata.handlerId == "set-ordered-folder-items"
+    assert reorder.originalParentFolderId == child.identifier
+    assert [(item.identifier, item.itemType) for item in reorder.folderItems] == [
+        ("list-a", 0),
+        ("list-b", 0),
+    ]
+
 @pytest.mark.asyncio
 async def test_delete_folder_recurses_lists_children_and_parent(fake_transport) -> None:
     state = AnyListState(user_id="user", list_data_id="data", root_folder_id="root")

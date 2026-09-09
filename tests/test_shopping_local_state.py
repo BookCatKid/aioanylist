@@ -12,6 +12,44 @@ def service(fake_transport):
 
 
 @pytest.mark.asyncio
+async def test_shopping_refresh_defers_until_legacy_queue_drains(fake_transport) -> None:
+    svc = service(fake_transport)
+    svc.legacy_queue.pause()
+    await svc.legacy_queue.enqueue(svc.legacy_queue.new_operation("rename-list"), flush=False)
+
+    result = await svc.refresh()
+
+    assert result is None
+    assert fake_transport.calls == []
+    await svc.legacy_queue.resume()
+    assert [call[0] for call in fake_transport.calls] == [
+        "/data/shopping-lists/update",
+        "/data/shopping-lists/all",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_shopping_refresh_defers_until_v2_queue_drains(fake_transport) -> None:
+    svc = service(fake_transport)
+    svc.queue.pause()
+    operation = svc.queue.new_operation(
+        "set-store-name",
+        operation_class=PB.PBOperationMetadata.OperationClass.StoreOperation,
+    )
+    await svc.queue.enqueue(operation, flush=False)
+
+    result = await svc.refresh()
+
+    assert result is None
+    assert fake_transport.calls == []
+    await svc.queue.resume()
+    assert [call[0] for call in fake_transport.calls] == [
+        "/data/shopping-lists/update-v2",
+        "/data/shopping-lists/all",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_ordinary_list_and_item_operations_use_official_legacy_queue(fake_transport) -> None:
     svc = service(fake_transport)
 

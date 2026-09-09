@@ -25,6 +25,43 @@ def make_service() -> tuple[StarterListsService, AnyListState]:
 
 
 @pytest.mark.asyncio
+async def test_starter_refresh_defers_until_pending_edit_queue_drains(fake_transport):
+    state = AnyListState(user_id="user1")
+    service = StarterListsService(fake_transport, state, user_id="user1")
+    service.queue.pause()
+    await service.queue.enqueue(service.queue.new_operation("set-list-name"), flush=False)
+
+    result = await service.refresh()
+
+    assert result is None
+    assert fake_transport.calls == []
+    await service.queue.resume()
+    assert [call[0] for call in fake_transport.calls] == [
+        "/data/starter-lists/update",
+        "/data/starter-lists/all-v2",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_starter_order_refresh_returns_before_http_while_order_queue_pending(fake_transport):
+    state = AnyListState(user_id="user1")
+    service = StarterListsService(fake_transport, state, user_id="user1")
+    service.order_queue.pause()
+    await service.order_queue.enqueue(
+        service.order_queue.new_operation("set-ordered-list-ids"), flush=False
+    )
+
+    result = await service.refresh_order()
+
+    assert result is None
+    assert fake_transport.calls == []
+    await service.order_queue.resume()
+    assert [call[0] for call in fake_transport.calls] == [
+        "/data/starter-lists/update-ordered-ids"
+    ]
+
+
+@pytest.mark.asyncio
 async def test_deterministic_favorite_and_recent_lists_are_created_in_correct_indexes():
     service, state = make_service()
 

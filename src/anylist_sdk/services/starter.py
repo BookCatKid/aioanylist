@@ -252,7 +252,10 @@ class StarterListsService(OperationService):
             or self.state.favorite_item_lists.get(list_id)
         )
 
-    async def refresh(self) -> Message:
+    async def refresh(self) -> Message | None:
+        if self.queue.pending_count:
+            self._refresh_after_queue = True
+            return None
         response = await self.transport.post_proto(
             "/data/starter-lists/all-v2",
             fields={
@@ -272,7 +275,9 @@ class StarterListsService(OperationService):
         self.state.apply_starter_lists(response)
         return response
 
-    async def refresh_order(self) -> Message:
+    async def refresh_order(self) -> Message | None:
+        if self.order_queue.pending_count:
+            return None
         timestamp = PB.PBTimestamp(
             identifier=self.user_id,
             timestamp=self.state.ordered_starter_list_ids_timestamp,

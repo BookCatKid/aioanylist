@@ -193,7 +193,13 @@ class ListSettingsService(OperationService):
         no_op_if_unchanged = field not in {
             "customTheme", "shouldShowSharedListCategoryOrderHintBanner"
         }
-        if no_op_if_unchanged and _present_value(settings, field) == value:
+        if field == "icon":
+            current_icon = _present_value(settings, field)
+            # cI() only suppresses when there is an existing icon and it compares equal.
+            # An absent icon followed by setIcon(null) still queues the official handler.
+            if current_icon is not None and current_icon == value:
+                return settings
+        elif no_op_if_unchanged and _present_value(settings, field) == value:
             return settings
         _set_proto_field(settings, field, value)
         partial = PB.PBListSettings(identifier=settings.identifier)
@@ -246,7 +252,16 @@ class ListSettingsService(OperationService):
     async def remove(self, list_id: str, *, flush: bool = True) -> None:
         settings = self._store.pop(list_id, None)
         if settings is None: return
-        await self.operation("remove-list-settings", updatedSettings=settings, flush=flush)
+        # qI() sends qF(settings), not the complete settings object.  Only identity and the
+        # per-object timestamp participate in the remove operation payload.
+        partial = PB.PBListSettings(identifier=settings.identifier)
+        if settings.userId:
+            partial.userId = settings.userId
+        if settings.listId:
+            partial.listId = settings.listId
+        if settings.HasField("timestamp"):
+            partial.timestamp = settings.timestamp
+        await self.operation("remove-list-settings", updatedSettings=partial, flush=flush)
 
 
 class MobileSettingsService(OperationService):

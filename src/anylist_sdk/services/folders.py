@@ -57,7 +57,9 @@ class FoldersService(OperationService):
             for op in self.queue._pending
         )
 
-    async def refresh(self) -> Message:
+    async def refresh(self) -> Message | None:
+        if self.queue.pending_count:
+            return None
         fields: dict[str, Message | str] = {}
         if self.state.list_folders:
             # post_proto accepts Message/bytes/string fields, not repeated containers; build

@@ -116,6 +116,155 @@ async def test_list_settings_suppresses_official_unchanged_mutation(fake_transpo
 
 
 @pytest.mark.asyncio
+async def test_list_settings_remove_sends_only_identity_timestamp_partial(fake_transport) -> None:
+    state = AnyListState(user_id="user")
+    state.list_settings["list"] = PB.PBListSettings(
+        identifier="settings",
+        userId="user",
+        listId="list",
+        timestamp=4.5,
+        shouldHidePrices=True,
+        badgeMode="all",
+    )
+    service = ListSettingsService(fake_transport, state, user_id="user")
+
+    await service.remove("list")
+
+    operation = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert operation.metadata.handlerId == "remove-list-settings"
+    sent = operation.updatedSettings
+    assert sent.identifier == "settings"
+    assert sent.userId == "user"
+    assert sent.listId == "list"
+    assert sent.timestamp == 4.5
+    assert not sent.HasField("shouldHidePrices")
+    assert not sent.HasField("badgeMode")
+
+
+@pytest.mark.asyncio
+async def test_list_settings_absent_icon_to_null_still_queues_official_handler(fake_transport) -> None:
+    state = AnyListState(user_id="user")
+    state.list_settings["list"] = PB.PBListSettings(
+        identifier="settings", userId="user", listId="list", timestamp=2.0
+    )
+    service = ListSettingsService(fake_transport, state, user_id="user")
+
+    await service.set("list", "icon", None)
+
+    assert len(fake_transport.calls) == 1
+    operation = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert operation.metadata.handlerId == "set-icon"
+    assert operation.updatedSettings.identifier == "settings"
+    assert operation.updatedSettings.timestamp == 2.0
+    assert not operation.updatedSettings.HasField("icon")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("field", "value", "handler"),
+    [
+        ("shouldHideCategories", True, "set-should-hide-categories"),
+        ("shouldHideCompletedItems", True, "set-should-hide-completed-items"),
+        ("shouldHideStoreNames", True, "set-should-hide-store-names"),
+        ("shouldHideRunningTotals", True, "set-should-hide-running-total-bar"),
+        ("badgeMode", "all", "set-badge-mode"),
+        ("favoritesAutocompleteEnabled", True, "set-favorites-autocomplete-enabled"),
+        (
+            "genericGroceryAutocompleteEnabled",
+            True,
+            "set-generic-grocery-autocomplete-enabled",
+        ),
+        ("leftRunningTotalType", 1, "set-left-running-total-type"),
+        ("recentItemsAutocompleteEnabled", True, "set-recent-items-autocomplete-enabled"),
+        ("rightRunningTotalType", 2, "set-right-running-total-type"),
+        ("shouldRememberItemCategories", True, "set-should-remember-item-categories"),
+        ("listItemSortOrder", "alphabetical", "set-list-item-sort-order"),
+        ("listCategoryGroupId", "group", "set-list-category-group-id"),
+        ("locationNotificationsEnabled", True, "set-location-notifications-enabled"),
+        (
+            "shouldShowSharedListCategoryOrderHintBanner",
+            True,
+            "set-should-show-shared-list-category-order-hint-banner",
+        ),
+    ],
+)
+async def test_list_settings_scalar_handler_contracts(
+    fake_transport, field: str, value: object, handler: str
+) -> None:
+    state = AnyListState(user_id="user")
+    state.list_settings["list"] = PB.PBListSettings(
+        identifier="settings", userId="user", listId="list", timestamp=12.5
+    )
+    service = ListSettingsService(fake_transport, state, user_id="user")
+
+    await service.set("list", field, value)
+
+    assert getattr(state.list_settings["list"], field) == value
+    endpoint, fields, response_type = fake_transport.calls[-1]
+    assert endpoint == "/data/list-settings/update"
+    assert response_type == "PBEditOperationResponse"
+    operation = fields["operations"].operations[0]
+    assert operation.DESCRIPTOR.name == "PBListSettingsOperation"
+    assert operation.metadata.handlerId == handler
+    assert operation.metadata.userId == "user"
+    sent = operation.updatedSettings
+    assert sent.identifier == "settings"
+    assert sent.userId == "user"
+    assert sent.listId == "list"
+    assert sent.timestamp == 12.5
+    assert getattr(sent, field) == value
+    assert {descriptor.name for descriptor, _ in sent.ListFields()} == {
+        "identifier",
+        "userId",
+        "listId",
+        "timestamp",
+        field,
+    }
+
+
+@pytest.mark.asyncio
+async def test_starter_list_settings_mutations_use_separate_official_queue(fake_transport) -> None:
+    state = AnyListState(user_id="user")
+    state.starter_list_settings["starter"] = PB.PBListSettings(
+        identifier="settings", userId="user", listId="starter", timestamp=3.0
+    )
+    service = ListSettingsService(fake_transport, state, user_id="user", starter=True)
+
+    await service.set("starter", "shouldHideCategories", True)
+
+    endpoint, fields, response_type = fake_transport.calls[-1]
+    assert endpoint == "/data/starter-list-settings/update"
+    assert response_type == "PBEditOperationResponse"
+    operation = fields["operations"].operations[0]
+    assert operation.metadata.handlerId == "set-should-hide-categories"
+    assert operation.updatedSettings.listId == "starter"
+
+
+@pytest.mark.asyncio
+async def test_list_settings_custom_theme_always_queues_exact_partial(fake_transport) -> None:
+    state = AnyListState(user_id="user")
+    theme = PB.PBListTheme()
+    state.list_settings["list"] = PB.PBListSettings(
+        identifier="settings", userId="user", listId="list", timestamp=6.0
+    )
+    service = ListSettingsService(fake_transport, state, user_id="user")
+
+    await service.set("list", "customTheme", theme)
+
+    operation = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert operation.metadata.handlerId == "save-custom-theme"
+    sent = operation.updatedSettings
+    assert sent.HasField("customTheme")
+    assert {descriptor.name for descriptor, _ in sent.ListFields()} == {
+        "identifier",
+        "userId",
+        "listId",
+        "timestamp",
+        "customTheme",
+    }
+
+
+@pytest.mark.asyncio
 async def test_list_settings_can_clear_optional_scalar_with_absent_wire_field(fake_transport) -> None:
     state = AnyListState(user_id="user")
     state.list_settings["list"] = PB.PBListSettings(
@@ -160,6 +309,87 @@ async def test_mobile_recipe_collection_layout_setter_compares_raw_optional_fiel
     op = fake_transport.calls[0][1]["operations"].operations[0]
     assert op.metadata.handlerId == "set-web-recipe-collection-layout-style"
     assert op.updatedSettings.webRecipeCollectionLayoutStyle == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("field", "value", "handler"),
+    [
+        ("listIdForRecipeIngredients", "list", "set-list-id-for-recipe-ingredients"),
+        ("webSelectedListId", "list", "set-web-selected-list-id"),
+        ("webSelectedRecipeId", "recipe", "set-web-selected-recipe-id"),
+        (
+            "webSelectedRecipeCollectionId",
+            "collection",
+            "set-web-selected-recipe-collection-id",
+        ),
+        (
+            "webSelectedRecipeCollectionType",
+            1,
+            "set-web-selected-recipe-collection-type",
+        ),
+        ("webSelectedListFolderPath", "root/folder", "set-web-selected-list-folder-path"),
+        ("webSelectedTabId", "recipes", "set-web-selected-tab-id"),
+        ("webSelectedMealPlanTab", 1, "set-web-selected-meal-plan-tab-v2"),
+        ("webMealPlanCalendarLayout", 1, "set-web-meal-plan-calendar-layout"),
+        ("webMealPlanMonthEventListType", 1, "set-web-meal-plan-month-event-list-type"),
+        ("webMealPlanWeekEventListType", 0, "set-web-meal-plan-week-event-list-type"),
+        ("webMealPlanNotesSortOrder", 4, "set-web-meal-plan-notes-sort-order"),
+        (
+            "webHasHiddenStoresAndFiltersHelp",
+            True,
+            "set-web-has-hidden-stores-and-filters-help",
+        ),
+        ("webHasHiddenItemPricesHelp", True, "set-web-has-hidden-item-prices-help"),
+        ("didSuppressAccountNamePrompt", True, "set-did-suppress-account-name-prompt"),
+        (
+            "hasMigratedUserCategoriesToListCategories",
+            True,
+            "set-has-migrated-user-categories-to-list-categories",
+        ),
+        (
+            "shouldExcludeNewListsFromAlexaByDefault",
+            True,
+            "set-should-exclude-new-lists-from-alexa-by-default",
+        ),
+        (
+            "webMealPlanAddEntriesScreenPinnedEntriesCollapsed",
+            True,
+            "set-web-meal-plan-add-entries-screen-pinned-entries-collapsed",
+        ),
+        (
+            "webMealPlanAddEntriesScreenQueueEntriesCollapsed",
+            True,
+            "set-web-meal-plan-add-entries-screen-queue-entries-collapsed",
+        ),
+    ],
+)
+async def test_mobile_settings_scalar_handler_contracts(
+    fake_transport, field: str, value: object, handler: str
+) -> None:
+    state = AnyListState(user_id="user")
+    state.mobile_app_settings = PB.PBMobileAppSettings(identifier="mobile", timestamp=9.25)
+    service = MobileSettingsService(fake_transport, state, user_id="user")
+
+    await service.set(field, value)
+
+    assert getattr(state.mobile_app_settings, field) == value
+    endpoint, fields, response_type = fake_transport.calls[-1]
+    assert endpoint == "/data/mobile-app-settings/update"
+    assert response_type == "PBEditOperationResponse"
+    operation = fields["operations"].operations[0]
+    assert operation.DESCRIPTOR.name == "PBMobileAppSettingsOperation"
+    assert operation.metadata.handlerId == handler
+    assert operation.metadata.userId == "user"
+    sent = operation.updatedSettings
+    assert sent.identifier == "mobile"
+    assert sent.timestamp == 9.25
+    assert getattr(sent, field) == value
+    assert {descriptor.name for descriptor, _ in sent.ListFields()} == {
+        "identifier",
+        "timestamp",
+        field,
+    }
 
 
 @pytest.mark.asyncio

@@ -95,6 +95,7 @@ class ShoppingListsService(OperationService):
         self.on_items_became_recent: Callable[[str, Sequence[Message], bool, bool], Awaitable[None]] | None = None
         self.on_folder_refresh_requested: Callable[[], Awaitable[None]] | None = None
         self._refresh_after_legacy_queue = False
+        self._refresh_after_v2_queue = False
         self._refresh_folders_after_legacy_queue = False
 
     async def operation(
@@ -169,7 +170,9 @@ class ShoppingListsService(OperationService):
                 refresh_ids.add(list_id)
             else:
                 current.logicalClockTime = current_ts.logicalTimestamp
-        if refresh_ids:
+        refresh_lists = bool(refresh_ids) or self._refresh_after_v2_queue
+        self._refresh_after_v2_queue = False
+        if refresh_lists:
             await self.refresh()
 
     def all(self) -> list[Message]:
@@ -199,7 +202,18 @@ class ShoppingListsService(OperationService):
         self.state._drop_list_local_state(list_id)
         return removed
 
-    async def refresh(self) -> Message:
+    async def refresh(self) -> Message | None:
+        # gQ() never fetches list snapshots over pending local edits.  Legacy and v2 queues
+        # share one deferred-refresh flag in the web manager; keep one flag per Python queue
+        # so the acknowledgement that actually drains the pending work resumes the fetch.
+        if self.legacy_queue.pending_count:
+            self._refresh_after_legacy_queue = True
+            await self.legacy_queue.flush()
+            return None
+        if self.queue.pending_count:
+            self._refresh_after_v2_queue = True
+            await self.queue.flush()
+            return None
         response = await self.transport.post_proto(
             "/data/shopping-lists/all",
             fields={
