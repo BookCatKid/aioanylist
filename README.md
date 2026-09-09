@@ -15,7 +15,10 @@ This project deliberately does **not** use unofficial AnyList clients as protoco
 
 ## Status
 
-The SDK is under reconstruction and is intended to be statically testable without credentials. Live credentials are only needed for final server conformance testing.
+The static/offline reconstruction has reached a conformance checkpoint. Live credentials are
+now only needed for final server conformance testing; this is not yet a production-readiness
+claim. See [`OFFLINE_CONFORMANCE.md`](OFFLINE_CONFORMANCE.md) for the exact verified boundary,
+known official-source contradictions, and live test plan.
 
 ```python
 from anylist_sdk import AnyListClient
