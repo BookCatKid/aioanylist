@@ -18,6 +18,8 @@ class FoldersService(OperationService):
                            "PBListFolderOperation", "PBListFolderOperationList"), journal=journal)
         self.queue.on_response = self._on_response
         self.on_list_removed: Callable[[str, bool], Awaitable[None]] | None = None
+        self.on_shopping_refresh_requested: Callable[[], Awaitable[None]] | None = None
+        self._refresh_shopping_after_queue = False
 
     async def _on_response(self, response: Message) -> None:
         mismatch = False
@@ -36,6 +38,10 @@ class FoldersService(OperationService):
             current = self.state.list_folders.get(str(value.identifier))
             if current is not None:
                 current.timestamp = value.timestamp
+        if self._refresh_shopping_after_queue:
+            self._refresh_shopping_after_queue = False
+            if self.on_shopping_refresh_requested is not None:
+                await self.on_shopping_refresh_requested()
 
     async def operation(self, handler_id: str, *, flush: bool = True, **fields):
         if self.state.list_data_id and "listDataId" not in fields:
@@ -44,6 +50,12 @@ class FoldersService(OperationService):
 
     def all(self): return list(self.state.list_folders.values())
     def get(self, folder_id: str): return self.state.list_folders.get(folder_id)
+
+    def has_pending_delete_items(self) -> bool:
+        return any(
+            str(op.metadata.handlerId) == "delete-folder-items"
+            for op in self.queue._pending
+        )
 
     async def refresh(self) -> Message:
         fields: dict[str, Message | str] = {}

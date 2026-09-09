@@ -11,6 +11,8 @@ from .transport import AnyListTransport
 from .types import Domain
 
 SyncListener = Callable[[set[Domain]], Awaitable[None] | None]
+FieldGuard = Callable[[], bool]
+BusyCallback = Callable[[], None]
 
 
 class SyncCoordinator:
@@ -22,6 +24,18 @@ class SyncCoordinator:
         self._lock = asyncio.Lock()
         self._inflight: asyncio.Task[Message] | None = None
         self._listeners: list[SyncListener] = []
+        self._field_guards: dict[str, FieldGuard] = {}
+        self._busy_callbacks: dict[str, BusyCallback] = {}
+
+    def set_field_guard(
+        self, field: str, guard: FieldGuard, *, on_busy: BusyCallback | None = None
+    ) -> None:
+        """Prevent one aggregate-response field from applying while its manager is busy."""
+        self._field_guards[field] = guard
+        if on_busy is None:
+            self._busy_callbacks.pop(field, None)
+        else:
+            self._busy_callbacks[field] = on_busy
 
     def add_listener(self, listener: SyncListener) -> None:
         self._listeners.append(listener)
@@ -48,6 +62,21 @@ class SyncCoordinator:
         }
         return {domain for field, domain in mapping.items() if response.HasField(field)}
 
+    def _filter_busy_fields(self, response: Message) -> Message:
+        """Mirror each official manager's `queue.bl() -> return` snapshot guard."""
+        filtered = response.__class__()
+        filtered.CopyFrom(response)
+        for field, guard in self._field_guards.items():
+            if not response.HasField(field):
+                continue
+            if guard():
+                continue
+            filtered.ClearField(field)
+            callback = self._busy_callbacks.get(field)
+            if callback is not None:
+                callback()
+        return filtered
+
     async def _refresh_once(self, *, full: bool) -> Message:
         fields: dict[str, Message] = {"client_info": self.state.user_data_client_info()}
         if not full and self.state.loaded_once:
@@ -56,8 +85,9 @@ class SyncCoordinator:
             "/data/user-data/get", fields=fields, response_type="PBUserDataResponse"
         )
         assert isinstance(response, Message)
-        domains = self._domains_in(response)
-        self.state.apply_user_data(response)
+        filtered = self._filter_busy_fields(response)
+        domains = self._domains_in(filtered)
+        self.state.apply_user_data(filtered)
         await self._notify(domains)
         return response
 

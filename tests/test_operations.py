@@ -108,3 +108,46 @@ async def test_queue_stops_when_first_200_ack_leaves_more_than_200(fake_transpor
     assert len(ack.processed_ids) == 200
     assert queue.pending_count == 201
     assert len(fake_transport.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_response_delegate_observes_queue_after_acknowledged_operations_are_shifted(fake_transport) -> None:
+    queue = OperationQueue(
+        fake_transport,
+        QueueSpec("q", "/update", "PBListOperation", "PBListOperationList"),
+        user_id="user",
+    )
+    op = queue.new_operation("rename-list", listId="list", updatedValue="Name")
+    await queue.enqueue(op, flush=False)
+    seen_pending: list[int] = []
+
+    async def on_response(_response):
+        seen_pending.append(queue.pending_count)
+
+    queue.on_response = on_response
+
+    await queue.flush()
+
+    assert seen_pending == [0]
+
+
+@pytest.mark.asyncio
+async def test_response_delegate_failure_is_isolated_after_server_ack(fake_transport) -> None:
+    queue = OperationQueue(
+        fake_transport,
+        QueueSpec("q", "/update", "PBListOperation", "PBListOperationList"),
+        user_id="user",
+    )
+    op = queue.new_operation("rename-list", listId="list", updatedValue="Name")
+    await queue.enqueue(op, flush=False)
+
+    async def broken_delegate(_response):
+        raise RuntimeError("consumer bug")
+
+    queue.on_response = broken_delegate
+
+    ack = await queue.flush()
+
+    assert ack is not None
+    assert ack.processed_ids == (op.metadata.operationId,)
+    assert queue.pending_count == 0

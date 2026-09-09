@@ -201,10 +201,6 @@ class OperationQueue:
                 )
                 assert isinstance(response, Message)
                 last_response = response
-                if self.on_response is not None:
-                    callback_result = self.on_response(response)
-                    if asyncio.iscoroutine(callback_result):
-                        await callback_result
                 processed = list(response.processedOperations)
                 removed = 0
                 # AnyList Web walks processed IDs in order and only shifts when each ID
@@ -229,6 +225,22 @@ class OperationQueue:
                 all_processed.extend(processed)
                 await self._persist()
 
+                # ALEditOperationsNetworkQueue shifts acknowledged operations before it
+                # invokes the domain delegate (app.js 77633-77685).  Several managers use
+                # their queue's pending state inside that callback to decide whether a
+                # conflict refresh may be applied, so this ordering is observable behavior.
+                # The official queue also isolates delegate exceptions instead of turning a
+                # successfully acknowledged network edit into a caller-visible failure.
+                if self.on_response is not None:
+                    try:
+                        callback_result = self.on_response(response)
+                        if asyncio.iscoroutine(callback_result):
+                            await callback_result
+                    except Exception:
+                        logger.exception(
+                            "AnyList operation response delegate failed for %s",
+                            self.spec.endpoint,
+                        )
                 # KO schedules another request only when at least one operation was
                 # acknowledged and the remaining queue has fallen to <= the 200-op batch
                 # limit. In particular, a 401-op queue becomes 201 after the first request

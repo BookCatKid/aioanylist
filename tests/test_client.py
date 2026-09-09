@@ -124,3 +124,83 @@ async def test_shopping_recent_callback_routes_to_starter_lists(monkeypatch) -> 
         "list", [PB.ListItem(identifier="item")], False, False
     )
     assert seen == [("list", ["item"], False, False)]
+
+
+@pytest.mark.asyncio
+async def test_pending_new_list_defers_folder_snapshot_and_refreshes_folders_after_ack(monkeypatch) -> None:
+    client = AnyListClient(tokens=tokens())
+    operation = client.lists.legacy_queue.new_operation(
+        "new-shopping-list", listId="list", list=PB.ShoppingList(identifier="list")
+    )
+    await client.lists.legacy_queue.enqueue(operation, flush=False)
+    response = PB.PBUserDataResponse()
+    response.listFoldersResponse.listDataId = "data"
+    response.listFoldersResponse.rootFolderId = "root"
+    refreshed = []
+
+    async def refresh_folders():
+        refreshed.append("folders")
+        return PB.PBListFoldersResponse()
+
+    monkeypatch.setattr(client.folders, "refresh", refresh_folders)
+    client.lists.on_folder_refresh_requested = client.folders.refresh
+
+    filtered = client.sync._filter_busy_fields(response)
+
+    assert not filtered.HasField("listFoldersResponse")
+    assert client.lists._refresh_folders_after_legacy_queue is True
+    client.lists.legacy_queue._pending.clear()
+    await client.lists._on_legacy_response(PB.PBEditOperationResponse())
+    assert refreshed == ["folders"]
+    assert client.lists._refresh_folders_after_legacy_queue is False
+
+
+@pytest.mark.asyncio
+async def test_pending_folder_delete_defers_shopping_snapshot_and_refreshes_lists_after_ack(monkeypatch) -> None:
+    client = AnyListClient(tokens=tokens())
+    operation = client.folders.queue.new_operation("delete-folder-items")
+    await client.folders.queue.enqueue(operation, flush=False)
+    response = PB.PBUserDataResponse()
+    response.shoppingListsResponse.newLists.add(identifier="server-list")
+    refreshed = []
+
+    async def refresh_lists():
+        refreshed.append("lists")
+        return PB.ShoppingListsResponse()
+
+    monkeypatch.setattr(client.lists, "refresh", refresh_lists)
+    client.folders.on_shopping_refresh_requested = client.lists.refresh
+
+    filtered = client.sync._filter_busy_fields(response)
+
+    assert not filtered.HasField("shoppingListsResponse")
+    assert client.folders._refresh_shopping_after_queue is True
+    client.folders.queue._pending.clear()
+    await client.folders._on_response(PB.PBEditOperationResponse())
+    assert refreshed == ["lists"]
+    assert client.folders._refresh_shopping_after_queue is False
+
+
+@pytest.mark.asyncio
+async def test_pending_starter_edit_defers_snapshot_and_refreshes_after_ack(monkeypatch) -> None:
+    client = AnyListClient(tokens=tokens())
+    operation = client.starter_lists.queue.new_operation("set-list-name", listId="starter")
+    await client.starter_lists.queue.enqueue(operation, flush=False)
+    response = PB.PBUserDataResponse()
+    response.starterListsResponse.userListsResponse.includesAllLists = True
+    refreshed = []
+
+    async def refresh_starter():
+        refreshed.append("starter")
+        return PB.StarterListsResponseV2()
+
+    monkeypatch.setattr(client.starter_lists, "refresh", refresh_starter)
+
+    filtered = client.sync._filter_busy_fields(response)
+
+    assert not filtered.HasField("starterListsResponse")
+    assert client.starter_lists._refresh_after_queue is True
+    client.starter_lists.queue._pending.clear()
+    await client.starter_lists._on_response(PB.PBEditOperationResponse())
+    assert refreshed == ["starter"]
+    assert client.starter_lists._refresh_after_queue is False

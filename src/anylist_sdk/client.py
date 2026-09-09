@@ -74,7 +74,70 @@ class AnyListClient:
         self.lists.on_category_group_removed = self._migrate_selected_category_group
         self.lists.on_items_became_recent = self._record_recent_items
         self.folders.on_list_removed = self._remove_list_from_folder_tree
+        self.lists.on_folder_refresh_requested = self.folders.refresh
+        self.folders.on_shopping_refresh_requested = self.lists.refresh
+        self._bind_sync_queue_guards()
         self._services_ready=True
+
+    def _bind_sync_queue_guards(self) -> None:
+        """Route aggregate snapshots through the official per-manager pending-op guards."""
+        self.sync.set_field_guard(
+            "mobileAppSettingsResponse", lambda: self.mobile_settings.queue.pending_count == 0
+        )
+
+        def shopping_lists_ready() -> bool:
+            if self.lists.legacy_queue.pending_count:
+                # cQ sets tQ only for the legacy queue. bQ consumes it after the ack.
+                self.lists._refresh_after_legacy_queue = True
+                return False
+            if self.lists.queue.pending_count:
+                return False
+            if self.folders.has_pending_delete_items():
+                # cQ asks the folder manager to refresh shopping lists after deletion acks.
+                self.folders._refresh_shopping_after_queue = True
+                return False
+            return True
+
+        def list_folders_ready() -> bool:
+            if self.folders.queue.pending_count:
+                return False
+            if self.lists.has_pending_new_list():
+                # DB marks the shopping manager so bQ refreshes folders after the new-list ack.
+                self.lists._refresh_folders_after_legacy_queue = True
+                return False
+            return True
+
+        self.sync.set_field_guard("shoppingListsResponse", shopping_lists_ready)
+        self.sync.set_field_guard("listFoldersResponse", list_folders_ready)
+        self.sync.set_field_guard("recipeDataResponse", lambda: self.recipes.queue.pending_count == 0)
+        self.sync.set_field_guard(
+            "mealPlanningCalendarResponse", lambda: self.meal_plan.queue.pending_count == 0
+        )
+        self.sync.set_field_guard(
+            "userCategoriesResponse", lambda: self.categories.queue.pending_count == 0
+        )
+        self.sync.set_field_guard(
+            "categorizedItemsResponse", lambda: self.categorized_items.queue.pending_count == 0
+        )
+        self.sync.set_field_guard(
+            "listSettingsResponse", lambda: self.list_settings.queue.pending_count == 0
+        )
+        self.sync.set_field_guard(
+            "starterListSettingsResponse",
+            lambda: self.starter_list_settings.queue.pending_count == 0,
+        )
+
+        def starter_lists_ready() -> bool:
+            if self.starter_lists.queue.pending_count:
+                self.starter_lists._refresh_after_queue = True
+                return False
+            return True
+
+        self.sync.set_field_guard("starterListsResponse", starter_lists_ready)
+        self.sync.set_field_guard(
+            "orderedStarterListIdsResponse",
+            lambda: self.starter_lists.order_queue.pending_count == 0,
+        )
 
     @property
     def tokens(self)->AuthTokens|None:return self.transport.tokens

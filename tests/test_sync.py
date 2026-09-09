@@ -78,3 +78,31 @@ async def test_sync_notifies_only_domains_present_in_response(fake_transport) ->
     sync.add_listener(lambda domains: seen.append(domains))
     await sync.refresh()
     assert seen == [{Domain.LIST_FOLDERS, Domain.MOBILE_SETTINGS}]
+
+
+@pytest.mark.asyncio
+async def test_aggregate_sync_defers_busy_manager_snapshot_until_guard_clears(fake_transport) -> None:
+    first = PB.PBUserDataResponse()
+    first.listSettingsResponse.timestamp.identifier = "all"
+    first.listSettingsResponse.timestamp.timestamp = 10
+    first.listSettingsResponse.settings.add(
+        identifier="settings", userId="user", listId="list", shouldHidePrices=True
+    )
+    fake_transport.responses.append(first)
+    state = AnyListState(user_id="user")
+    state.list_settings["list"] = PB.PBListSettings(
+        identifier="settings", userId="user", listId="list", shouldHidePrices=False
+    )
+    sync = SyncCoordinator(fake_transport, state)
+    busy = True
+    sync.set_field_guard("listSettingsResponse", lambda: not busy)
+    seen = []
+    sync.add_listener(lambda domains: seen.append(domains))
+
+    await sync.refresh(full=True)
+
+    assert state.list_settings["list"].shouldHidePrices is False
+    assert seen == [set()]
+    # Unlike shopping/starter managers, list settings has no deferred-refresh flag in the
+    # official client. The busy aggregate snapshot is simply ignored; the queue delegate's
+    # normal timestamp conflict path decides whether a direct settings refresh is necessary.

@@ -91,6 +91,9 @@ class ShoppingListsService(OperationService):
         self.on_store_filter_removed: Callable[[str, str, bool], Awaitable[None]] | None = None
         self.on_category_group_removed: Callable[[str, str, bool], Awaitable[None]] | None = None
         self.on_items_became_recent: Callable[[str, Sequence[Message], bool, bool], Awaitable[None]] | None = None
+        self.on_folder_refresh_requested: Callable[[], Awaitable[None]] | None = None
+        self._refresh_after_legacy_queue = False
+        self._refresh_folders_after_legacy_queue = False
 
     async def _on_legacy_response(self, response: Message) -> None:
         needs_refresh = False
@@ -105,8 +108,14 @@ class ShoppingListsService(OperationService):
                 needs_refresh = True
             else:
                 current.timestamp = new.timestamp
-        if needs_refresh:
+        refresh_lists = needs_refresh or self._refresh_after_legacy_queue
+        self._refresh_after_legacy_queue = False
+        if refresh_lists:
             await self.refresh()
+        if self._refresh_folders_after_legacy_queue:
+            self._refresh_folders_after_legacy_queue = False
+            if self.on_folder_refresh_requested is not None:
+                await self.on_folder_refresh_requested()
 
     async def _on_v2_response(self, response: Message) -> None:
         refresh_ids = {str(x) for x in response.fullRefreshTimestampIds}
@@ -138,6 +147,12 @@ class ShoppingListsService(OperationService):
 
     def item(self, list_id: str, item_id: str) -> Message | None:
         return self.state.get_item(list_id, item_id)
+
+    def has_pending_new_list(self) -> bool:
+        return any(
+            str(op.metadata.handlerId) == "new-shopping-list"
+            for op in self.legacy_queue._pending
+        )
 
     def remove_list_local(self, list_id: str) -> Message | None:
         """Apply ShoppingListManager.qB's local list-removal side effects.

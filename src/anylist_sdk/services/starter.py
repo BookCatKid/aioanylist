@@ -116,6 +116,7 @@ class StarterListsService(OperationService):
             journal=journal,
         )
         self.user_id = user_id
+        self._refresh_after_queue = False
         self.queue.on_response = self._on_response
         self.order_queue.on_response = self._on_order_response
 
@@ -132,7 +133,9 @@ class StarterListsService(OperationService):
                         current.timestamp = response.newTimestamps[index].timestamp
                 else:
                     mismatch = True
-        if mismatch:
+        refresh = mismatch or self._refresh_after_queue
+        self._refresh_after_queue = False
+        if refresh:
             await self.refresh()
 
     async def _on_order_response(self, response: Message) -> None:
