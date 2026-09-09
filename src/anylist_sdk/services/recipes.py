@@ -189,7 +189,11 @@ class RecipesService(OperationService):
         for rid in recipe_ids:
             if rid in self.state.recipes and rid not in collection.recipeIds:
                 collection.recipeIds.append(rid); added.append(rid)
-        partial = PB.PBRecipeCollection(identifier=collection_id); partial.recipeIds.extend(added)
+        # AnyList Web sends a clone of the complete collection so metadata/settings are
+        # retained, but narrows recipeIds to only IDs newly added by this mutation.
+        partial = clone_message(collection)
+        del partial.recipeIds[:]
+        partial.recipeIds.extend(added)
         await self.operation("add-recipes-to-collection", recipeCollection=partial, flush=flush)
 
     async def remove_from_collection(self, collection_id: str, recipe_ids: Sequence[str], *, flush: bool = True) -> None:
@@ -227,8 +231,17 @@ class RecipesService(OperationService):
     async def set_collection_sort(self, collection_id: str, sort_order: int, *, reversed: bool = False,
                                   flush: bool = True) -> None:
         c = self._collection(collection_id)
-        c.collectionSettings.recipesSortOrder = sort_order
-        c.collectionSettings.useReversedSortDirection = reversed
+        if c.HasField("collectionSettings"):
+            c.collectionSettings.recipesSortOrder = sort_order
+            c.collectionSettings.useReversedSortDirection = reversed
+        else:
+            # Bz.jz(sort_order) in the web client initializes exactly these fields.
+            # Notably, the first call does not apply the requested reversed flag; that field
+            # is only mutated once collectionSettings already exists.
+            settings = PB.PBRecipeCollectionSettings(
+                recipesSortOrder=sort_order, showOnlyRecipesWithNoCollection=False
+            )
+            c.collectionSettings.CopyFrom(settings)
         await self.operation("set-recipe-collection-sort-order", recipeCollection=clone_message(c), flush=flush)
 
     async def set_max_recipe_count(self, count: int, *, flush: bool = True) -> None:
@@ -329,7 +342,20 @@ class RecipesService(OperationService):
             self.state.apply_recipes_full(response)
         return response
 
-    async def cancel_link(self, request: Message) -> Message:
+    async def cancel_link(self, request: Message) -> Message | None:
+        # RecipeManager.DX is intentionally a no-op unless the request belongs to one of
+        # the two current link-request collections.  Compare identifiers because state
+        # snapshots are cloned protobufs rather than the same JS object identity.
+        request_id = str(request.identifier)
+        known = any(
+            str(candidate.identifier) == request_id
+            for candidate in (
+                *self.state.pending_recipe_link_requests,
+                *self.state.recipe_link_requests_to_confirm,
+            )
+        )
+        if not known:
+            return None
         response = await self.transport.post_proto(
             "/data/user-recipe-data/cancel-recipe-link-request",
             fields={"link_request": request},

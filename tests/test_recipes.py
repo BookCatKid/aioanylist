@@ -267,6 +267,7 @@ async def test_cancel_link_posts_request_proto_and_receives_full_recipe_data(fak
     response = PB.PBRecipeDataResponse(recipeDataId="rd2", timestamp=4.0)
     fake_transport.responses.append(response)
     request = PB.PBRecipeLinkRequest(identifier="request2")
+    state.pending_recipe_link_requests.append(request)
 
     await service.cancel_link(request)
 
@@ -294,3 +295,89 @@ async def test_recipe_email_can_include_meal_plan_event_context(fake_transport) 
         "event_type": 1,
     }
     assert response_type is None
+
+@pytest.mark.asyncio
+async def test_add_to_collection_sends_full_collection_clone_with_only_added_ids(fake_transport) -> None:
+    state = AnyListState(user_id="user")
+    state.recipes["a"] = PB.PBRecipe(identifier="a")
+    state.recipes["b"] = PB.PBRecipe(identifier="b")
+    collection = PB.PBRecipeCollection(identifier="collection", name="Dinner", recipeIds=["a"])
+    collection.collectionSettings.recipesSortOrder = 3
+    state.recipe_collections[collection.identifier] = collection
+    service = RecipesService(fake_transport, state, user_id="user")
+
+    await service.add_to_collection("collection", ["a", "b"])
+
+    operation = fake_transport.calls[-1][1]["operations"].operations[0]
+    sent = operation.recipeCollection
+    assert sent.identifier == "collection"
+    assert sent.name == "Dinner"
+    assert sent.collectionSettings.recipesSortOrder == 3
+    assert list(sent.recipeIds) == ["b"]
+    assert list(state.recipe_collections["collection"].recipeIds) == ["a", "b"]
+
+
+@pytest.mark.asyncio
+async def test_first_collection_sort_matches_official_settings_initialization(fake_transport) -> None:
+    state = AnyListState(user_id="user")
+    state.recipe_collections["collection"] = PB.PBRecipeCollection(
+        identifier="collection", name="Dinner"
+    )
+    service = RecipesService(fake_transport, state, user_id="user")
+
+    await service.set_collection_sort("collection", 4, reversed=True)
+
+    live = state.recipe_collections["collection"].collectionSettings
+    assert live.recipesSortOrder == 4
+    assert live.showOnlyRecipesWithNoCollection is False
+    assert not live.HasField("useReversedSortDirection")
+    operation = fake_transport.calls[-1][1]["operations"].operations[0]
+    sent = operation.recipeCollection.collectionSettings
+    assert sent.recipesSortOrder == 4
+    assert sent.showOnlyRecipesWithNoCollection is False
+    assert not sent.HasField("useReversedSortDirection")
+
+
+@pytest.mark.asyncio
+async def test_existing_collection_sort_updates_reversed_direction(fake_transport) -> None:
+    state = AnyListState(user_id="user")
+    collection = PB.PBRecipeCollection(identifier="collection")
+    collection.collectionSettings.recipesSortOrder = 1
+    collection.collectionSettings.showOnlyRecipesWithNoCollection = False
+    state.recipe_collections["collection"] = collection
+    service = RecipesService(fake_transport, state, user_id="user")
+
+    await service.set_collection_sort("collection", 2, reversed=True)
+
+    settings = state.recipe_collections["collection"].collectionSettings
+    assert settings.recipesSortOrder == 2
+    assert settings.useReversedSortDirection is True
+    assert settings.HasField("useReversedSortDirection")
+
+
+@pytest.mark.asyncio
+async def test_cancel_unknown_recipe_link_request_is_official_noop(fake_transport) -> None:
+    state = AnyListState(user_id="user")
+    service = RecipesService(fake_transport, state, user_id="user")
+
+    result = await service.cancel_link(PB.PBRecipeLinkRequest(identifier="missing"))
+
+    assert result is None
+    assert fake_transport.calls == []
+
+
+@pytest.mark.asyncio
+async def test_web_import_uses_official_url_and_optional_html_fields(fake_transport) -> None:
+    state = AnyListState(user_id="user")
+    service = RecipesService(fake_transport, state, user_id="user")
+    response = PB.PBRecipeWebImportResponse(statusCode=0)
+    response.recipe.identifier = "imported"
+    fake_transport.responses.append(response)
+
+    result = await service.web_import("https://example.test/recipe", html="<html>recipe</html>")
+
+    assert result.recipe.identifier == "imported"
+    endpoint, fields, response_type = fake_transport.calls[-1]
+    assert endpoint == "/data/recipes/web-import"
+    assert fields == {"url": "https://example.test/recipe", "html": "<html>recipe</html>"}
+    assert response_type == "PBRecipeWebImportResponse"
