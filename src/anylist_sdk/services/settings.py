@@ -122,6 +122,35 @@ class ListSettingsService(OperationService):
         self._store[list_id] = value
         return value
 
+    async def refresh(self) -> Message:
+        """Refresh list settings through the official direct-read endpoint."""
+        fields: dict[str, Message] = {}
+        timestamp_id = (
+            self.state.starter_list_settings_timestamp_id
+            if self.starter
+            else self.state.list_settings_timestamp_id
+        )
+        timestamp_value = (
+            self.state.starter_list_settings_timestamp
+            if self.starter
+            else self.state.list_settings_timestamp
+        )
+        if timestamp_id:
+            fields["timestamp"] = PB.PBTimestamp(
+                identifier="list-settings-timestamp", timestamp=timestamp_value
+            )
+        response = await self.transport.post_proto(
+            self.read_endpoint,
+            fields=fields,
+            response_type="PBListSettingsList",
+        )
+        assert isinstance(response, Message)
+        # WI ignores server snapshots while local operations are pending so they cannot
+        # overwrite optimistic edits. Direct refresh follows the same manager method.
+        if not self.queue.pending_count:
+            self.state.apply_list_settings(response, starter=self.starter)
+        return response
+
     async def set(self, list_id: str, field: str, value: Any, *, handler_id: str | None = None,
                   flush: bool = True) -> Message:
         settings = self.ensure(list_id)
@@ -349,4 +378,3 @@ class MobileSettingsService(OperationService):
         return await self.operation(
             "remove-recipe-cooking-states", updatedSettings=partial, flush=flush
         )
-

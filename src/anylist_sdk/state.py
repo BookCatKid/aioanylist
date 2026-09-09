@@ -354,12 +354,20 @@ class AnyListState:
         if response.HasField("timestamp"):
             if starter:
                 self.starter_list_settings_timestamp = float(response.timestamp.timestamp)
-                self.starter_list_settings_timestamp_id = str(response.timestamp.identifier)
+                # xF.zI() always constructs this logical request timestamp identifier;
+                # it does not reuse the response's "all" marker.
+                self.starter_list_settings_timestamp_id = "list-settings-timestamp"
             else:
                 self.list_settings_timestamp = float(response.timestamp.timestamp)
-                self.list_settings_timestamp_id = str(response.timestamp.identifier)
+                self.list_settings_timestamp_id = "list-settings-timestamp"
             if response.timestamp.identifier == "all":
+                # WI clears the per-list map on a full response. Its separate account-wide
+                # default is reset only when the response actually contains settings; an
+                # empty full response preserves the existing default object.
+                existing_default = target.get("") if not response.settings else None
                 target.clear()
+                if existing_default is not None:
+                    target[""] = existing_default
         # The official manager indexes PBListSettings by listId, with the account-wide
         # default settings stored under the empty-string key.
         for value in response.settings:
@@ -468,16 +476,17 @@ class AnyListState:
             out.mealPlanningCalendarTimestamp.identifier = self.meal_plan_calendar_id
             out.mealPlanningCalendarTimestamp.logicalTimestamp = self.meal_plan_logical_timestamp
         if self.user_category_data_id:
-            out.userCategoriesTimestamp.identifier = self.user_category_data_id
+            # CategoryManager.HO sets only the numeric timestamp; unlike recipes and most
+            # other domains, the official request intentionally leaves identifier absent.
             out.userCategoriesTimestamp.timestamp = self.user_categories_timestamp
         if self.categorized_items_timestamp_id:
-            out.categorizedItemsTimestamp.identifier = self.categorized_items_timestamp_id
+            out.categorizedItemsTimestamp.identifier = "last-categorized-item-timestamp"
             out.categorizedItemsTimestamp.timestamp = self.categorized_items_timestamp
         if self.list_settings_timestamp_id:
-            out.listSettingsTimestamp.identifier = self.list_settings_timestamp_id
+            out.listSettingsTimestamp.identifier = "list-settings-timestamp"
             out.listSettingsTimestamp.timestamp = self.list_settings_timestamp
         if self.starter_list_settings_timestamp_id:
-            out.starterListSettingsTimestamp.identifier = self.starter_list_settings_timestamp_id
+            out.starterListSettingsTimestamp.identifier = "list-settings-timestamp"
             out.starterListSettingsTimestamp.timestamp = self.starter_list_settings_timestamp
         out.starterListTimestamps.CopyFrom(self._starter_timestamps(self.starter_lists))
         out.recentItemTimestamps.CopyFrom(self._starter_timestamps(self.recent_item_lists))
@@ -486,7 +495,7 @@ class AnyListState:
             out.orderedStarterListIdsTimestamp.identifier = self.ordered_starter_list_ids_timestamp_id
             out.orderedStarterListIdsTimestamp.timestamp = self.ordered_starter_list_ids_timestamp
         if self.mobile_app_settings is not None:
-            out.mobileAppSettingsTimestamp.identifier = self.mobile_app_settings.identifier
+            out.mobileAppSettingsTimestamp.identifier = "mobile-app-settings-timestamp"
             out.mobileAppSettingsTimestamp.timestamp = self.mobile_app_settings.timestamp
         return out
 

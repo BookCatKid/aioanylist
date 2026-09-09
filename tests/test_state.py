@@ -275,3 +275,56 @@ def test_state_retains_official_migration_metadata() -> None:
     starter = PB.StarterListsResponseV2(hasMigratedUserFavorites=True)
     state.apply_starter_lists(starter)
     assert state.has_migrated_user_favorites is True
+
+
+def test_full_empty_list_settings_preserves_default_but_clears_per_list_values() -> None:
+    state = AnyListState(user_id="user")
+    state.list_settings[""] = PB.PBListSettings(identifier="default", userId="user")
+    state.list_settings["list"] = PB.PBListSettings(
+        identifier="specific", userId="user", listId="list"
+    )
+    response = PB.PBListSettingsList()
+    response.timestamp.identifier = "all"
+    response.timestamp.timestamp = 2
+
+    state.apply_list_settings(response)
+
+    assert set(state.list_settings) == {""}
+    assert state.list_settings[""].identifier == "default"
+    assert state.list_settings_timestamp_id == "list-settings-timestamp"
+
+
+def test_full_nonempty_list_settings_rebuilds_default_from_response() -> None:
+    state = AnyListState(user_id="user")
+    state.list_settings[""] = PB.PBListSettings(identifier="old-default", userId="user")
+    response = PB.PBListSettingsList()
+    response.timestamp.identifier = "all"
+    response.settings.add(identifier="new-default", userId="user")
+    response.settings.add(identifier="specific", userId="user", listId="list")
+
+    state.apply_list_settings(response)
+
+    assert set(state.list_settings) == {"", "list"}
+    assert state.list_settings[""].identifier == "new-default"
+
+
+def test_aggregate_user_data_timestamp_identifiers_match_official_helpers() -> None:
+    state = AnyListState(user_id="user")
+    state.user_category_data_id = "all"
+    state.user_categories_timestamp = 1
+    state.categorized_items_timestamp_id = "all"
+    state.categorized_items_timestamp = 2
+    state.list_settings_timestamp_id = "all"
+    state.list_settings_timestamp = 3
+    state.starter_list_settings_timestamp_id = "all"
+    state.starter_list_settings_timestamp = 4
+    state.mobile_app_settings = PB.PBMobileAppSettings(identifier="user", timestamp=5)
+
+    timestamps = state.user_data_timestamps()
+
+    assert not timestamps.userCategoriesTimestamp.HasField("identifier")
+    assert timestamps.userCategoriesTimestamp.timestamp == 1
+    assert timestamps.categorizedItemsTimestamp.identifier == "last-categorized-item-timestamp"
+    assert timestamps.listSettingsTimestamp.identifier == "list-settings-timestamp"
+    assert timestamps.starterListSettingsTimestamp.identifier == "list-settings-timestamp"
+    assert timestamps.mobileAppSettingsTimestamp.identifier == "mobile-app-settings-timestamp"

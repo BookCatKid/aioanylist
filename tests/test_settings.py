@@ -182,3 +182,64 @@ async def test_recipe_cooking_states_are_keyed_by_recipe_and_event(fake_transpor
         PB.PBRecipeCookingState(recipeId="recipe", eventId="event-a")
     ])
     assert [(x.recipeId, x.eventId) for x in settings.recipeCookingStates] == [("recipe", "event-b")]
+
+
+@pytest.mark.asyncio
+async def test_list_settings_direct_refresh_uses_stable_official_timestamp_id(fake_transport) -> None:
+    state = AnyListState(user_id="user")
+    state.list_settings_timestamp = 8.5
+    state.list_settings_timestamp_id = "loaded"
+    response = PB.PBListSettingsList()
+    response.timestamp.identifier = "delta"
+    response.timestamp.timestamp = 9.0
+    fake_transport.responses.append(response)
+    service = ListSettingsService(fake_transport, state, user_id="user")
+
+    await service.refresh()
+
+    endpoint, fields, response_type = fake_transport.calls[-1]
+    assert endpoint == "/data/list-settings/all"
+    assert response_type == "PBListSettingsList"
+    assert fields["timestamp"].identifier == "list-settings-timestamp"
+    assert fields["timestamp"].timestamp == 8.5
+    assert state.list_settings_timestamp == 9.0
+    assert state.list_settings_timestamp_id == "list-settings-timestamp"
+
+
+@pytest.mark.asyncio
+async def test_starter_settings_direct_refresh_uses_same_official_timestamp_id(fake_transport) -> None:
+    state = AnyListState(user_id="user")
+    state.starter_list_settings_timestamp = 3.0
+    state.starter_list_settings_timestamp_id = "loaded"
+    fake_transport.responses.append(PB.PBListSettingsList())
+    service = ListSettingsService(fake_transport, state, user_id="user", starter=True)
+
+    await service.refresh()
+
+    endpoint, fields, _ = fake_transport.calls[-1]
+    assert endpoint == "/data/starter-list-settings/all"
+    assert fields["timestamp"].identifier == "list-settings-timestamp"
+
+
+@pytest.mark.asyncio
+async def test_settings_refresh_does_not_overwrite_optimistic_state_while_queue_pending(fake_transport) -> None:
+    state = AnyListState(user_id="user")
+    state.list_settings["list"] = PB.PBListSettings(
+        identifier="settings", userId="user", listId="list", shouldHidePrices=True
+    )
+    state.list_settings_timestamp_id = "loaded"
+    state.list_settings_timestamp = 1
+    service = ListSettingsService(fake_transport, state, user_id="user")
+    await service.set("list", "shouldHidePrices", False, flush=False)
+    response = PB.PBListSettingsList()
+    response.timestamp.identifier = "all"
+    response.timestamp.timestamp = 2
+    response.settings.add(
+        identifier="settings", userId="user", listId="list", shouldHidePrices=True
+    )
+    fake_transport.responses.append(response)
+
+    await service.refresh()
+
+    assert state.list_settings["list"].shouldHidePrices is False
+    assert state.list_settings_timestamp == 1
