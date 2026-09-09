@@ -88,3 +88,26 @@ async def test_explicit_stop_resets_reconnect_session_state() -> None:
     realtime._has_connected_once=True;realtime._retry_delay=8
     await realtime.stop()
     assert not realtime._has_connected_once and realtime._retry_delay==0.5
+
+@pytest.mark.asyncio
+async def test_start_without_authentication_fails_instead_of_hanging() -> None:
+    transport = DummyTransport()
+    transport.tokens = None
+    realtime = RealtimeClient(transport)
+    from anylist_sdk.exceptions import AuthenticationError
+    with pytest.raises(AuthenticationError):
+        await realtime.start()
+
+
+@pytest.mark.asyncio
+async def test_listener_failure_does_not_prevent_other_listeners_or_kill_dispatch() -> None:
+    realtime = RealtimeClient(DummyTransport())
+    seen = []
+
+    async def broken(_event):
+        raise RuntimeError("consumer bug")
+
+    realtime.add_listener(broken)
+    realtime.add_listener(lambda event: seen.append(event.message))
+    await realtime._dispatch("refresh-shopping-lists")
+    assert seen == ["refresh-shopping-lists"]

@@ -67,10 +67,29 @@ class RealtimeClient:
             yield await self._events.get()
 
     async def start(self) -> None:
+        if self.transport.tokens is None:
+            raise AuthenticationError("Realtime connection requires authentication")
         if self._task is None or self._task.done():
             self._stop.clear()
             self._task = asyncio.create_task(self._run(), name="anylist-realtime")
-            await self.connected.wait()
+        if self.connected.is_set():
+            return
+        # Wait for the first successful open, but also observe an unexpectedly terminated
+        # runner so callers never hang forever on a task that has already failed.
+        connected_wait = asyncio.create_task(self.connected.wait())
+        done, pending = await asyncio.wait(
+            {connected_wait, self._task}, return_when=asyncio.FIRST_COMPLETED
+        )
+        for task in pending:
+            if task is connected_wait:
+                task.cancel()
+        if self.connected.is_set():
+            return
+        if self._task.done():
+            exc = self._task.exception()
+            if exc is not None:
+                raise exc
+            raise TransportError("AnyList realtime task stopped before connecting")
 
     async def stop(self) -> None:
         self._stop.set()
@@ -105,9 +124,14 @@ class RealtimeClient:
         event = RealtimeEvent(message, INVALIDATION_DOMAINS.get(message))
         await self._events.put(event)
         for callback in tuple(self._callbacks):
-            result = callback(event)
-            if asyncio.iscoroutine(result):
-                await result
+            try:
+                result = callback(event)
+                if asyncio.iscoroutine(result):
+                    await result
+            except Exception:
+                # External SDK listeners are not part of AnyList's transport protocol. A
+                # consumer callback failure must not tear down an otherwise healthy socket.
+                continue
 
     async def _connection(self) -> int:
         try:
