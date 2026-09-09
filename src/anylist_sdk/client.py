@@ -70,6 +70,8 @@ class AnyListClient:
         self.recipes.on_recipe_updated = self._sync_recipe_references
         self.meal_plan.on_event_updated = self._sync_event_references
         self.meal_plan.on_event_removed = self._cleanup_event_references
+        self.lists.on_store_filter_removed = self._clear_selected_store_filter
+        self.lists.on_category_group_removed = self._migrate_selected_category_group
         self._services_ready=True
 
     @property
@@ -120,6 +122,31 @@ class AnyListClient:
         if not self._services_ready:return []
         return [self.lists,self.recipes,self.folders,self.categories,self.categorized_items,
                 self.list_settings,self.starter_list_settings,self.mobile_settings,self.starter_lists,self.meal_plan]
+
+    async def _clear_selected_store_filter(
+        self, list_id: str, store_filter_id: str, flush: bool
+    ) -> None:
+        if self.list_settings is None:
+            return
+        settings = self.state.list_settings.get(list_id)
+        if settings is None or str(getattr(settings, "storeFilterId", "") or "") != store_filter_id:
+            return
+        await self.list_settings.clear_store_filter_id(list_id, flush=flush)
+
+    async def _migrate_selected_category_group(
+        self, list_id: str, removed_group_id: str, flush: bool
+    ) -> None:
+        if self.list_settings is None or self.lists is None:
+            return
+        settings = self.state.list_settings.get(list_id)
+        if settings is None or str(getattr(settings, "listCategoryGroupId", "") or "") != removed_group_id:
+            return
+        replacement = self.lists._default_category_group(list_id)
+        if replacement is None:
+            return
+        await self.list_settings.set(
+            list_id, "listCategoryGroupId", str(replacement.identifier), flush=flush
+        )
 
     async def _sync_recipe_references(
         self, new_recipe, old_recipe, flush: bool

@@ -143,3 +143,50 @@ async def test_bulk_categorization_rules_update_local_state_and_bucket_at_25(fak
     batches = [call[1]["operations"].operations for call in fake_transport.calls]
     # Queue flushing after the second enqueue sends both queued operations in one request.
     assert sum(len(batch) for batch in batches) >= 2
+
+@pytest.mark.asyncio
+async def test_final_category_group_is_not_deleted(fake_transport) -> None:
+    svc = service(fake_transport)
+    group = PB.PBListCategoryGroup(identifier="only", listId="list", name="Only")
+    svc.state.list_category_groups["list"] = {"only": group}
+
+    result = await svc.delete_category_group(group)
+
+    assert result is None
+    assert set(svc.state.list_category_groups["list"]) == {"only"}
+    assert fake_transport.calls == []
+
+
+@pytest.mark.asyncio
+async def test_delete_category_group_migrates_filters_to_official_default_group(fake_transport) -> None:
+    svc = service(fake_transport)
+    # The deterministic group ID is preferred by AnyList's Q.G fallback selector.
+    from anylist_sdk.identifiers import uuid5_hex
+    from uuid import UUID
+    default_id = uuid5_hex("list", UUID(hex="f656a81f0e0a419aa45121f4f2eac51b"))
+    doomed = PB.PBListCategoryGroup(identifier="doomed", listId="list", name="Old")
+    fallback = PB.PBListCategoryGroup(identifier=default_id, listId="list", name="Default")
+    svc.state.list_category_groups["list"] = {"doomed": doomed, default_id: fallback}
+    svc.state.list_categories["list"] = {
+        "gone": PB.PBListCategory(identifier="gone", listId="list", categoryGroupId="doomed")
+    }
+    svc.state.list_store_filters["list"] = {
+        "filter": PB.PBStoreFilter(
+            identifier="filter", listId="list", listCategoryGroupId="doomed"
+        )
+    }
+    seen = []
+
+    async def removed(list_id, group_id, flush):
+        seen.append((list_id, group_id, flush))
+
+    svc.on_category_group_removed = removed
+    await svc.delete_category_group(doomed)
+
+    assert set(svc.state.list_category_groups["list"]) == {default_id}
+    assert svc.state.list_categories["list"] == {}
+    assert svc.state.list_store_filters["list"]["filter"].listCategoryGroupId == default_id
+    assert seen == [("list", "doomed", True)]
+    # update-store-filter is queued before delete-category-group and flushed with the delete.
+    handlers = [op.metadata.handlerId for op in fake_transport.calls[-1][1]["operations"].operations]
+    assert handlers == ["update-store-filter", "delete-category-group"]

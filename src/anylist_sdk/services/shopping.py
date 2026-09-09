@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from typing import Any
 from uuid import UUID
 
@@ -33,6 +33,7 @@ from .base import OperationService, clone_message, partial_message
 
 # Official web client namespace used by list categorization-rule IDs.
 _CATEGORY_RULE_NAMESPACE = UUID(hex="f4338133428d4f0b94027c9b23243f14")
+_CATEGORY_GROUP_NAMESPACE = UUID(hex="f656a81f0e0a419aa45121f4f2eac51b")
 _PRICE_QUANTITY_UNITS = {
     "cup", "fl oz", "oz", "tbsp", "tsp", "g", "mg", "l", "dl", "ml",
     "slice", "clove", "pinch", "drop", "dash", "inch",
@@ -76,6 +77,8 @@ class ShoppingListsService(OperationService):
         self.user_id = user_id
         self.queue.on_response = self._on_v2_response
         self.legacy_queue.on_response = self._on_legacy_response
+        self.on_store_filter_removed: Callable[[str, str, bool], Awaitable[None]] | None = None
+        self.on_category_group_removed: Callable[[str, str, bool], Awaitable[None]] | None = None
 
     async def _on_legacy_response(self, response: Message) -> None:
         needs_refresh = False
@@ -706,7 +709,13 @@ class ShoppingListsService(OperationService):
     async def delete_store_filter(
         self, list_id: str, store_filter: Message, *, flush: bool = True
     ) -> str:
-        self._store_filter_index(list_id).pop(str(store_filter.identifier), None)
+        filter_id = str(store_filter.identifier)
+        self._store_filter_index(list_id).pop(filter_id, None)
+        # StoreFilterManager clears the selected per-list filter through ListSettingsManager
+        # before it sends the delete operation.  The client wires this callback to the
+        # list-settings queue so the two synchronized domains remain consistent.
+        if self.on_store_filter_removed is not None:
+            await self.on_store_filter_removed(list_id, filter_id, flush)
         return await self.operation(
             "delete-store-filter",
             listId=list_id,
@@ -802,8 +811,62 @@ class ShoppingListsService(OperationService):
             group, handler_id="migrate-list-category-group", flush=flush
         )
 
-    async def delete_category_group(self, group: Message, *, flush: bool = True) -> str:
-        return await self.save_category_group(group, handler_id="delete-category-group", flush=flush)
+    def _default_category_group(self, list_id: str) -> Message | None:
+        groups = self._category_group_index(list_id)
+        preferred_id = uuid5_hex(list_id, _CATEGORY_GROUP_NAMESPACE)
+        preferred = groups.get(preferred_id)
+        if preferred is not None:
+            return preferred
+        if not groups:
+            return None
+        # Q.G falls back to the first category set after localized name sorting.  Python's
+        # casefold ordering is the deterministic locale-neutral approximation used by the SDK
+        # until live conformance can exercise locale-specific collation.
+        return min(groups.values(), key=lambda value: (str(value.name or "").casefold(), str(value.identifier)))
+
+    async def delete_category_group(
+        self, group: Message, *, flush: bool = True
+    ) -> str | None:
+        list_id = str(group.listId)
+        groups = self._category_group_index(list_id)
+        if len(groups) <= 1:
+            # The web client refuses to delete the final category group.
+            return None
+
+        group_id = str(group.identifier)
+        original = clone_message(groups.get(group_id, group))
+        groups.pop(group_id, None)
+        for category_id, category in tuple(self._category_index(list_id).items()):
+            if str(category.categoryGroupId) == group_id:
+                self._category_index(list_id).pop(category_id, None)
+
+        replacement = self._default_category_group(list_id)
+        replacement_id = str(replacement.identifier) if replacement is not None else ""
+
+        # Any store filter pinned to the deleted category set is immediately repointed to
+        # the fallback set and saved before the category-group delete is queued.
+        affected_filters = [
+            clone_message(value)
+            for value in self._store_filter_index(list_id).values()
+            if str(value.listCategoryGroupId or "") == group_id
+        ]
+        for store_filter in affected_filters:
+            if replacement_id:
+                store_filter.listCategoryGroupId = replacement_id
+            else:
+                store_filter.ClearField("listCategoryGroupId")
+            await self.save_store_filter(list_id, store_filter, is_new=False, flush=False)
+
+        if self.on_category_group_removed is not None:
+            await self.on_category_group_removed(list_id, group_id, flush)
+
+        return await self.operation(
+            "delete-category-group",
+            listId=list_id,
+            updatedCategoryGroup=original,
+            operation_class=PB.PBOperationMetadata.OperationClass.ListCategoryGroupOperation,
+            flush=flush,
+        )
 
     async def rename_category_group(
         self, group: Message, name: str, *, flush: bool = True

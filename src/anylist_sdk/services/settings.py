@@ -118,6 +118,24 @@ class ListSettingsService(OperationService):
         await self.operation(handler_id, updatedSettings=partial, flush=flush)
         return settings
 
+    async def clear_store_filter_id(self, list_id: str, *, flush: bool = True) -> Message:
+        """Clear the selected store filter using the official set-store-filter-id handler."""
+        settings = self.ensure(list_id)
+        if not settings.HasField("storeFilterId") or not settings.storeFilterId:
+            return settings
+        settings.ClearField("storeFilterId")
+        partial = PB.PBListSettings(identifier=settings.identifier)
+        if settings.userId:
+            partial.userId = settings.userId
+        if settings.listId:
+            partial.listId = settings.listId
+        if settings.HasField("timestamp"):
+            partial.timestamp = settings.timestamp
+        # AnyList Web calls setStoreFilterId(null), which leaves the optional protobuf field
+        # absent while the handler ID communicates the clear operation.
+        await self.operation("set-store-filter-id", updatedSettings=partial, flush=flush)
+        return settings
+
     async def set_migrated_list_category_group_id(
         self, list_id: str, category_group_id: str, *, flush: bool = True
     ) -> Message:

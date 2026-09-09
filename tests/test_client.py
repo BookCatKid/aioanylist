@@ -91,3 +91,21 @@ async def test_logout_clears_account_state_and_authenticated_services(monkeypatc
     assert client.state.user_id is None and client.state.shopping_lists=={}
     assert client.lists is None and client.recipes is None and client.account is None
     assert client.raw is not None and not client.ready.is_set()
+
+@pytest.mark.asyncio
+async def test_store_filter_delete_clears_selected_list_setting(monkeypatch) -> None:
+    client = AnyListClient(tokens=tokens())
+    client.state.list_settings["list"] = PB.PBListSettings(
+        identifier="settings", userId="user", listId="list", storeFilterId="filter"
+    )
+    calls = []
+
+    async def clear(list_id, *, flush=True):
+        calls.append((list_id, flush))
+        client.state.list_settings[list_id].ClearField("storeFilterId")
+        return client.state.list_settings[list_id]
+
+    monkeypatch.setattr(client.list_settings, "clear_store_filter_id", clear)
+    await client._clear_selected_store_filter("list", "filter", False)
+    assert calls == [("list", False)]
+    assert not client.state.list_settings["list"].HasField("storeFilterId")

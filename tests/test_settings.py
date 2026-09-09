@@ -85,3 +85,19 @@ async def test_mobile_recipe_cooking_state_operations_carry_timestamp(fake_trans
     await service.remove_recipe_cooking_states([cooking])
     remove_op = fake_transport.calls[-1][1]["operations"].operations[0]
     assert remove_op.updatedSettings.timestamp == 7.0
+
+@pytest.mark.asyncio
+async def test_clear_store_filter_id_uses_official_handler_with_absent_field(fake_transport) -> None:
+    state = AnyListState(user_id="user")
+    state.list_settings["list"] = PB.PBListSettings(
+        identifier="settings", userId="user", listId="list", timestamp=3.5, storeFilterId="filter"
+    )
+    service = ListSettingsService(fake_transport, state, user_id="user")
+
+    await service.clear_store_filter_id("list")
+
+    assert not state.list_settings["list"].HasField("storeFilterId")
+    op = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert op.metadata.handlerId == "set-store-filter-id"
+    assert op.updatedSettings.timestamp == 3.5
+    assert not op.updatedSettings.HasField("storeFilterId")
