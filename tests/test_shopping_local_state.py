@@ -190,3 +190,94 @@ async def test_delete_category_group_migrates_filters_to_official_default_group(
     # update-store-filter is queued before delete-category-group and flushed with the delete.
     handlers = [op.metadata.handlerId for op in fake_transport.calls[-1][1]["operations"].operations]
     assert handlers == ["update-store-filter", "delete-category-group"]
+
+@pytest.mark.asyncio
+async def test_add_item_honors_manual_top_position_and_sends_partial_list(fake_transport) -> None:
+    svc = service(fake_transport)
+    svc.state.shopping_lists["list"] = PB.ShoppingList(
+        identifier="list",
+        items=[PB.ListItem(identifier="old", listId="list", name="Old")],
+        newListItemPosition=PB.ShoppingList.NewListItemPosition.Top,
+    )
+
+    created = await svc.add_item("list", "New", item_id="new")
+
+    assert created.identifier == "new"
+    assert [x.identifier for x in svc.state.shopping_lists["list"].items] == ["new", "old"]
+    op = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert op.metadata.handlerId == "add-shopping-list-item"
+    assert op.list.newListItemPosition == PB.ShoppingList.NewListItemPosition.Top
+
+
+@pytest.mark.asyncio
+async def test_add_item_ignores_top_position_while_alphabetically_sorted(fake_transport) -> None:
+    svc = service(fake_transport)
+    svc.state.shopping_lists["list"] = PB.ShoppingList(
+        identifier="list",
+        items=[PB.ListItem(identifier="old", listId="list", name="Old")],
+        newListItemPosition=PB.ShoppingList.NewListItemPosition.Top,
+    )
+    svc.state.list_settings["list"] = PB.PBListSettings(
+        identifier="settings",
+        listId="list",
+        listItemSortOrder="ALListItemSortOrderAlphabetical",
+    )
+
+    await svc.add_item("list", "New", item_id="new")
+
+    assert [x.identifier for x in svc.state.shopping_lists["list"].items] == ["old", "new"]
+    op = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert not op.HasField("list")
+
+
+@pytest.mark.asyncio
+async def test_bulk_add_at_top_preserves_visible_order_and_reverses_wire_items(fake_transport) -> None:
+    svc = service(fake_transport)
+    svc.state.shopping_lists["list"] = PB.ShoppingList(
+        identifier="list",
+        items=[PB.ListItem(identifier="old", listId="list", name="Old")],
+        newListItemPosition=PB.ShoppingList.NewListItemPosition.Top,
+    )
+    incoming = [
+        PB.ListItem(identifier="a", name="A"),
+        PB.ListItem(identifier="b", name="B"),
+        PB.ListItem(identifier="c", name="C"),
+    ]
+
+    await svc.add_items("list", incoming)
+
+    assert [x.identifier for x in svc.state.shopping_lists["list"].items] == ["a", "b", "c", "old"]
+    op = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert op.list.newListItemPosition == PB.ShoppingList.NewListItemPosition.Top
+    assert [x.identifier for x in op.list.items] == ["c", "b", "a"]
+
+
+@pytest.mark.asyncio
+async def test_set_password_omits_original_value_like_web_client(fake_transport) -> None:
+    svc = service(fake_transport)
+    svc.state.shopping_lists["list"] = PB.ShoppingList(identifier="list", password="old")
+
+    await svc.set_password("list", "new")
+
+    op = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert op.updatedValue == "new"
+    assert not op.HasField("originalValue")
+
+
+@pytest.mark.asyncio
+async def test_notification_location_dedupes_by_coordinates_without_queueing(fake_transport) -> None:
+    svc = service(fake_transport)
+    svc.state.shopping_lists["list"] = PB.ShoppingList(
+        identifier="list",
+        notificationLocations=[PB.PBNotificationLocation(
+            identifier="one", name="Market", address="A", latitude=32.1, longitude=-117.2
+        )],
+    )
+
+    result = await svc.add_notification_location(
+        "list", name="Different", address="B", latitude=32.1, longitude=-117.2
+    )
+
+    assert result is None
+    assert len(svc.state.shopping_lists["list"].notificationLocations) == 1
+    assert fake_transport.calls == []

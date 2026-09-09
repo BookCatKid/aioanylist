@@ -164,16 +164,41 @@ class ShoppingListsService(OperationService):
 
     async def set_password(self, list_id: str, password: str, *, flush: bool = True) -> None:
         lst = self._require_list(list_id)
-        old = str(getattr(lst, "password", ""))
         if "password" in lst.DESCRIPTOR.fields_by_name:
             lst.password = password
+        # AnyList Web sends only updatedValue for this handler. Unlike rename-list and
+        # item text mutations, set-list-password does not carry originalValue.
         await self.operation(
             "set-list-password",
             listId=list_id,
             updatedValue=password,
-            originalValue=old,
             flush=flush,
         )
+
+    def _new_items_at_top(self, list_id: str) -> bool:
+        """Return the web client's effective new-item-position policy.
+
+        A list-local ``listItemSortOrder`` overrides PBListSettings.  Otherwise the
+        settings string defaults to manual.  New-item-position only applies while the
+        effective sort order is manual.
+        """
+        lst = self._require_list(list_id)
+        sort_order = PB.ShoppingList.ListItemSortOrder.Manual
+        if lst.HasField("listItemSortOrder"):
+            sort_order = int(lst.listItemSortOrder)
+        else:
+            settings = self.state.list_settings.get(list_id)
+            if settings is not None and settings.HasField("listItemSortOrder"):
+                if settings.listItemSortOrder == "ALListItemSortOrderAlphabetical":
+                    sort_order = PB.ShoppingList.ListItemSortOrder.Alphabetical
+        if sort_order != PB.ShoppingList.ListItemSortOrder.Manual:
+            return False
+        position = (
+            int(lst.newListItemPosition)
+            if lst.HasField("newListItemPosition")
+            else PB.ShoppingList.NewListItemPosition.Bottom
+        )
+        return position == PB.ShoppingList.NewListItemPosition.Top
 
     async def add_item(
         self,
@@ -204,17 +229,23 @@ class ShoppingListsService(OperationService):
             item.storeIds.extend(store_ids)
         if product_upc is not None:
             item.productUpc = product_upc
-        # Official UI appends unless per-list newItemPosition says top. We preserve the
-        # common wire shape; callers can explicitly reorder afterward.
-        lst.items.add().CopyFrom(item)
-        await self.operation(
-            handler_id,
-            listId=list_id,
-            listItemId=item.identifier,
-            listItem=clone_message(item),
-            flush=flush,
-        )
-        return lst.items[-1]
+        at_top = self._new_items_at_top(list_id)
+        if at_top:
+            lst.items.insert(0, item)
+        else:
+            lst.items.add().CopyFrom(item)
+        fields: dict[str, Any] = {
+            "listId": list_id,
+            "listItemId": item.identifier,
+            "listItem": clone_message(item),
+        }
+        if at_top:
+            fields["list"] = PB.ShoppingList(
+                identifier=list_id,
+                newListItemPosition=PB.ShoppingList.NewListItemPosition.Top,
+            )
+        await self.operation(handler_id, flush=flush, **fields)
+        return lst.items[0] if at_top else lst.items[-1]
 
     async def add_items(
         self,
@@ -231,14 +262,25 @@ class ShoppingListsService(OperationService):
             item.listId = list_id
             if not item.identifier:
                 item.identifier = uuid4_hex()
-            lst.items.add().CopyFrom(item)
             clones.append(item)
+        at_top = self._new_items_at_top(list_id)
+        # The web client reverses the input before repeated index-0 insertion.  This
+        # preserves the caller-visible order while also making the queued item payload
+        # match the exact insertion sequence.
+        operation_items = list(reversed(clones)) if at_top else clones
+        for item in operation_items:
+            if at_top:
+                lst.items.insert(0, item)
+            else:
+                lst.items.add().CopyFrom(item)
         # Official app chunks bulk additions at 25 list items per operation.
-        for start in range(0, len(clones), 25):
-            chunk = clones[start : start + 25]
+        for start in range(0, len(operation_items), 25):
+            chunk = operation_items[start : start + 25]
             partial = PB.ShoppingList(identifier=list_id)
             for item in chunk:
                 partial.items.add().CopyFrom(item)
+            if at_top:
+                partial.newListItemPosition = PB.ShoppingList.NewListItemPosition.Top
             await self.operation(
                 handler_id, listId=list_id, list=partial, flush=False
             )
@@ -548,8 +590,13 @@ class ShoppingListsService(OperationService):
         longitude: float,
         location_id: str | None = None,
         flush: bool = True,
-    ) -> Message:
+    ) -> Message | None:
         lst = self._require_list(list_id)
+        # AnyList's AK() helper treats latitude+longitude as the location identity.
+        # A duplicate is rejected locally and no operation is queued.
+        for existing in lst.notificationLocations:
+            if float(existing.latitude) == float(latitude) and float(existing.longitude) == float(longitude):
+                return None
         location = PB.PBNotificationLocation(
             identifier=location_id or uuid4_hex(),
             name=name,
