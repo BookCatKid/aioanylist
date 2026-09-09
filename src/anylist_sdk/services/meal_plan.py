@@ -80,6 +80,7 @@ class MealPlanService(OperationService):
         previous=self.state.meal_plan_events.get(e.identifier)
         old=clone_message(previous) if previous is not None else None
         existed=previous is not None
+        self._refresh_event_sort_index(e, old)
         self.state.meal_plan_events[e.identifier]=clone(e)
         h=handler_id or ("new-event" if (is_new if is_new is not None else not existed) else "update-event")
         await self.operation(h,updatedEvent=e,eventType=event_type if event_type is not None else int(e.eventType),flush=flush)
@@ -102,7 +103,7 @@ class MealPlanService(OperationService):
     async def set_event_date(self,event_ids:Sequence[str],date:str,*,flush:bool=True)->None:
         vals=[];changes=[]
         for eid in event_ids:
-            e=self.state.meal_plan_events[eid];old=clone_message(e);e.date=date;vals.append(clone_message(e));changes.append((e,old))
+            e=self.state.meal_plan_events[eid];old=clone_message(e);e.date=date;self._refresh_event_sort_index(e, old);vals.append(clone_message(e));changes.append((e,old))
         await self.operation("set-date-for-events",updatedEvents=vals,flush=flush)
         for current,old in changes:
             await self._notify_event_updated(current,old,flush)
@@ -131,16 +132,56 @@ class MealPlanService(OperationService):
         if original is None:raise KeyError(item_id)
         await self.operation("remove-event-list-item",originalEventListItem=original,updatedEvent=clone_message(e),eventType=int(e.eventType),flush=flush)
         await self._notify_event_updated(e,old_event,flush)
-    async def reorder_event_list_items(self,event_id:str,ids:Sequence[str],*,flush:bool=True)->None:
-        e=self.state.meal_plan_events[event_id]
-        await self.operation("set-ordered-event-list-item-ids",orderedEventListItemIds=list(ids),updatedEvent=clone_message(e),eventType=int(e.eventType),flush=flush)
+    async def reorder_event_list_items(
+        self, event_id: str, ids: Sequence[str], *, flush: bool = True
+    ) -> None:
+        event = self.state.meal_plan_events.get(event_id) or self.state.meal_plan_template_events.get(event_id)
+        if event is None:
+            raise KeyError(event_id)
+        by_id = {str(item.identifier): clone_message(item) for item in event.eventListItems}
+        original_order = [str(item.identifier) for item in event.eventListItems]
+        reordered: list[Message] = []
+        used: set[str] = set()
+        for item_id in ids:
+            item = by_id.get(str(item_id))
+            if item is not None and str(item_id) not in used:
+                reordered.append(item)
+                used.add(str(item_id))
+        # The official event model appends any omitted items in their previous order.
+        for item_id in original_order:
+            if item_id not in used:
+                reordered.append(by_id[item_id])
+        del event.eventListItems[:]
+        for item in reordered:
+            event.eventListItems.add().CopyFrom(item)
+        await self.operation(
+            "set-ordered-event-list-item-ids",
+            orderedEventListItemIds=list(ids),
+            updatedEvent=clone_message(event),
+            eventType=int(event.eventType),
+            flush=flush,
+        )
 
-    async def save_label(self,label:Message,*,is_new:bool|None=None,flush:bool=True)->Message:
-        x=clone_message(label)
-        if not x.identifier:x.identifier=uuid4_hex()
-        if self.state.meal_plan_calendar_id:x.calendarId=self.state.meal_plan_calendar_id
-        existed=x.identifier in self.state.meal_plan_labels;self.state.meal_plan_labels[x.identifier]=clone(x)
-        await self.operation("new-label" if (is_new if is_new is not None else not existed) else "update-label",updatedLabel=x,flush=flush)
+    async def save_label(
+        self, label: Message, *, is_new: bool | None = None, flush: bool = True
+    ) -> Message:
+        x = clone_message(label)
+        if not x.identifier:
+            x.identifier = uuid4_hex()
+        if self.state.meal_plan_calendar_id:
+            x.calendarId = self.state.meal_plan_calendar_id
+        existed = x.identifier in self.state.meal_plan_labels
+        creating = is_new if is_new is not None else not existed
+        if creating:
+            # AnyList Web gives a newly created label max(existing sortIndex)+1.
+            x.sortIndex = (
+                max((int(v.sortIndex) for v in self.state.meal_plan_labels.values()), default=-1)
+                + 1
+            )
+        self.state.meal_plan_labels[x.identifier] = clone(x)
+        await self.operation(
+            "new-label" if creating else "update-label", updatedLabel=x, flush=flush
+        )
         return self.state.meal_plan_labels[x.identifier]
     async def delete_label(self, label_id: str, *, flush: bool = True) -> None:
         label = self.state.meal_plan_labels.pop(label_id, None)
@@ -161,18 +202,56 @@ class MealPlanService(OperationService):
             eventIds=affected_ids,
             flush=flush,
         )
-    async def reorder_labels(self,ids:Sequence[str],*,flush:bool=True)->None:
-        await self.operation("set-sorted-label-ids",sortedLabelIds=list(ids),flush=flush)
+    async def reorder_labels(
+        self, ids: Sequence[str], *, flush: bool = True
+    ) -> None:
+        # jR rewrites each selected label's local sortIndex before queuing the IDs.
+        for index, label_id in enumerate(ids):
+            label = self.state.meal_plan_labels.get(label_id)
+            if label is not None:
+                label.sortIndex = index
+        await self.operation(
+            "set-sorted-label-ids", sortedLabelIds=list(ids), flush=flush
+        )
 
-    async def save_template(self,template:Message,*,is_new:bool|None=None,flush:bool=True)->Message:
-        x=clone_message(template)
-        if not x.identifier:x.identifier=uuid4_hex()
-        if self.state.meal_plan_calendar_id:x.calendarId=self.state.meal_plan_calendar_id
-        existed=x.identifier in self.state.meal_plan_templates;self.state.meal_plan_templates[x.identifier]=clone(x)
-        await self.operation("new-template" if (is_new if is_new is not None else not existed) else "update-template",updatedTemplate=x,flush=flush)
+    async def save_template(
+        self,
+        template: Message,
+        *,
+        parent_group_id: str | None = None,
+        is_new: bool | None = None,
+        flush: bool = True,
+    ) -> Message:
+        x = clone_message(template)
+        if not x.identifier:
+            x.identifier = uuid4_hex()
+        if self.state.meal_plan_calendar_id:
+            x.calendarId = self.state.meal_plan_calendar_id
+        existed = x.identifier in self.state.meal_plan_templates
+        creating = is_new if is_new is not None else not existed
+        if creating:
+            if parent_group_id is None:
+                raise ValueError("parent_group_id is required when creating a meal-plan template")
+            parent = self._template_group(parent_group_id)
+            x.sortIndex = (
+                max((int(v.sortIndex) for v in self.state.meal_plan_templates.values()), default=-1)
+                + 1
+            )
+            if not any(item.identifier == x.identifier for item in parent.items):
+                parent.items.add(
+                    identifier=x.identifier,
+                    itemType=PB.PBMealPlanTemplateGroupItem.Type.Template,
+                )
+        self.state.meal_plan_templates[x.identifier] = clone(x)
+        fields = {"updatedTemplate": x}
+        if creating:
+            fields["updatedParentTemplateGroupId"] = parent_group_id
+        await self.operation(
+            "new-template" if creating else "update-template", flush=flush, **fields
+        )
         return self.state.meal_plan_templates[x.identifier]
     async def delete_template(self, template_id: str, *, flush: bool = True) -> None:
-        template = self.state.meal_plan_templates.pop(template_id, None)
+        template = self.state.meal_plan_templates.get(template_id)
         if template is None:
             raise KeyError(template_id)
 
@@ -187,6 +266,7 @@ class MealPlanService(OperationService):
                 break
         if parent_group_id is None:
             raise RuntimeError(f"Template {template_id!r} is not present in a template group")
+        self.state.meal_plan_templates.pop(template_id, None)
 
         event_ids = [
             event_id
@@ -240,7 +320,33 @@ class MealPlanService(OperationService):
     async def set_event_label(
         self, event_id: str, label_id: str, *, flush: bool = True
     ) -> Message:
-        return await self._set_event_field(event_id, "labelId", label_id, "set-event-label", flush=flush)
+        event = self.state.meal_plan_events.get(event_id) or self.state.meal_plan_template_events.get(event_id)
+        if event is None:
+            raise KeyError(event_id)
+        current = str(event.labelId or "")
+        if current == label_id:
+            return event
+        old_event = clone_message(event)
+        if label_id:
+            event.labelId = label_id
+        else:
+            event.ClearField("labelId")
+        # Event.ks() resets labelSortIndex for normal/template events. Queue and favorite
+        # events keep their independent label ordering.
+        if int(event.eventType) not in (
+            int(PB.PBCalendarEventType.MealPlanQueueEvent),
+            int(PB.PBCalendarEventType.MealPlanFavoriteEvent),
+        ):
+            event.ClearField("labelSortIndex")
+        self._refresh_event_sort_index(event, old_event)
+        await self.operation(
+            "set-event-label",
+            updatedEvent=clone_message(event),
+            eventType=int(event.eventType),
+            flush=flush,
+        )
+        await self._notify_event_updated(event, old_event, flush)
+        return event
 
     async def set_event_label_sort_index(
         self, event_id: str, sort_index: int, *, flush: bool = True
@@ -538,6 +644,52 @@ class MealPlanService(OperationService):
             "set-template-group-groups-sort-position", templateGroup=partial, flush=flush
         )
         return group
+
+    def _refresh_event_sort_index(
+        self, event: Message, old_event: Message | None = None
+    ) -> None:
+        """Mirror CalendarOperationManager.dR orderAddedSortIndex assignment."""
+        should_recompute = old_event is None
+        event_type = int(event.eventType)
+        if old_event is not None:
+            if event_type == int(PB.PBCalendarEventType.MealPlanTemplateEvent):
+                should_recompute = str(event.templateDayId) != str(old_event.templateDayId)
+            else:
+                should_recompute = str(event.date) != str(old_event.date)
+            should_recompute = should_recompute or str(event.labelId) != str(old_event.labelId)
+        if not should_recompute:
+            return
+
+        candidates: list[Message]
+        if event_type == int(PB.PBCalendarEventType.MealPlanQueueEvent):
+            candidates = [
+                value
+                for value in self.state.meal_plan_events.values()
+                if int(value.eventType) == event_type
+            ]
+        elif event_type == int(PB.PBCalendarEventType.MealPlanFavoriteEvent):
+            candidates = [
+                value
+                for value in self.state.meal_plan_events.values()
+                if int(value.eventType) == event_type
+            ]
+        elif event_type == int(PB.PBCalendarEventType.MealPlanTemplateEvent):
+            candidates = [
+                value
+                for value in self.state.meal_plan_template_events.values()
+                if str(value.templateDayId) == str(event.templateDayId)
+            ]
+        else:
+            candidates = [
+                value
+                for value in self.state.meal_plan_events.values()
+                if int(value.eventType) == event_type and str(value.date) == str(event.date)
+            ]
+        maximum = max(
+            (int(value.orderAddedSortIndex) for value in candidates if value.identifier != event.identifier),
+            default=-1,
+        )
+        event.orderAddedSortIndex = maximum + 1
 
     def _template(self, template_id: str) -> Message:
         template = self.state.meal_plan_templates.get(template_id)
