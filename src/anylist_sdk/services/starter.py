@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Sequence
 from uuid import UUID
 
@@ -9,9 +10,12 @@ from ..identifiers import uuid4_hex, uuid5_hex
 from ..item_semantics import (
     items_equal,
     package_size_equal,
+    package_size_empty,
     quantity_equal,
+    quantity_empty,
     quantity_to_deprecated_string,
 )
+from ..normalization import localized_sort_key
 from ..operations import OperationQueue, QueueSpec
 from ..proto import PB
 from ..state import AnyListState, clone
@@ -35,6 +39,48 @@ def recent_list_id(list_id: str) -> str:
 
 def aggregate_favorites_id() -> str:
     return _AGGREGATE_FAVORITES_ID
+
+
+def enrich_item_from_starter(base: Message, source: Message) -> Message:
+    """Fill fields missing from a newly-created item from a starter-list item.
+
+    This mirrors StarterList.GQ in AnyList Web.  The official client first creates a fresh
+    item for the destination list (which may already contain list/category defaults) and
+    then walks every ListItem protobuf field.  A source value is inherited only when the
+    fresh item has no value for that optional field, or when a repeated field is empty.
+    """
+    out = clone_message(base)
+    for field in out.DESCRIPTOR.fields:
+        name = field.name
+        target = getattr(out, name)
+        source_value = getattr(source, name)
+        if field.is_repeated:
+            if target:
+                continue
+            if field.message_type:
+                for value in source_value:
+                    target.add().CopyFrom(value)
+            else:
+                target.extend(source_value)
+            continue
+        # Proto2 presence is the Python equivalent of protobuf.js's null/undefined test.
+        try:
+            present = out.HasField(name)
+        except ValueError:
+            present = True
+        if present:
+            continue
+        try:
+            source_present = source.HasField(name)
+        except ValueError:
+            source_present = True
+        if not source_present:
+            continue
+        if field.message_type:
+            target.CopyFrom(source_value)
+        else:
+            setattr(out, name, source_value)
+    return out
 
 
 class StarterListsService(OperationService):
@@ -74,14 +120,12 @@ class StarterListsService(OperationService):
         self.order_queue.on_response = self._on_order_response
 
     async def _on_response(self, response: Message) -> None:
-        all_lists = {
-            **self.state.starter_lists,
-            **self.state.recent_item_lists,
-            **self.state.favorite_item_lists,
-        }
         mismatch = False
         for index, original in enumerate(response.originalTimestamps):
-            current = all_lists.get(str(original.identifier))
+            # StarterListsManager.MG consults only its user-list map.  Favorite/recent
+            # operations share the same queue, but their timestamps are deliberately not
+            # advanced by this acknowledgement callback in the official web client.
+            current = self.state.starter_lists.get(str(original.identifier))
             if current is not None:
                 if float(current.timestamp) == float(original.timestamp):
                     if index < len(response.newTimestamps):
@@ -110,6 +154,93 @@ class StarterListsService(OperationService):
 
     def favorites(self) -> list[Message]:
         return list(self.state.favorite_item_lists.values())
+
+    def favorite_for_shopping_list(self, shopping_list_id: str) -> Message | None:
+        return self.state.favorite_item_lists.get(favorite_list_id(shopping_list_id))
+
+    def recent_for_shopping_list(self, shopping_list_id: str) -> Message | None:
+        return self.state.recent_item_lists.get(recent_list_id(shopping_list_id))
+
+    def aggregate_favorites(self, preferred_list_id: str | None = None) -> Message:
+        """Return the official synthetic aggregate "Favorite Items" starter list.
+
+        ``preferred_list_id`` is a *favorite starter-list* identifier, matching FG's
+        argument in app.js.  Items from that list are considered first, then all remaining
+        favorite lists, with ListItem equality used for deduplication.
+        """
+        result = PB.StarterList(
+            identifier=_AGGREGATE_FAVORITES_ID,
+            name="Favorite Items",
+            starterListType=PB.StarterList.Type.FavoriteItemsType,
+        )
+        sources: list[Message] = []
+        if preferred_list_id is not None:
+            preferred = self.state.favorite_item_lists.get(preferred_list_id)
+            if preferred is not None:
+                sources.append(preferred)
+        sources.extend(
+            value
+            for key, value in self.state.favorite_item_lists.items()
+            if key != preferred_list_id
+        )
+        selected: list[Message] = []
+        for source_list in sources:
+            for item in source_list.items:
+                if any(items_equal(item, existing) for existing in selected):
+                    continue
+                copied = clone_message(item)
+                result.items.add().CopyFrom(copied)
+                selected.append(copied)
+        return result
+
+    def autocomplete_items(self, list_id: str) -> list[Message]:
+        """Project a starter list to the item order/filter used by autocomplete.
+
+        Favorites/user starter lists preserve their stored order.  Recent items are newest
+        first, exclude recipe/ingredient-derived entries, and suppress duplicate enriched
+        (non-bare) item names while retaining bare-item duplicates exactly as app.js does.
+        """
+        lst = self._require(list_id)
+        if not self._is_recent(lst):
+            return list(lst.items)
+        result: list[Message] = []
+        seen_enriched_names: set[str] = set()
+        for item in reversed(lst.items):
+            if item.recipeId or item.ingredients:
+                continue
+            bare = self._is_bare_item(item)
+            name = str(item.name)
+            if not bare and name in seen_enriched_names:
+                continue
+            result.append(item)
+            if not bare:
+                seen_enriched_names.add(name)
+        return result
+
+    def ordered_user_lists(self, *, alphabetical: bool = False) -> list[Message]:
+        """Return user starter lists using StarterListsManager.WG ordering semantics."""
+        legacy_favorites_id = hashlib.md5(f"{self.user_id}-favorites".encode()).hexdigest()
+        values = [
+            value
+            for key, value in self.state.starter_lists.items()
+            if key != legacy_favorites_id
+        ]
+        if alphabetical:
+            return sorted(values, key=lambda value: localized_sort_key(str(value.name)))
+
+        result: list[Message] = []
+        seen: set[str] = set()
+        for identifier in self.state.ordered_starter_list_ids:
+            if identifier == legacy_favorites_id:
+                continue
+            value = self.state.starter_lists.get(identifier)
+            if value is not None:
+                result.append(value)
+                seen.add(identifier)
+        for value in values:
+            if str(value.identifier) not in seen:
+                result.append(value)
+        return result
 
     def get(self, list_id: str) -> Message | None:
         return (
@@ -348,8 +479,6 @@ class StarterListsService(OperationService):
         lst = self._require(list_id)
         selected = set(item_ids)
         removed = [clone_message(x) for x in lst.items if x.identifier in selected]
-        if not removed:
-            return
         kept = [clone_message(x) for x in lst.items if x.identifier not in selected]
         del lst.items[:]
         for item in kept:
@@ -794,6 +923,34 @@ class StarterListsService(OperationService):
     @staticmethod
     def _is_recent(lst: Message) -> bool:
         return int(lst.starterListType) == int(PB.StarterList.Type.RecentItemsType)
+
+    @staticmethod
+    def _is_bare_item(item: Message) -> bool:
+        quantity = item.quantityPb if item.HasField("quantityPb") else PB.PBItemQuantity()
+        price_quantity = (
+            item.priceQuantityPb if item.HasField("priceQuantityPb") else PB.PBItemQuantity()
+        )
+        package = (
+            item.packageSizePb if item.HasField("packageSizePb") else PB.PBItemPackageSize()
+        )
+        price_package = (
+            item.pricePackageSizePb
+            if item.HasField("pricePackageSizePb")
+            else PB.PBItemPackageSize()
+        )
+        return (
+            not item.details
+            and not item.deprecatedQuantity
+            and not quantity_empty(quantity)
+            and quantity_empty(price_quantity)
+            and package_size_empty(package)
+            and package_size_empty(price_package)
+            and not item.ingredients
+            and not item.photoIds
+            and not item.recipeId
+            and not item.storeIds
+            and not item.prices
+        )
 
     def _require(self, list_id: str) -> Message:
         x = self.get(list_id)

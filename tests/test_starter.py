@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import hashlib
+
 import pytest
 
 from anylist_sdk.proto import PB
 from anylist_sdk.services.starter import (
     StarterListsService,
+    aggregate_favorites_id,
+    enrich_item_from_starter,
     favorite_list_id,
     recent_list_id,
 )
@@ -270,3 +274,127 @@ async def test_starter_empty_price_removes_existing_and_noops_when_absent():
     before = len(service.queue._pending)
     await service.save_price("s", "i", marker, flush=False)
     assert len(service.queue._pending) == before
+
+
+@pytest.mark.asyncio
+async def test_starter_ack_reconciles_only_user_list_timestamps_like_official_manager():
+    service, state = make_service()
+    state.starter_lists["user-list"] = PB.StarterList(identifier="user-list", timestamp=1)
+    state.favorite_item_lists["favorite-list"] = PB.StarterList(
+        identifier="favorite-list", timestamp=4
+    )
+    response = PB.PBEditOperationResponse()
+    response.originalTimestamps.add(identifier="user-list", timestamp=1)
+    response.newTimestamps.add(identifier="user-list", timestamp=2)
+    response.originalTimestamps.add(identifier="favorite-list", timestamp=4)
+    response.newTimestamps.add(identifier="favorite-list", timestamp=5)
+
+    await service._on_response(response)
+
+    assert state.starter_lists["user-list"].timestamp == 2
+    # StarterListsManager.MG looks only in its user-list map; favorite/recent timestamps
+    # are not advanced through this shared queue callback.
+    assert state.favorite_item_lists["favorite-list"].timestamp == 4
+
+
+@pytest.mark.asyncio
+async def test_bulk_remove_with_unknown_ids_still_queues_official_empty_partial_list():
+    service, state = make_service()
+    state.starter_lists["s"] = PB.StarterList(identifier="s")
+
+    await service.bulk_remove_items("s", ["missing"], flush=False)
+
+    assert len(service.queue._pending) == 1
+    op = service.queue._pending[0]
+    assert op.metadata.handlerId == "bulk-remove-list-items"
+    assert op.list.identifier == "s"
+    assert list(op.list.items) == []
+
+
+def test_aggregate_favorites_prioritizes_requested_list_and_deduplicates_by_item_semantics():
+    service, state = make_service()
+    first = PB.StarterList(identifier="fav-a")
+    first.items.add(identifier="a1", name="Milk", details="whole")
+    first.items.add(identifier="a2", name="Bread")
+    second = PB.StarterList(identifier="fav-b")
+    second.items.add(identifier="b1", name="Milk", details="whole")
+    second.items.add(identifier="b2", name="Eggs")
+    state.favorite_item_lists = {"fav-a": first, "fav-b": second}
+
+    aggregate = service.aggregate_favorites("fav-b")
+
+    assert aggregate.identifier == aggregate_favorites_id()
+    assert aggregate.starterListType == PB.StarterList.Type.FavoriteItemsType
+    assert [item.name for item in aggregate.items] == ["Milk", "Eggs", "Bread"]
+    assert aggregate.items[0].identifier == "b1"
+
+
+def test_recent_autocomplete_projection_is_newest_first_and_filters_officially():
+    service, state = make_service()
+    recent = PB.StarterList(
+        identifier="recent",
+        starterListType=PB.StarterList.Type.RecentItemsType,
+    )
+    # Two enriched entries with the same name: newest one wins.
+    recent.items.add(identifier="old-rich", name="Milk", details="old")
+    # Bare in the official sense: a structured item quantity and no other enrichment.
+    bare_old = recent.items.add(identifier="bare-old", name="Rice")
+    bare_old.quantityPb.amount = "1"
+    recent.items.add(identifier="recipe", name="Recipe", recipeId="r")
+    recent.items.add(identifier="ingredient", name="Ingredient").ingredients.add(recipeId="r")
+    bare_new = recent.items.add(identifier="bare-new", name="Rice")
+    bare_new.quantityPb.amount = "1"
+    recent.items.add(identifier="new-rich", name="Milk", details="new")
+    state.recent_item_lists["recent"] = recent
+
+    projected = service.autocomplete_items("recent")
+
+    assert [item.identifier for item in projected] == [
+        "new-rich",
+        "bare-new",
+        "bare-old",
+    ]
+
+
+def test_enrich_item_from_starter_only_fills_absent_or_empty_fields():
+    base = PB.ListItem(identifier="new", listId="shopping", name="Milk", details="chosen")
+    base.storeIds.append("destination-store")
+    source = PB.ListItem(
+        identifier="favorite",
+        listId="favorite-list",
+        name="Milk",
+        details="favorite details",
+        productUpc="123",
+        storeIds=["favorite-store"],
+        photoIds=["photo"],
+    )
+    source.quantityPb.amount = "2"
+
+    enriched = enrich_item_from_starter(base, source)
+
+    assert enriched.identifier == "new"
+    assert enriched.listId == "shopping"
+    assert enriched.details == "chosen"
+    assert list(enriched.storeIds) == ["destination-store"]
+    assert enriched.productUpc == "123"
+    assert list(enriched.photoIds) == ["photo"]
+    assert enriched.quantityPb.amount == "2"
+
+
+def test_ordered_user_lists_matches_manual_append_and_alphabetical_rules():
+    service, state = make_service()
+    legacy = hashlib.md5(b"user1-favorites").hexdigest()
+    state.starter_lists = {
+        "b": PB.StarterList(identifier="b", name="Beta"),
+        legacy: PB.StarterList(identifier=legacy, name="Favorite Items"),
+        "a": PB.StarterList(identifier="a", name="Alpha"),
+        "c": PB.StarterList(identifier="c", name="Charlie"),
+    }
+    state.ordered_starter_list_ids = [legacy, "c", "missing", "b"]
+
+    assert [x.identifier for x in service.ordered_user_lists()] == ["c", "b", "a"]
+    assert [x.identifier for x in service.ordered_user_lists(alphabetical=True)] == [
+        "a",
+        "b",
+        "c",
+    ]
