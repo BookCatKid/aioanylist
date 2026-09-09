@@ -106,3 +106,27 @@ async def test_concurrent_refreshes_are_serialized_and_share_rotated_token() -> 
             )
     assert calls == 1
     assert a.access_token == b.access_token == "new"
+
+
+@pytest.mark.asyncio
+async def test_multipart_numeric_scalar_is_sent_as_normal_text_field() -> None:
+    seen = {}
+
+    async def endpoint(request: web.Request):
+        form = await request.post()
+        seen.update(form)
+        return web.Response(body=b"ok")
+
+    app = web.Application()
+    app.router.add_post("/numeric", endpoint)
+    async with server(app) as base:
+        async with AnyListTransport(
+            base_url=base,
+            tokens=AuthTokens("user", "access", "refresh"),
+        ) as transport:
+            result = await transport.request(
+                "POST", "/numeric", fields={"event_type": 1, "scale": 1.5}
+            )
+
+    assert result == b"ok"
+    assert seen == {"event_type": "1", "scale": "1.5"}

@@ -66,6 +66,7 @@ class AnyListClient:
         self.account=AccountService(self.transport,self.state);self.photos=PhotosService(self.transport)
         self.sharing=SharingService(self.transport,user_id,self.state);self.alexa=AlexaService(self.transport)
         self.web_state=WebStateService(self.transport);self.raw=RawAPI(self.transport)
+        self.sharing.on_refresh_requested = self.lists.refresh
         self.recipes.on_recipe_removed = self._cleanup_recipe_references
         self.recipes.on_recipe_updated = self._sync_recipe_references
         self.meal_plan.on_event_updated = self._sync_event_references

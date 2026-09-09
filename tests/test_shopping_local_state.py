@@ -558,3 +558,35 @@ async def test_remove_checked_only_promotes_and_removes_crossed_items(fake_trans
     assert [x.identifier for x in removed] == ["b", "c"]
     assert [x.identifier for x in svc.state.shopping_lists["list"].items] == ["a"]
     assert seen == [(["b", "c"], True, False)]
+
+
+@pytest.mark.asyncio
+async def test_unshare_unknown_email_is_official_noop(fake_transport) -> None:
+    state = AnyListState(user_id="user")
+    state.shopping_lists["list"] = PB.ShoppingList(identifier="list")
+    state.shopping_lists["list"].sharedUsers.add(email="known@example.com", userId="known")
+    service = ShoppingListsService(fake_transport, state, user_id="user")
+
+    await service.unshare("list", "missing@example.com")
+
+    assert [u.email for u in state.shopping_lists["list"].sharedUsers] == ["known@example.com"]
+    assert fake_transport.calls == []
+
+
+@pytest.mark.asyncio
+async def test_unshare_removes_user_optimistically_and_queues_exact_operation(fake_transport) -> None:
+    state = AnyListState(user_id="user")
+    state.shopping_lists["list"] = PB.ShoppingList(identifier="list")
+    state.shopping_lists["list"].sharedUsers.add(email="friend@example.com", userId="friend")
+    service = ShoppingListsService(fake_transport, state, user_id="user")
+
+    await service.unshare("list", "friend@example.com")
+
+    assert list(state.shopping_lists["list"].sharedUsers) == []
+    endpoint, fields, response_type = fake_transport.calls[-1]
+    assert endpoint == "/data/shopping-lists/update"
+    operation = fields["operations"].operations[0]
+    assert operation.metadata.handlerId == "unshare-shopping-list"
+    assert operation.listId == "list"
+    assert operation.updatedValue == "friend@example.com"
+    assert response_type == "PBEditOperationResponse"

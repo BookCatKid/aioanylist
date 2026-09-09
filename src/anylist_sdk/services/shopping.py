@@ -827,10 +827,15 @@ class ShoppingListsService(OperationService):
 
     async def unshare(self, list_id: str, email: str, *, flush: bool = True) -> None:
         lst = self._require_list(list_id)
+        found = False
         for index, user in enumerate(lst.sharedUsers):
             if getattr(user, "email", "") == email:
                 del lst.sharedUsers[index]
+                found = True
                 break
+        # ShoppingList.gK returns without queueing when the email is not shared.
+        if not found:
+            return
         await self.operation("unshare-shopping-list", listId=list_id, updatedValue=email, flush=flush)
 
     async def add_notification_location(

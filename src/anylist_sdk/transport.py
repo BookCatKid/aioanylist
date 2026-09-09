@@ -14,7 +14,7 @@ from .proto import decode, encode
 from .types import AuthTokens
 
 BASE_URL = "https://www.anylist.com"
-PHOTOS_BASE_URL = "https://photos.anylist.com"
+PHOTOS_BASE_URL = "https://photos.anylist.com/"
 API_VERSION = "3"
 
 TokenCallback = Callable[[AuthTokens], Awaitable[None] | None]
@@ -159,7 +159,7 @@ class AnyListTransport:
         method: str,
         endpoint: str,
         *,
-        fields: Mapping[str, bytes | str] | None = None,
+        fields: Mapping[str, bytes | str | int | float] | None = None,
         authenticated: bool = True,
         retry_auth: bool = True,
         extra_headers: Mapping[str, str] | None = None,
@@ -172,10 +172,12 @@ class AnyListTransport:
 
         form = aiohttp.FormData()
         for name, value in (fields or {}).items():
-            if isinstance(value, str):
-                form.add_field(name, value)
-            else:
+            if isinstance(value, (bytes, bytearray, memoryview)):
                 form.add_field(name, value, filename=name, content_type="application/octet-stream")
+            else:
+                # AnyList's multipart builder accepts ordinary scalar form values. In
+                # particular recipe-email event_type is passed as a number in app.js.
+                form.add_field(name, str(value))
         url = endpoint if endpoint.startswith("http") else f"{self.base_url}{endpoint}"
 
         try:
@@ -206,10 +208,10 @@ class AnyListTransport:
         self,
         endpoint: str,
         *,
-        fields: Mapping[str, Message | bytes | str],
+        fields: Mapping[str, Message | bytes | str | int | float],
         response_type: str | None = None,
     ) -> Message | bytes:
-        encoded_fields: dict[str, bytes | str] = {}
+        encoded_fields: dict[str, bytes | str | int | float] = {}
         for name, value in fields.items():
             encoded_fields[name] = encode(value) if isinstance(value, Message) else value
         raw = await self.request("POST", endpoint, fields=encoded_fields)

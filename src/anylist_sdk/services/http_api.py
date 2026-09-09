@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 import json
+import inspect
 from pathlib import Path
+from collections.abc import Awaitable, Callable
 from typing import Any, BinaryIO
 
 import aiohttp
 from google.protobuf.message import Message
 
 from ..identifiers import uuid4_hex
+from ..normalization import localized_sort_key
 from ..proto import PB, decode, encode
 from ..state import AnyListState, clone
+from ..exceptions import TransportError
 from ..transport import AnyListTransport, PHOTOS_BASE_URL
 
 
@@ -53,18 +57,41 @@ class PhotosService:
     async def upload_bytes(self,data:bytes,*,content_type:str="image/jpeg",filename:str|None=None)->str:
         if content_type not in self.ACCEPTED_CONTENT_TYPES:raise ValueError(f"Unsupported AnyList photo type {content_type}")
         if len(data)>self.MAX_BYTES:raise ValueError("AnyList Web limits photos to 10 MB")
-        photo_id=uuid4_hex(); server_filename=f"{photo_id}.jpg"
-        upload_filename=filename or server_filename
-        form=aiohttp.FormData()
-        form.add_field("photo",data,filename=upload_filename,content_type=content_type)
-        # Dropzone's `sending` callback appends this separate server-side filename field.
-        form.add_field("filename",server_filename)
-        headers=self.transport._auth_headers()  # exact same headers as official Dropzone upload
-        async with self.transport.session.post(f"{self.transport.base_url}/data/photos/upload",data=form,headers=headers) as resp:
-            body=await resp.read()
-            if resp.status>=400:raise RuntimeError(f"AnyList photo upload failed: HTTP {resp.status}: {body[:200]!r}")
-        # Dropzone/server naming is opaque; callers can use remote upload when they need a chosen ID.
-        return photo_id
+        upload_filename=filename or "photo.jpg"
+
+        def form(server_filename: str) -> aiohttp.FormData:
+            value=aiohttp.FormData()
+            value.add_field("photo",data,filename=upload_filename,content_type=content_type)
+            # Dropzone's `sending` callback appends this separate server-side filename field.
+            value.add_field("filename",server_filename)
+            return value
+
+        # Dropzone retries the same file after refreshing the access token on HTTP 401.
+        # Rebuild FormData for the retry because aiohttp multipart writers are one-shot.
+        stale_token=self.transport.tokens.access_token if self.transport.tokens else None
+        for attempt in range(2):
+            # Dropzone.uploadFile() re-emits `sending` on the 401 retry. AnyList's sending
+            # callback generates a fresh UUID each time, so the retried server filename is
+            # intentionally different from the failed attempt's filename.
+            photo_id=uuid4_hex(); server_filename=f"{photo_id}.jpg"
+            headers=self.transport._auth_headers()
+            try:
+                async with self.transport.session.post(
+                    f"{self.transport.base_url}/data/photos/upload",
+                    data=form(server_filename),headers=headers
+                ) as resp:
+                    body=await resp.read()
+                    if resp.status==401 and attempt==0:
+                        await self.transport.refresh_access_token(stale_token=stale_token)
+                        continue
+                    if resp.status>=400:
+                        raise TransportError(
+                            f"AnyList photo upload failed: HTTP {resp.status}: {body[:200]!r}"
+                        )
+                    return photo_id
+            except aiohttp.ClientError as exc:
+                raise TransportError("AnyList photo upload request failed") from exc
+        raise TransportError("AnyList photo upload failed after token refresh")
     async def upload_url(self,url:str,*,photo_id:str|None=None)->str:
         photo_id=photo_id or uuid4_hex()
         await self.transport.request("POST","/data/photos/upload-url",fields={"photo_url":url,"photo_id":photo_id})
@@ -80,6 +107,7 @@ class SharingService:
         self.transport = transport
         self.user_id = user_id
         self.state = state
+        self.on_refresh_requested: Callable[[], Awaitable[None] | None] | None = None
 
     async def share_list(self, list_id: str, email: str) -> Message:
         op = PB.PBListOperation(listId=list_id, updatedValue=email)
@@ -99,17 +127,35 @@ class SharingService:
         ):
             lst = self.state.shopping_lists.get(list_id)
             shared = response.sharedUser
-            # vK rejects an email-mismatched response rather than poisoning local state.
-            if lst is not None and str(shared.email).casefold() == email.casefold():
+            # vK rejects an email-mismatched response using localizedCompare (Intl.Collator
+            # numeric/base semantics), rather than poisoning local state.
+            if lst is not None and localized_sort_key(str(shared.email)) == localized_sort_key(email):
+                stale = float(lst.timestamp) != float(response.originalListTimestamp)
                 existing_emails = {str(user.email).casefold() for user in lst.sharedUsers}
-                existing_ids = {str(user.userId) for user in lst.sharedUsers if user.userId}
+                existing_user_ids = {
+                    str(user.userId) for user in lst.sharedUsers if str(user.userId or "")
+                }
                 if (
                     str(shared.email).casefold() not in existing_emails
-                    and (not shared.userId or str(shared.userId) not in existing_ids)
+                    and (
+                        not str(shared.userId or "")
+                        or str(shared.userId) not in existing_user_ids
+                    )
                 ):
                     lst.sharedUsers.add().CopyFrom(shared)
-                if float(lst.timestamp) == float(response.originalListTimestamp):
-                    lst.timestamp = float(response.updatedListTimestamp)
+                # The web client assigns updatedListTimestamp to a runtime-only
+                # ``updatedTimestamp`` property that is not part of ShoppingList protobuf and
+                # is never read elsewhere in app.js. Do not invent a wire timestamp mutation.
+                # When the response was based on stale list state, vK immediately refreshes.
+                if stale and self.on_refresh_requested is not None:
+                    try:
+                        refresh = self.on_refresh_requested()
+                        if inspect.isawaitable(refresh):
+                            await refresh
+                    except Exception:
+                        # The share already succeeded; the official follow-up refresh is a
+                        # best-effort reconciliation and does not turn it into a failed share.
+                        pass
         return response
     async def send_list_email(self,list_id:str,email:str,*,decimal_separator:str=".")->dict[str,Any]:
         raw=await self.transport.request("POST","/data/shopping-lists/send-as-email",fields={"email":email,"list_id":list_id,"decimal_separator":decimal_separator})
