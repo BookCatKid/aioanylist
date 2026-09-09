@@ -190,3 +190,47 @@ async def test_starter_price_save_and_remove_mutate_local_price_array():
     assert op.metadata.handlerId == "save-item-price"
     assert op.itemPrice.storeId == "store1"
     assert op.itemPrice.amount == 0
+
+@pytest.mark.asyncio
+async def test_record_recent_items_replaces_equivalent_entry_with_fresh_unchecked_clone():
+    service, state = make_service()
+    rec = PB.StarterList(
+        identifier=recent_list_id("shopping1"),
+        listId="shopping1",
+        starterListType=PB.StarterList.Type.RecentItemsType,
+    )
+    rec.items.add(identifier="old-id", listId=rec.identifier, name="Milk", checked=False)
+    state.recent_item_lists[rec.identifier] = rec
+    source = PB.ListItem(identifier="shopping-id", listId="shopping1", name="Milk", checked=True)
+
+    added = await service.record_recent_items("shopping1", [source], flush=False)
+
+    assert len(rec.items) == 1
+    assert rec.items[0].identifier not in {"old-id", "shopping-id"}
+    assert rec.items[0].listId == rec.identifier
+    assert rec.items[0].name == "Milk" and not rec.items[0].checked
+    assert added[0].identifier == rec.items[0].identifier
+    assert [op.metadata.handlerId for op in service.queue._pending] == [
+        "bulk-remove-list-items",
+        "bulk-add-list-items",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_record_recent_items_can_leave_existing_equivalent_entry_in_place():
+    service, state = make_service()
+    rec = PB.StarterList(
+        identifier=recent_list_id("shopping1"),
+        listId="shopping1",
+        starterListType=PB.StarterList.Type.RecentItemsType,
+    )
+    rec.items.add(identifier="old-id", listId=rec.identifier, name="Milk")
+    state.recent_item_lists[rec.identifier] = rec
+
+    added = await service.record_recent_items(
+        "shopping1", [PB.ListItem(identifier="x", name="Milk")], skip_existing=True, flush=False
+    )
+
+    assert added == []
+    assert [x.identifier for x in rec.items] == ["old-id"]
+    assert service.queue._pending == []

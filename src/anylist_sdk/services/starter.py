@@ -6,7 +6,7 @@ from uuid import UUID
 from google.protobuf.message import Message
 
 from ..identifiers import uuid4_hex, uuid5_hex
-from ..item_semantics import quantity_to_deprecated_string
+from ..item_semantics import items_equal, quantity_to_deprecated_string
 from ..operations import OperationQueue, QueueSpec
 from ..proto import PB
 from ..state import AnyListState, clone
@@ -276,6 +276,44 @@ class StarterListsService(OperationService):
         if flush:
             await self.flush()
         return added
+
+    async def record_recent_items(
+        self,
+        shopping_list_id: str,
+        items: Sequence[Message],
+        *,
+        skip_existing: bool = False,
+        flush: bool = True,
+    ) -> list[Message]:
+        """Mirror AnyList Web's shopping-item -> recents promotion.
+
+        Equivalent existing recent items are removed and replaced with unchecked clones
+        carrying fresh identifiers.  ``skip_existing`` is used by the web client for
+        bulk-clear paths that should leave an already-recent item in place.
+        """
+        if not items:
+            return []
+        recent = await self.ensure_recents(shopping_list_id, flush=False)
+        existing_to_remove: list[str] = []
+        to_add: list[Message] = []
+        for source in items:
+            existing = next((value for value in recent.items if items_equal(source, value)), None)
+            if existing is not None and skip_existing:
+                continue
+            if existing is not None:
+                existing_to_remove.append(str(existing.identifier))
+            clone_item = clone_message(source)
+            clone_item.identifier = uuid4_hex()
+            clone_item.listId = str(recent.identifier)
+            clone_item.checked = False
+            to_add.append(clone_item)
+        if existing_to_remove:
+            await self.bulk_remove_items(str(recent.identifier), existing_to_remove, flush=False)
+        if not to_add:
+            if flush:
+                await self.flush()
+            return []
+        return await self.bulk_add_items(str(recent.identifier), to_add, flush=flush)
 
     async def remove_item(
         self, list_id: str, item_id: str, *, flush: bool = True

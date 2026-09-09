@@ -109,3 +109,18 @@ async def test_store_filter_delete_clears_selected_list_setting(monkeypatch) -> 
     await client._clear_selected_store_filter("list", "filter", False)
     assert calls == [("list", False)]
     assert not client.state.list_settings["list"].HasField("storeFilterId")
+
+@pytest.mark.asyncio
+async def test_shopping_recent_callback_routes_to_starter_lists(monkeypatch) -> None:
+    client = AnyListClient(tokens=tokens())
+    seen = []
+
+    async def record(list_id, items, *, skip_existing=False, flush=True):
+        seen.append((list_id, [x.identifier for x in items], skip_existing, flush))
+        return []
+
+    monkeypatch.setattr(client.starter_lists, "record_recent_items", record)
+    await client.lists.on_items_became_recent(
+        "list", [PB.ListItem(identifier="item")], False, False
+    )
+    assert seen == [("list", ["item"], False, False)]

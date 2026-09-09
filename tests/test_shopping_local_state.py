@@ -395,3 +395,92 @@ async def test_price_matchup_tag_matches_web_clients_post_mutation_original_valu
     op = fake_transport.calls[-1][1]["operations"].operations[0]
     assert op.updatedValue == "new"
     assert op.originalValue == "new"
+
+@pytest.mark.asyncio
+async def test_bulk_cross_wire_includes_all_requested_ids_when_only_some_change(fake_transport) -> None:
+    svc = service(fake_transport)
+    svc.state.shopping_lists["list"] = PB.ShoppingList(
+        identifier="list",
+        items=[
+            PB.ListItem(identifier="already", listId="list", checked=True),
+            PB.ListItem(identifier="change", listId="list", checked=False),
+        ],
+    )
+
+    await svc.bulk_set_checked("list", ["already", "change"], True)
+
+    op = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert [x.identifier for x in op.list.items] == ["already", "change"]
+    assert all(x.checked for x in op.list.items)
+
+
+@pytest.mark.asyncio
+async def test_checked_and_removed_items_emit_recent_item_callback(fake_transport) -> None:
+    svc = service(fake_transport)
+    svc.state.shopping_lists["list"] = PB.ShoppingList(
+        identifier="list",
+        items=[
+            PB.ListItem(identifier="a", listId="list", name="A"),
+            PB.ListItem(identifier="b", listId="list", name="B"),
+        ],
+    )
+    seen = []
+
+    async def recent(list_id, items, skip_existing, flush):
+        seen.append((list_id, [x.identifier for x in items], skip_existing, flush))
+
+    svc.on_items_became_recent = recent
+    await svc.set_checked("list", "a", True, flush=False)
+    await svc.remove_item("list", "b", flush=False)
+
+    assert seen == [
+        ("list", ["a"], False, False),
+        ("list", ["b"], False, False),
+    ]
+
+@pytest.mark.asyncio
+async def test_clear_promotes_with_skip_existing_then_removes_without_duplicate_callback(fake_transport) -> None:
+    svc = service(fake_transport)
+    svc.state.shopping_lists["list"] = PB.ShoppingList(
+        identifier="list",
+        items=[
+            PB.ListItem(identifier="a", listId="list", name="A"),
+            PB.ListItem(identifier="b", listId="list", name="B", checked=True),
+        ],
+    )
+    seen = []
+
+    async def recent(list_id, items, skip_existing, flush):
+        seen.append((list_id, [x.identifier for x in items], skip_existing, flush))
+
+    svc.on_items_became_recent = recent
+    removed = await svc.clear("list", flush=False)
+
+    assert [x.identifier for x in removed] == ["a", "b"]
+    assert list(svc.state.shopping_lists["list"].items) == []
+    assert seen == [("list", ["a", "b"], True, False)]
+    assert svc.queue._pending[-1].metadata.handlerId == "bulk-remove-list-items"
+
+
+@pytest.mark.asyncio
+async def test_remove_checked_only_promotes_and_removes_crossed_items(fake_transport) -> None:
+    svc = service(fake_transport)
+    svc.state.shopping_lists["list"] = PB.ShoppingList(
+        identifier="list",
+        items=[
+            PB.ListItem(identifier="a", listId="list", checked=False),
+            PB.ListItem(identifier="b", listId="list", checked=True),
+            PB.ListItem(identifier="c", listId="list", checked=True),
+        ],
+    )
+    seen = []
+
+    async def recent(list_id, items, skip_existing, flush):
+        seen.append(([x.identifier for x in items], skip_existing, flush))
+
+    svc.on_items_became_recent = recent
+    removed = await svc.remove_checked("list", flush=False)
+
+    assert [x.identifier for x in removed] == ["b", "c"]
+    assert [x.identifier for x in svc.state.shopping_lists["list"].items] == ["a"]
+    assert seen == [(["b", "c"], True, False)]

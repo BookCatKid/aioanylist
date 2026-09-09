@@ -90,6 +90,7 @@ class ShoppingListsService(OperationService):
         self.legacy_queue.on_response = self._on_legacy_response
         self.on_store_filter_removed: Callable[[str, str, bool], Awaitable[None]] | None = None
         self.on_category_group_removed: Callable[[str, str, bool], Awaitable[None]] | None = None
+        self.on_items_became_recent: Callable[[str, Sequence[Message], bool, bool], Awaitable[None]] | None = None
 
     async def _on_legacy_response(self, response: Message) -> None:
         needs_refresh = False
@@ -313,6 +314,8 @@ class ShoppingListsService(OperationService):
             listItem=original,
             flush=flush,
         )
+        if self.on_items_became_recent is not None:
+            await self.on_items_became_recent(list_id, [original], False, flush)
 
     async def set_checked(self, list_id: str, item_id: str, checked: bool, *, flush: bool = True) -> None:
         item = self._require_item(list_id, item_id)
@@ -324,6 +327,8 @@ class ShoppingListsService(OperationService):
             updatedValue="y" if checked else "n",
             flush=flush,
         )
+        if checked and self.on_items_became_recent is not None:
+            await self.on_items_became_recent(list_id, [clone_message(item)], False, flush)
 
     async def rename_item(self, list_id: str, item_id: str, name: str, *, flush: bool = True) -> None:
         item = self._require_item(list_id, item_id)
@@ -603,19 +608,21 @@ class ShoppingListsService(OperationService):
         self, list_id: str, item_ids: Sequence[str], checked: bool, *, flush: bool = True
     ) -> None:
         lst = self._require_list(list_id)
-        selected = set(item_ids)
-        changed: list[str] = []
+        requested = list(dict.fromkeys(item_ids))
+        selected = set(requested)
+        changed_items: list[Message] = []
         for item in lst.items:
             if item.identifier in selected and bool(item.checked) != checked:
                 item.checked = checked
-                changed.append(str(item.identifier))
-        if not changed:
+                changed_items.append(clone_message(item))
+        if not changed_items:
             return
+        # The official operation includes every requested ID in the partial list, not
+        # only IDs whose local checked bit actually changed.  Change detection merely
+        # decides whether an operation is needed at all.
         partial = PB.ShoppingList(identifier=list_id)
-        for item_id in changed:
+        for item_id in requested:
             item = partial.items.add(identifier=item_id, listId=list_id)
-            # The official uncross operation intentionally omits checked=false; presence of
-            # the item in the operation identifies what to uncross.
             if checked:
                 item.checked = True
         await self.operation(
@@ -624,9 +631,16 @@ class ShoppingListsService(OperationService):
             list=partial,
             flush=flush,
         )
+        if checked and self.on_items_became_recent is not None:
+            await self.on_items_became_recent(list_id, changed_items, False, flush)
 
     async def bulk_remove_items(
-        self, list_id: str, item_ids: Sequence[str], *, flush: bool = True
+        self,
+        list_id: str,
+        item_ids: Sequence[str],
+        *,
+        remember_recent: bool = True,
+        flush: bool = True,
     ) -> list[Message]:
         lst = self._require_list(list_id)
         selected = set(item_ids)
@@ -641,7 +655,39 @@ class ShoppingListsService(OperationService):
         for item in removed:
             partial.items.add().CopyFrom(item)
         await self.operation("bulk-remove-list-items", listId=list_id, list=partial, flush=flush)
+        if remember_recent and self.on_items_became_recent is not None:
+            await self.on_items_became_recent(list_id, removed, False, flush)
         return removed
+
+    async def clear(self, list_id: str, *, flush: bool = True) -> list[Message]:
+        """Remove every item while mirroring AnyList Web's recents behavior."""
+        lst = self._require_list(list_id)
+        items = [clone_message(item) for item in lst.items]
+        if not items:
+            return []
+        if self.on_items_became_recent is not None:
+            await self.on_items_became_recent(list_id, items, True, False)
+        return await self.bulk_remove_items(
+            list_id,
+            [str(item.identifier) for item in items],
+            remember_recent=False,
+            flush=flush,
+        )
+
+    async def remove_checked(self, list_id: str, *, flush: bool = True) -> list[Message]:
+        """Remove all crossed-off items, preserving their recents entries."""
+        lst = self._require_list(list_id)
+        items = [clone_message(item) for item in lst.items if bool(item.checked)]
+        if not items:
+            return []
+        if self.on_items_became_recent is not None:
+            await self.on_items_became_recent(list_id, items, True, False)
+        return await self.bulk_remove_items(
+            list_id,
+            [str(item.identifier) for item in items],
+            remember_recent=False,
+            flush=flush,
+        )
 
     async def uncheck_all(self, list_id: str, *, flush: bool = True) -> None:
         lst = self._require_list(list_id)

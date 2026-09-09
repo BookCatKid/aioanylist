@@ -72,6 +72,7 @@ class AnyListClient:
         self.meal_plan.on_event_removed = self._cleanup_event_references
         self.lists.on_store_filter_removed = self._clear_selected_store_filter
         self.lists.on_category_group_removed = self._migrate_selected_category_group
+        self.lists.on_items_became_recent = self._record_recent_items
         self._services_ready=True
 
     @property
@@ -122,6 +123,15 @@ class AnyListClient:
         if not self._services_ready:return []
         return [self.lists,self.recipes,self.folders,self.categories,self.categorized_items,
                 self.list_settings,self.starter_list_settings,self.mobile_settings,self.starter_lists,self.meal_plan]
+
+    async def _record_recent_items(
+        self, list_id: str, items, skip_existing: bool, flush: bool
+    ) -> None:
+        if self.starter_lists is None:
+            return
+        await self.starter_lists.record_recent_items(
+            list_id, items, skip_existing=skip_existing, flush=flush
+        )
 
     async def _clear_selected_store_filter(
         self, list_id: str, store_filter_id: str, flush: bool
