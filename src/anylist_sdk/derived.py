@@ -12,9 +12,11 @@ from google.protobuf.message import Message
 from .identifiers import uuid4_hex, uuid5_hex
 from .normalization import collapse_whitespace, localized_sort_key, normalized_for_search, remove_diacritics
 from .parsing.quantity import (
+    abbreviate_units_in_text,
     amount_as_float,
     decimal_to_friendly_fraction,
     normalize_unit,
+    normalize_units_in_text,
     pluralize_unit,
     singularize_unit,
     singularize_units_in_text,
@@ -26,6 +28,7 @@ from .stemming import stem_words
 
 _SOURCE_COLLECTION_NAMESPACE = UUID(hex="6d86f27f66474ca6a540fcf62af29e59")
 _UNKNOWN_SOURCE_COLLECTION_ID = "435af7e2930e455298a53ae96d143b55"
+_NOT_IN_COLLECTION_ID = "74267bf441d04dbc9dda96910dd3ba58"
 
 
 @lru_cache(maxsize=1)
@@ -72,7 +75,13 @@ def source_collection_identifier(normalized_name: str) -> str:
     return uuid5_hex(normalized_name, _SOURCE_COLLECTION_NAMESPACE)
 
 
-def source_smart_collection(recipes: list[Message], normalized_name: str, *, unknown_name: str = "Unknown Source") -> Message:
+def source_smart_collection(
+    recipes: list[Message],
+    normalized_name: str,
+    *,
+    unknown_name: str = "Unknown Source",
+    saved_settings: Message | None = None,
+) -> Message:
     collection_id = source_collection_identifier(normalized_name)
     matching = [r for r in recipes if normalized_source_name(r) == normalized_name]
     display = source_display_name(matching[0]) if matching else None
@@ -81,21 +90,39 @@ def source_smart_collection(recipes: list[Message], normalized_name: str, *, unk
     settings = PB.PBRecipeCollectionSettings()
     smart = PB.PBSmartFilter(identifier=collection_id, name=collection.name)
     condition = smart.conditions.add()
-    condition.fieldId = "normalized-recipe-source-name"
-    condition.operatorId = "is-equal-to"
+    # The generated protobuf uses the schema's literal ID capitalization even though the
+    # JavaScript accessor layer exposes these as fieldId/operatorId.
+    condition.fieldID = "normalized-recipe-source-name"
+    condition.operatorID = "is-equal-to"
     condition.value = normalized_name
     settings.smartFilter.CopyFrom(smart)
-    # Official web defaults source smart collections to Date Created sort order.
-    enum = PB.PBRecipeCollectionSettings.DESCRIPTOR.enum_types_by_name.get("SortOrder")
-    if enum is not None and "DateCreatedSortOrder" in enum.values_by_name:
-        settings.recipesSortOrder = enum.values_by_name["DateCreatedSortOrder"].number
+    if saved_settings is not None:
+        settings.recipesSortOrder = int(saved_settings.recipesSortOrder)
+        settings.useReversedSortDirection = bool(saved_settings.useReversedSortDirection)
+    else:
+        # Official web defaults source smart collections to Date Created sort order.
+        settings.recipesSortOrder = PB.PBRecipeCollectionSettings.SortOrder.DateCreatedSortOrder
     collection.collectionSettings.CopyFrom(settings)
     return collection
 
 
-def source_smart_collections(recipes: list[Message]) -> list[Message]:
-    names = {normalized_source_name(r) for r in recipes}
-    return [source_smart_collection(recipes, name) for name in sorted(names)]
+def source_smart_collections(
+    recipes: list[Message], *, saved_settings: dict[str, Message] | None = None
+) -> list[Message]:
+    # eh.hh builds a JS object while walking recipes in manager order, then returns its
+    # values. UUID-like keys retain insertion order, so source buckets are first-seen order.
+    names = list(dict.fromkeys(normalized_source_name(r) for r in recipes))
+    out: list[Message] = []
+    for name in names:
+        identifier = source_collection_identifier(name)
+        out.append(
+            source_smart_collection(
+                recipes,
+                name,
+                saved_settings=(saved_settings or {}).get(identifier),
+            )
+        )
+    return out
 
 
 def recipes_not_in_collection(recipes: list[Message], collections: list[Message]) -> list[Message]:
@@ -108,11 +135,39 @@ def recipes_not_in_collection(recipes: list[Message], collections: list[Message]
     return [recipe for recipe in recipes if recipe.identifier not in assigned]
 
 
+def not_in_collection_smart_collection(
+    recipes: list[Message],
+    collections: list[Message],
+    *,
+    name: str = "Not in a Collection",
+    saved_settings: Message | None = None,
+) -> Message:
+    """Build the synthetic collection produced by AnyList Web's ``eh.fh`` helper."""
+    collection = PB.PBRecipeCollection(identifier=_NOT_IN_COLLECTION_ID, name=name)
+    collection.recipeIds.extend(
+        recipe.identifier for recipe in recipes_not_in_collection(recipes, collections)
+    )
+    smart = PB.PBSmartFilter(identifier=_NOT_IN_COLLECTION_ID, name=name)
+    condition = smart.conditions.add()
+    condition.fieldID = "recipes-not-in-a-collection"
+    settings = PB.PBRecipeCollectionSettings()
+    settings.smartFilter.CopyFrom(smart)
+    if saved_settings is not None:
+        settings.recipesSortOrder = int(saved_settings.recipesSortOrder)
+        settings.useReversedSortDirection = bool(saved_settings.useReversedSortDirection)
+    else:
+        settings.recipesSortOrder = PB.PBRecipeCollectionSettings.SortOrder.AlphabeticalSortOrder
+    collection.collectionSettings.CopyFrom(settings)
+    return collection
+
+
 def duplicate_recipe_ids(collection: Message) -> list[str]:
     seen: set[str] = set()
     dupes: list[str] = []
     for recipe_id in collection.recipeIds:
-        if recipe_id in seen and recipe_id not in dupes:
+        # PBRecipeCollection.findDuplicateRecipeIDs appends on every occurrence after the
+        # first; it does not uniquify the duplicate report.
+        if recipe_id in seen:
             dupes.append(recipe_id)
         seen.add(recipe_id)
     return dupes
@@ -331,16 +386,16 @@ def normalized_raw_package_size(package: Message | None) -> str:
     raw = getattr(package, "rawPackageSize", "") or ""
     if not raw:
         return ""
-    # The official client reparses rawPackageSize, normalizes the unit, then appends the
-    # remaining package description.  Structured package fields are the exact parse result
-    # already kept on the protobuf, so prefer them where present.
-    size = getattr(package, "size", "") or ""
-    unit = getattr(package, "unit", "") or ""
-    package_type = getattr(package, "packageType", "") or ""
-    if size or unit or package_type:
-        parts = [x for x in (size, normalize_unit(unit) if unit else "", package_type) if x]
-        return " ".join(parts)
-    return raw
+    # PBItemPackageSize.normalizedRawPackageSize reparses rawPackageSize with sP, applies
+    # aP to only the parsed prefix, then appends the untouched remainder. It does not use the
+    # structured size/unit/packageType fields for this derived string.
+    from .parsing.ingredient import split_quantity_prefix
+
+    prefix, remainder = split_quantity_prefix(raw)
+    if not prefix:
+        return raw
+    normalized = normalize_units_in_text(prefix)
+    return f"{normalized} {remainder}".strip() if remainder else normalized
 
 
 def recipe_list_item_identifier(item_ingredient: Message, list_id: str) -> str:
@@ -409,8 +464,8 @@ def total_ingredient_quantity(item: Message) -> Message | None:
         out.amount = decimal_to_friendly_fraction(total, unicode=True)
     first_q = item.ingredients[0].quantityPb if item.ingredients[0].HasField("quantityPb") else PB.PBItemQuantity()
     if first_q.unit:
-        normalized = normalize_unit(first_q.unit)
-        out.unit = singularize_unit(normalized) if total == 1 else pluralize_unit(normalized)
+        abbreviated = abbreviate_units_in_text(first_q.unit)
+        out.unit = singularize_unit(abbreviated) if total == 1 else pluralize_unit(abbreviated)
     package_empty = not any(
         getattr(ingredient_package_size(item), f, "") for f in ("size", "unit", "packageType", "rawPackageSize")
     )
@@ -688,9 +743,14 @@ def event_list_items_equal(a: Message, b: Message, *, ignore_identifier: bool = 
     return quantity_equal(aq, bq) and package_size_equal(ap, bp)
 
 
-def event_list_item_arrays_equal(a, b, *, normalized: bool = False) -> bool:
+def event_list_item_arrays_equal(a, b, *, ignore_identifier: bool = False) -> bool:
     left = list(a or ())
     right = list(b or ())
     if len(left) != len(right):
         return False
-    return all(event_list_items_equal(x, y, normalized=normalized) for x, y in zip(left, right))
+    # The static web helper passes its third argument as isEqualToItem's *second* argument,
+    # i.e. the ignore-identifier flag. It does not expose normalized comparison here.
+    return all(
+        event_list_items_equal(x, y, ignore_identifier=ignore_identifier)
+        for x, y in zip(left, right)
+    )

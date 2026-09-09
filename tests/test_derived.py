@@ -27,6 +27,34 @@ def test_recipe_item_identifier_is_deterministic_and_list_namespaced() -> None:
     assert a != c
 
 
+def test_recipe_item_identifier_uses_official_unit_and_package_normalization() -> None:
+    from anylist_sdk.identifiers import uuid5_hex
+
+    ingredient = _ingredient("Beans", "Dosen")
+    ingredient.packageSizePb.rawPackageSize = "12 ounces jars"
+    list_id = "11111111111141118111111111111111"
+    # aP normalizes Dosen -> can and raw package "12 ounces jars" -> "12 oz jar".
+    expected = uuid5_hex(
+        "ALName::bean::ALQuantityUnit::can::ALPackageSize::12 oz jar", list_id
+    )
+    assert recipe_list_item_identifier(ingredient, list_id) == expected
+
+
+def test_total_ingredient_quantity_uses_display_abbreviation_before_pluralization() -> None:
+    from anylist_sdk.derived import total_ingredient_quantity
+
+    item = PB.ListItem(identifier="item")
+    for rid in ("a", "b"):
+        source = item.ingredients.add(recipeId=rid)
+        source.ingredient.identifier = rid
+        source.quantityPb.amount = "1"
+        source.quantityPb.unit = "Dosen"
+    total = total_ingredient_quantity(item)
+    assert total is not None
+    # uP does not translate Dosen to can; unlike normalizedUnit/aP it stays localized here.
+    assert total.unit == "Dosen"
+
+
 def test_recipe_source_alias_and_collection_identifier() -> None:
     recipe = PB.PBRecipe(sourceUrl="https://www.allrecipes.com/foo")
     assert source_domain(recipe) == "allrecipes.com"
@@ -37,7 +65,54 @@ def test_recipe_source_alias_and_collection_identifier() -> None:
 def test_duplicate_recipe_ids() -> None:
     collection = PB.PBRecipeCollection(identifier="c")
     collection.recipeIds.extend(["a", "b", "a", "a"])
-    assert duplicate_recipe_ids(collection) == ["a"]
+    assert duplicate_recipe_ids(collection) == ["a", "a"]
+
+
+def test_source_smart_collections_keep_first_seen_order() -> None:
+    from anylist_sdk.derived import source_collection_identifier, source_smart_collections
+
+    recipes = [
+        PB.PBRecipe(identifier="b1", sourceName="Beta", sourceUrl="https://beta.example/r"),
+        PB.PBRecipe(identifier="a1", sourceName="Alpha", sourceUrl="https://alpha.example/r"),
+        PB.PBRecipe(identifier="b2", sourceName="Beta", sourceUrl="https://m.beta.example/r2"),
+    ]
+    collections = source_smart_collections(recipes)
+    assert [c.name for c in collections] == ["Beta", "Alpha"]
+    assert list(collections[0].recipeIds) == ["b1", "b2"]
+    condition = collections[0].collectionSettings.smartFilter.conditions[0]
+    assert condition.fieldID == "normalized-recipe-source-name"
+    assert condition.operatorID == "is-equal-to"
+    assert condition.value == "beta"
+    assert (
+        collections[0].collectionSettings.recipesSortOrder
+        == PB.PBRecipeCollectionSettings.SortOrder.DateCreatedSortOrder
+    )
+
+    saved = PB.PBRecipeCollectionSettings(
+        recipesSortOrder=PB.PBRecipeCollectionSettings.SortOrder.RatingSortOrder,
+        useReversedSortDirection=True,
+    )
+    beta_id = source_collection_identifier("beta")
+    collections = source_smart_collections(recipes, saved_settings={beta_id: saved})
+    assert collections[0].collectionSettings.recipesSortOrder == saved.recipesSortOrder
+    assert collections[0].collectionSettings.useReversedSortDirection is True
+
+
+def test_not_in_collection_smart_collection_matches_official_shape() -> None:
+    from anylist_sdk.derived import not_in_collection_smart_collection
+
+    recipes = [PB.PBRecipe(identifier="a"), PB.PBRecipe(identifier="b")]
+    user_collection = PB.PBRecipeCollection(identifier="c", recipeIds=["a"])
+    synthetic = not_in_collection_smart_collection(recipes, [user_collection])
+    assert synthetic.identifier == "74267bf441d04dbc9dda96910dd3ba58"
+    assert list(synthetic.recipeIds) == ["b"]
+    condition = synthetic.collectionSettings.smartFilter.conditions[0]
+    assert condition.fieldID == "recipes-not-in-a-collection"
+    assert not condition.HasField("operatorID")
+    assert (
+        synthetic.collectionSettings.recipesSortOrder
+        == PB.PBRecipeCollectionSettings.SortOrder.AlphabeticalSortOrder
+    )
 
 
 def test_total_cost_quantity_override() -> None:
@@ -213,4 +288,9 @@ def test_event_list_item_equality_supports_official_normalized_mode() -> None:
     a.quantityPb.rawQuantity = b.quantityPb.rawQuantity = "2"
     assert not event_list_items_equal(a, b)
     assert event_list_items_equal(a, b, normalized=True)
-    assert event_list_item_arrays_equal([a], [b], normalized=True)
+
+    b.name = a.name
+    b.details = a.details
+    b.identifier = "different"
+    assert not event_list_item_arrays_equal([a], [b])
+    assert event_list_item_arrays_equal([a], [b], ignore_identifier=True)

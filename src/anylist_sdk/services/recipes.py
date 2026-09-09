@@ -7,7 +7,7 @@ from typing import Any
 from google.protobuf.message import Message
 
 from ..identifiers import uuid4_hex
-from ..derived import sort_recipes
+from ..derived import not_in_collection_smart_collection, sort_recipes, source_smart_collections
 from ..operations import QueueSpec
 from ..proto import PB
 from ..state import AnyListState, clone
@@ -42,6 +42,21 @@ class RecipesService(OperationService):
 
     def collections(self) -> list[Message]:
         return list(self.state.recipe_collections.values())
+
+    def source_collections(self) -> list[Message]:
+        """Return the client-derived per-source smart collections used by AnyList Web."""
+        return source_smart_collections(
+            self.all(), saved_settings=self.state.system_recipe_collection_settings
+        )
+
+    def not_in_collection(self) -> Message:
+        """Return AnyList Web's synthetic ``Not in a Collection`` collection."""
+        identifier = "74267bf441d04dbc9dda96910dd3ba58"
+        return not_in_collection_smart_collection(
+            self.all(),
+            self.collections(),
+            saved_settings=self.state.system_recipe_collection_settings.get(identifier),
+        )
 
     def sorted(
         self,

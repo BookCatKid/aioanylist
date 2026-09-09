@@ -25,31 +25,87 @@ _DIGITS = str.maketrans(
 _DASH_CLASS = r"\-֊־᐀᠆‐‑‒–—―⸗⸚⸺⸻〜〰゠︱︲﹘﹣－"
 _DASH_RE = re.compile(f"[{_DASH_CLASS}]")
 
-# Official aliases visible in app.js. Keep matching permissive while preserving the original unit
-# string in the protobuf; normalize_unit is used only for equality/aggregation.
-_UNIT_GROUPS: dict[str, tuple[str, ...]] = {
-    "cup": ("cup", "cups", "c", "tasse", "tassen", "tas", "becher", "be", "bch"),
+# JD is the parser's recognition table. Recognition is intentionally broader than rP/aP's
+# normalization table below: e.g. "becher" is accepted as a unit but is not rewritten to "cup".
+_UNIT_MATCH_GROUPS: dict[str, tuple[str, ...]] = {
+    "cup": ("cup", "cups", "c", "tasse", "tassen", "tas", "tasse/n", "becher", "be", "bch"),
     "fl oz": ("fluid ounce", "fluid ounces", "fl oz"),
     "gal": ("gallon", "gallons", "gal"),
-    "oz t": ("troy ounce", "troy ounces", "oz t", "t oz"),
+    "troy oz": ("troy ounce", "troy ounces", "oz t", "t oz"),
     "oz": ("ounce", "ounces", "oz"),
     "pt": ("pint", "pints", "pt"),
     "lb": ("pound", "pounds", "lb", "lbs", "pfund", "pf"),
     "qt": ("quart", "quarts", "qt", "qts"),
-    "tbsp": ("tablespoon", "tablespoons", "tbsp", "tbs", "tbl", "t", "msk", "ss", "spsk", "rkl", "el", "esslöffel"),
+    "Tbsp": ("tablespoon", "tablespoons", "tbsp", "tbs", "tbl", "t", "msk", "ss", "spsk", "rkl", "el", "esslöffel"),
     "tsp": ("teaspoon", "teaspoons", "tsp", "ts", "tsk", "tl", "teelöffel"),
     "g": ("gram", "grams", "g", "gr", "gramm"),
     "kg": ("kilogram", "kilograms", "kg", "kilogramm"),
     "mg": ("milligram", "milligrams", "mg"),
-    "l": ("liter", "liters", "l"),
+    "L": ("liter", "liters", "l"),
     "dl": ("deciliter", "deciliters", "dl"),
     "ml": ("milliliter", "milliliters", "ml", "krm"),
     "in": ("inch", "inches", "in"),
 }
+
+# rP is the exact PBItemQuantity.normalizedUnit alias table. Do not fold JD-only terms into
+# this mapping: those spellings deliberately survive normalization in the official client.
+_UNIT_NORMALIZATION_GROUPS: dict[str, tuple[str, ...]] = {
+    "cup": ("cup", "cups", "c"),
+    "fl oz": ("fluid ounce", "fluid ounces", "fl oz"),
+    "gal": ("gallon", "gallons", "gal"),
+    "oz": ("ounce", "ounces", "oz"),
+    "pt": ("pint", "pints", "pt"),
+    "lb": ("pound", "pounds", "lb", "lbs"),
+    "qt": ("quart", "quarts", "qt", "qts"),
+    "troy oz": ("oz t", "t oz"),
+    "Tbsp": (
+        "tablespoon", "tablespoons", "tbsp", "tbs", "tbl", "t", "msk", "ss",
+        "spsk", "el", "rkl", "esslöffel",
+    ),
+    "tsp": ("teaspoon", "teaspoons", "tsp", "ts", "tsk", "tl", "teelöffel"),
+    "g": ("gram", "grams", "g", "gr", "gramm"),
+    "kg": ("kilogram", "kilograms", "kg", "kilogramm"),
+    "mg": ("milligram", "milligrams", "mg"),
+    "L": ("liter", "liters", "l"),
+    "dl": ("deciliter", "deciliters", "dl"),
+    "ml": ("milliliter", "milliliters", "ml", "krm"),
+    "dozen": ("doz",),
+    "Tasse": ("tasse", "tassen", "tas"),
+    "Pfund": ("pfund", "pf"),
+    "can": ("dose", "dosen", "do"),
+    "glas": ("glas", "gläser", "gl"),
+}
 _UNIT_LOOKUP = {
     re.sub(r"[.\s]+", " ", alias.casefold()).strip(): canonical
-    for canonical, aliases in _UNIT_GROUPS.items()
+    for canonical, aliases in _UNIT_NORMALIZATION_GROUPS.items()
     for alias in aliases
+}
+_UNIT_MATCH_KEYS = {
+    re.sub(r"[.\s]+", " ", alias.casefold()).strip()
+    for aliases in _UNIT_MATCH_GROUPS.values()
+    for alias in aliases
+}
+
+_UNIT_ABBREVIATION_GROUPS: dict[str, tuple[str, ...]] = {
+    "fl oz": ("fluid ounce", "fluid ounces"),
+    "gal": ("gallon", "gallons"),
+    "oz": ("ounce", "ounces"),
+    "pt": ("pint", "pints"),
+    "lb": ("pound", "pounds"),
+    "qt": ("quart", "quarts"),
+    "Tbsp": ("tablespoon", "tablespoons"),
+    "tsp": ("teaspoon", "teaspoons"),
+    "g": ("gram", "grams", "gramm"),
+    "kg": ("kilogram", "kilograms", "kilogramm"),
+    "mg": ("milligram", "milligrams"),
+    "L": ("liter", "liters"),
+    "dl": ("deciliter", "deciliters"),
+    "ml": ("milliliter", "milliliters"),
+    "pkg": ("package", "packages"),
+    "TL": ("teelöffel",),
+    "EL": ("esslöffel",),
+    "Pkg.": ("packung", "packungen"),
+    "Päck.": ("päckchen",),
 }
 
 _PACKAGE_WORDS = (
@@ -68,7 +124,10 @@ _PACKAGE_WORDS = (
     "flaschen", "zehe", "zehen", "knolle", "knollen", "kopf", "köpfe", "bund", "bünde",
     "blatt", "blätter", "spritzer", "tropf", "tropfen", "prise", "prisen", "stück",
     "stücke", "stiel", "stiele", "stange", "stangen", "würfel", "etwas", "nach belieben",
-    "viel",
+    "viel", "do.", "gl.", "pck", "pck.", "pk", "pk.", "pckg", "pckg.", "btl",
+    "btl.", "bt", "bt.", "fl", "fl.", "kn", "kn.", "bd", "bd.", "bn", "bn.",
+    "bl", "bl.", "spr", "spr.", "tr", "tr.", "pr", "pr.", "stk", "stk.", "st",
+    "st.", "stck", "stck.", "stg", "stg.", "wf", "wf.", "n. b.",
 )
 
 _SINGULAR_PLURAL = {
@@ -205,8 +264,34 @@ def parse_leading_amount(text: str, *, decimal_separator: str = ".") -> tuple[Pa
 
 
 def normalize_unit(unit: str) -> str:
-    value = re.sub(r"[.\s]+", " ", unit.casefold()).strip()
-    return _UNIT_LOOKUP.get(value, value)
+    raw = unit.strip()
+    key = re.sub(r"[.\s]+", " ", raw.casefold()).strip()
+    value = _UNIT_LOOKUP.get(key, raw)
+    # aP runs cP after alias replacement, so container/plural units such as "jars" are
+    # singularized even when they did not appear in the alias table.
+    return singularize_units_in_text(value)
+
+
+def _replace_unit_aliases(text: str, groups: dict[str, tuple[str, ...]]) -> str:
+    value = text or ""
+    for canonical, aliases in groups.items():
+        # The web tables are applied sequentially with case-insensitive word-boundary regexes.
+        for alias in aliases:
+            pattern = re.escape(alias).replace(r"\ ", r"\s+")
+            value = re.sub(
+                rf"(?<!\w){pattern}\.?(?!\w)", canonical, value, flags=re.I
+            )
+    return value
+
+
+def normalize_units_in_text(text: str) -> str:
+    """Port aP: normalize recognized aliases, then singularize known container words."""
+    return singularize_units_in_text(_replace_unit_aliases(text, _UNIT_NORMALIZATION_GROUPS))
+
+
+def abbreviate_units_in_text(text: str) -> str:
+    """Port uP: display-oriented abbreviation table used by ingredient totals."""
+    return _replace_unit_aliases(text, _UNIT_ABBREVIATION_GROUPS)
 
 
 def singularize_unit(unit: str) -> str:
@@ -246,7 +331,7 @@ def unit_for_amount(unit: str, amount: float) -> str:
 def _match_unit_or_package(rest: str) -> tuple[str, str]:
     value = rest.lstrip(" ,-")
     candidates: list[str] = []
-    for aliases in _UNIT_GROUPS.values():
+    for aliases in _UNIT_MATCH_GROUPS.values():
         candidates.extend(aliases)
     candidates.extend(_PACKAGE_WORDS)
     for candidate in sorted(set(candidates), key=len, reverse=True):
@@ -273,7 +358,7 @@ def parse_package_size(text: str, *, require_unit: bool = True, decimal_separato
         return None
     package_type = ""
     # If the first token was a measurement unit, a following container word is packageType.
-    if unit and normalize_unit(unit) in _UNIT_GROUPS:
+    if unit and re.sub(r"[.\s]+", " ", unit.casefold()).strip() in _UNIT_MATCH_KEYS:
         pt, tail2 = _match_unit_or_package(tail)
         if pt and pt.casefold().rstrip(".") in {x.casefold().rstrip(".") for x in _PACKAGE_WORDS}:
             package_type, tail = pt, tail2
@@ -306,7 +391,7 @@ def parse_quantity_and_package_size(text: str, *, decimal_separator: str = "."):
     if unit:
         # Distinguish measurement quantity from count + package-size shape.
         normalized = normalize_unit(unit)
-        is_measurement = normalized in _UNIT_GROUPS
+        is_measurement = re.sub(r"[.\s]+", " ", unit.casefold()).strip() in _UNIT_MATCH_KEYS
         is_container = unit.casefold().rstrip(".") in {
             p.casefold().rstrip(".") for p in _PACKAGE_WORDS
         }

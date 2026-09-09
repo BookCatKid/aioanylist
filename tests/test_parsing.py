@@ -7,6 +7,7 @@ import pytest
 from anylist_sdk.parsing.ingredient import parse_ingredient_line, parse_recipe_steps, split_quantity_prefix
 from anylist_sdk.parsing.quantity import (
     amount_as_float,
+    normalize_unit,
     parse_leading_amount,
     parse_quantity_and_package_size,
     scale_quantity_text,
@@ -79,10 +80,18 @@ def test_recipe_step_numbering_matches_official_dot_only_prefix() -> None:
     assert parse_recipe_steps("1. Heat pan\n2) Add onions") == ["Heat pan", ") Add onions"]
 
 
-def test_ingredient_size_adjective_is_name_not_quantity() -> None:
+def test_ingredient_split_matches_repeated_unit_and_trailing_adjective_rules() -> None:
     ingredient = parse_ingredient_line("1/2 small head cabbage")
-    assert ingredient.quantity == "1/2"
-    assert ingredient.name == "small head cabbage"
+    assert ingredient.quantity == "1/2 small head"
+    assert ingredient.name == "cabbage"
+
+    ingredient = parse_ingredient_line("1 large tomato")
+    assert ingredient.quantity == "1"
+    assert ingredient.name == "large tomato"
+
+    ingredient = parse_ingredient_line("12 ounces jars tomatoes")
+    assert ingredient.quantity == "12 ounces jars"
+    assert ingredient.name == "tomatoes"
 
 
 def test_ingredient_raw_line_and_heading_shape_match_official_paste_parser() -> None:
@@ -114,6 +123,25 @@ def test_quantity_raw_text_excludes_parsed_package_size() -> None:
     assert parsed is not None
     assert parsed.quantityPb.rawQuantity == "1"
     assert parsed.packageSizePb.rawPackageSize.lower() == "12-ounce bottle"
+
+
+@pytest.mark.parametrize(
+    ("unit", "expected"),
+    [
+        ("cups", "cup"),
+        ("jars", "jar"),
+        ("tasse", "Tasse"),
+        ("becher", "becher"),
+        ("pfund", "Pfund"),
+        ("Dosen", "can"),
+        ("gläser", "glas"),
+        ("oz t", "troy oz"),
+        ("T", "Tbsp"),
+        ("liter", "L"),
+    ],
+)
+def test_normalized_unit_matches_official_rp_ap_tables(unit: str, expected: str) -> None:
+    assert normalize_unit(unit) == expected
 
 
 def test_scale_quantity_text_preserves_surrounding_text() -> None:

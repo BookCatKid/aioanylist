@@ -18,16 +18,26 @@ _NOTE_RE = re.compile(
 )
 
 _PACKAGE_OR_UNIT = re.compile(
-    r"^(?:cups?|c\.?|tassen?|tas\.?|becher|fluid ounces?|fl\.?\s*oz\.?|gallons?|gal\.?|"
-    r"ounces?|oz\.?|pints?|pt\.?|pounds?|lbs?\.?|quarts?|qts?\.?|tablespoons?|tbsps?\.?|"
-    r"teaspoons?|tsps?\.?|grams?|gr?\.?|kilograms?|kg\.?|milligrams?|mg\.?|liters?|l\.?|"
-    r"deciliters?|dl\.?|milliliters?|ml\.?|packages?|pkg\.?|pecks?|bushels?|buckets?|"
-    r"slices?|cloves?|loaf|loaves|pinches?|cans?|drops?|bunch(?:es)?|dashes?|cartons?|each|"
-    r"pieces?|squares?|tubes?|strips?|stems?|stalks?|sprigs?|spears?|sprouts?|sheets?|scoops?|"
-    r"pouches?|packets?|packs?|leaf|leaves|glasses?|cubes?|containers?|cones?|boxes?|bottles?|"
-    r"blocks?|bags?|parts?|sticks?|heads?|bars?|ears?|jars?|inches?|tubs?|small|medium|large)\b\.?",
+    r"^(?:cups?|c\.?|tassen?|tas\.?|tasse/n|becher|be\.?|bch\.?|fluid ounces?|"
+    r"fl\.?\s*oz\.?|gallons?|gal\.?|troy ounces?|oz\.?\s*t\.?|t\.?\s*oz\.?|"
+    r"ounces?|oz\.?|pints?|pt\.?|pounds?|lbs?\.?|pfund|pf\.?|quarts?|qts?\.?|"
+    r"tablespoons?|tbsps?\.?|tbs?\.?|tbl\.?|t\.?|msk\.?|ss\.?|spsk\.?|rkl\.?|"
+    r"el\.?|esslöffel|teaspoons?|tsps?\.?|ts?\.?|tsk\.?|tl\.?|teelöffel|grams?|"
+    r"gr?\.?|gramm|kilograms?|kg\.?|kilogramm|milligrams?|mg\.?|liters?|l\.?|"
+    r"deciliters?|dl\.?|milliliters?|ml\.?|krm\.?|pecks?|bushels?|buckets?|slices?|"
+    r"doz(?:en|\.)?|cloves?|loaf|loaves|pinch(?:es)?|packages?|pkg\.?|cans?|drops?|"
+    r"bunch(?:es)?|dash(?:es)?|cartons?|each|pieces?|to taste|squares?|tubes?|strips?|"
+    r"stems?|stalks?|sprigs?|spears?|sprouts?|sheets?|scoops?|pouch(?:es)?|packets?|"
+    r"packs?|leaf|leaves|glass(?:es)?|cubes?|containers?|cones?|box(?:es)?|bottles?|"
+    r"blocks?|bags?|parts?|sticks?|heads?|bars?|ears?|jars?|inches?|tubs?|small|medium|"
+    r"large|dosen?|do\.?|glas|gläser|gl\.?|packung(?:en)?|pck\.?|pk\.?|pckg\.?|"
+    r"päckchen|beutel|btl\.?|bt\.?|flaschen?|fl\.?|zehen?|knollen?|kn\.?|kopf|köpfe|"
+    r"bund|bünde|bd\.?|bn\.?|blatt|blätter|bl\.?|spritzer|spr?\.?|tropf(?:en)?|tr\.?|"
+    r"prisen?|prise\(n\)|pr\.?|stücke?|stk\.?|st\.?|stck\.?|stiele?|stangen?|stg\.?|"
+    r"würfel|wf\.?|etwas|nach belieben|n\.\s*b\.|viel)(?=$|\s|,)",
     re.I,
 )
+_TRAILING_SIZE_ADJECTIVE = re.compile(r"(?:(?:small|medium|large)\s*)+$", re.I)
 _NUMBERED_STEP = re.compile(r"^\d+[.]?\s*", re.I)
 _STEP_TRIM = re.compile(r"^[\s,\-•–—]+|[\s,\-•–—]+$")
 
@@ -38,20 +48,36 @@ def split_quantity_prefix(line: str) -> tuple[str, str]:
     if amount is None:
         return "", cleaned
     consumed = cleaned[: len(cleaned) - len(rest)]
-    remainder = rest.lstrip()
-    unit = _PACKAGE_OR_UNIT.match(remainder)
-    if unit:
-        # sP moves a trailing size adjective back to the ingredient-name side rather than
-        # treating it as part of the quantity (e.g. "1/2 small head cabbage").
-        if unit.group(0).rstrip(".").casefold() not in {"small", "medium", "large"}:
-            consumed += rest[: len(rest) - len(remainder)] + unit.group(0)
-            remainder = remainder[unit.end() :]
-            # Include a directly attached parenthetical package-size expression.
-            p = re.match(r"^\s*(\([^()]+\))", remainder)
-            if p:
-                consumed += remainder[: p.end()]
-                remainder = remainder[p.end() :]
-    return trim_whitespace_and_punctuation(consumed), trim_whitespace_and_punctuation(remainder)
+    remainder = rest
+
+    # JD is a repeated group: consume every adjacent recognized unit/container token, not
+    # just the first one. This is observable for "1/2 small head cabbage" and
+    # "12 ounces jars".
+    while True:
+        stripped = remainder.lstrip()
+        gap = remainder[: len(remainder) - len(stripped)]
+        token = _PACKAGE_OR_UNIT.match(stripped)
+        if token is None:
+            break
+        consumed += gap + token.group(0)
+        remainder = stripped[token.end() :]
+
+    # AD lets a parenthesized package expression remain part of the pasted quantity prefix.
+    parenthetical = re.match(r"^\s*(\([^()]+\))", remainder)
+    if parenthetical:
+        consumed += remainder[: parenthetical.end()]
+        remainder = remainder[parenthetical.end() :]
+
+    consumed = trim_whitespace_and_punctuation(consumed)
+    remainder = trim_whitespace_and_punctuation(remainder)
+    # XD moves only a *trailing* size adjective back to the ingredient side. If another
+    # recognized container follows it ("small head"), the adjective stays in the quantity.
+    adjective = _TRAILING_SIZE_ADJECTIVE.search(consumed)
+    if adjective:
+        moved = adjective.group(0).strip()
+        consumed = trim_whitespace_and_punctuation(consumed[: adjective.start()])
+        remainder = trim_whitespace_and_punctuation(f"{moved} {remainder}")
+    return consumed, remainder
 
 
 def split_ingredient_note(name: str) -> tuple[str, str]:
