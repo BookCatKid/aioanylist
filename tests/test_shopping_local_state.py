@@ -281,3 +281,117 @@ async def test_notification_location_dedupes_by_coordinates_without_queueing(fak
     assert result is None
     assert len(svc.state.shopping_lists["list"].notificationLocations) == 1
     assert fake_transport.calls == []
+
+@pytest.mark.asyncio
+async def test_quantity_update_keeps_legacy_quantity_and_skips_identical_updates(fake_transport) -> None:
+    svc = service(fake_transport)
+    svc.state.shopping_lists["list"] = PB.ShoppingList(
+        identifier="list", items=[PB.ListItem(identifier="item", listId="list", name="Flour")]
+    )
+    quantity = PB.PBItemQuantity(amount="1 1/2", unit="pounds")
+
+    await svc.set_quantity("list", "item", quantity)
+
+    item = svc.item("list", "item")
+    assert item.deprecatedQuantity == "1½ lb"
+    op = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert op.listItem.quantityPb == quantity
+    assert op.listItem.deprecatedQuantity == "1½ lb"
+    calls = len(fake_transport.calls)
+    await svc.set_quantity("list", "item", quantity)
+    assert len(fake_transport.calls) == calls
+
+
+@pytest.mark.asyncio
+async def test_redundant_store_and_override_mutations_do_not_queue(fake_transport) -> None:
+    svc = service(fake_transport)
+    svc.state.shopping_lists["list"] = PB.ShoppingList(
+        identifier="list",
+        items=[PB.ListItem(
+            identifier="item", listId="list", name="Milk", storeIds=["store"],
+            itemQuantityShouldOverrideIngredientQuantity=True,
+        )],
+    )
+
+    await svc.add_store("list", "item", "store")
+    await svc.remove_store("list", "item", "missing")
+    await svc.set_quantity_override("list", "item", True)
+
+    assert fake_transport.calls == []
+
+
+@pytest.mark.asyncio
+async def test_category_assignment_uses_deterministic_group_assignment_and_full_item(fake_transport) -> None:
+    from anylist_sdk.identifiers import uuid5_hex
+    from uuid import UUID
+
+    svc = service(fake_transport)
+    svc.state.shopping_lists["list"] = PB.ShoppingList(
+        identifier="list",
+        items=[PB.ListItem(identifier="item", listId="list", name="Milk", details="keep")],
+    )
+    assignment = PB.PBListItemCategoryAssignment(categoryGroupId="group", categoryId="category")
+
+    await svc.assign_category("list", "item", assignment)
+
+    expected = uuid5_hex("group", UUID(hex="08e5c5bdcd694454a1ffd611b6d9abc0"))
+    item = svc.item("list", "item")
+    assert item.categoryAssignments[0].identifier == expected
+    op = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert op.listItem.details == "keep"
+    assert op.listItem.categoryAssignments[0].identifier == expected
+
+
+@pytest.mark.asyncio
+async def test_category_match_id_uses_full_item_and_official_post_mutation_original_value(fake_transport) -> None:
+    svc = service(fake_transport)
+    svc.state.shopping_lists["list"] = PB.ShoppingList(
+        identifier="list",
+        items=[PB.ListItem(identifier="item", listId="list", name="Milk", categoryMatchId="old")],
+    )
+
+    await svc.set_category_match_id("list", "item", "produce")
+
+    item = svc.item("list", "item")
+    assert item.category == "produce"
+    op = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert op.listItem.categoryMatchId == "produce"
+    assert op.listItem.category == "produce"
+    assert op.originalValue == "produce"
+    assert not op.HasField("updatedValue")
+
+    await svc.set_category_match_id("list", "item", "custom-category")
+    assert svc.item("list", "item").category == "other"
+
+
+@pytest.mark.asyncio
+async def test_save_price_updates_and_removes_optimistic_price_state(fake_transport) -> None:
+    svc = service(fake_transport)
+    svc.state.shopping_lists["list"] = PB.ShoppingList(
+        identifier="list", items=[PB.ListItem(identifier="item", listId="list", name="Milk")]
+    )
+
+    await svc.save_price("list", "item", PB.PBItemPrice(amount=3.5, details="sale", storeId="store"))
+    item = svc.item("list", "item")
+    assert len(item.prices) == 1 and item.prices[0].amount == 3.5
+
+    await svc.save_price("list", "item", PB.PBItemPrice(storeId="store"))
+    assert len(item.prices) == 0
+    calls = len(fake_transport.calls)
+    await svc.save_price("list", "item", PB.PBItemPrice(storeId="missing"))
+    assert len(fake_transport.calls) == calls
+
+
+@pytest.mark.asyncio
+async def test_price_matchup_tag_matches_web_clients_post_mutation_original_value(fake_transport) -> None:
+    svc = service(fake_transport)
+    svc.state.shopping_lists["list"] = PB.ShoppingList(
+        identifier="list",
+        items=[PB.ListItem(identifier="item", listId="list", name="Milk", priceMatchupTag="old")],
+    )
+
+    await svc.set_price_matchup_tag("list", "item", "new")
+
+    op = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert op.updatedValue == "new"
+    assert op.originalValue == "new"

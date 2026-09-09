@@ -22,6 +22,9 @@ from ..item_semantics import (
     EXCLUDE_PACKAGE_SIZE,
     EXCLUDE_PRICE_QUANTITY,
     apply_properties_from_item,
+    package_size_equal,
+    quantity_equal,
+    quantity_to_deprecated_string,
 )
 from ..parsing.quantity import normalize_unit
 from ..stemming import stem_words
@@ -34,6 +37,14 @@ from .base import OperationService, clone_message, partial_message
 # Official web client namespace used by list categorization-rule IDs.
 _CATEGORY_RULE_NAMESPACE = UUID(hex="f4338133428d4f0b94027c9b23243f14")
 _CATEGORY_GROUP_NAMESPACE = UUID(hex="f656a81f0e0a419aa45121f4f2eac51b")
+_CATEGORY_ASSIGNMENT_NAMESPACE = UUID(hex="08e5c5bdcd694454a1ffd611b6d9abc0")
+_SYSTEM_ITEM_CATEGORIES = {
+    "baby", "bakery", "beverages", "breakfast-and-cereal",
+    "condiments-oils-and-salad-dressings", "cooking-and-baking", "dairy",
+    "frozen-foods", "grains-pasta-and-side-dishes", "health-and-personal-care",
+    "household-and-cleaning", "meat", "pet-supplies", "produce", "seafood",
+    "snacks-cookies-and-candy", "soups-and-canned-goods", "wine-beer-spirits", "other",
+}
 _PRICE_QUANTITY_UNITS = {
     "cup", "fl oz", "oz", "tbsp", "tsp", "g", "mg", "l", "dl", "ml",
     "slice", "clove", "pinch", "drop", "dash", "inch",
@@ -343,6 +354,8 @@ class ShoppingListsService(OperationService):
     async def set_product_upc(self, list_id: str, item_id: str, upc: str, *, flush: bool = True) -> None:
         item = self._require_item(list_id, item_id)
         original = str(item.productUpc)
+        if upc == original:
+            return
         item.productUpc = upc
         await self.operation(
             "set-list-item-product-upc",
@@ -369,15 +382,28 @@ class ShoppingListsService(OperationService):
 
     async def set_quantity(self, list_id: str, item_id: str, quantity: Message, *, flush: bool = True) -> None:
         item = self._require_item(list_id, item_id)
+        current = item.quantityPb if item.HasField("quantityPb") else PB.PBItemQuantity()
+        if quantity_equal(current, quantity):
+            return
         item.quantityPb.CopyFrom(quantity)
+        deprecated = quantity_to_deprecated_string(quantity)
+        if deprecated:
+            item.deprecatedQuantity = deprecated.strip()
+        else:
+            item.ClearField("deprecatedQuantity")
         partial = PB.ListItem(identifier=item_id, listId=list_id)
         partial.quantityPb.CopyFrom(quantity)
+        if item.HasField("deprecatedQuantity"):
+            partial.deprecatedQuantity = item.deprecatedQuantity
         await self.operation(
             "set-list-item-quantity-v2", listId=list_id, listItemId=item_id, listItem=partial, flush=flush
         )
 
     async def set_package_size(self, list_id: str, item_id: str, package_size: Message, *, flush: bool = True) -> None:
         item = self._require_item(list_id, item_id)
+        current = item.packageSizePb if item.HasField("packageSizePb") else PB.PBItemPackageSize()
+        if package_size_equal(current, package_size):
+            return
         item.packageSizePb.CopyFrom(package_size)
         partial = PB.ListItem(identifier=item_id, listId=list_id)
         partial.packageSizePb.CopyFrom(package_size)
@@ -387,6 +413,8 @@ class ShoppingListsService(OperationService):
 
     async def set_quantity_override(self, list_id: str, item_id: str, value: bool, *, flush: bool = True) -> None:
         item = self._require_item(list_id, item_id)
+        if bool(item.itemQuantityShouldOverrideIngredientQuantity) == value:
+            return
         item.itemQuantityShouldOverrideIngredientQuantity = value
         partial = PB.ListItem(identifier=item_id, listId=list_id, itemQuantityShouldOverrideIngredientQuantity=value)
         await self.operation(
@@ -396,6 +424,8 @@ class ShoppingListsService(OperationService):
 
     async def set_package_override(self, list_id: str, item_id: str, value: bool, *, flush: bool = True) -> None:
         item = self._require_item(list_id, item_id)
+        if bool(item.itemPackageSizeShouldOverrideIngredientPackageSize) == value:
+            return
         item.itemPackageSizeShouldOverrideIngredientPackageSize = value
         partial = PB.ListItem(identifier=item_id, listId=list_id, itemPackageSizeShouldOverrideIngredientPackageSize=value)
         await self.operation(
@@ -405,6 +435,9 @@ class ShoppingListsService(OperationService):
 
     async def set_price_quantity(self, list_id: str, item_id: str, quantity: Message, *, flush: bool = True) -> None:
         item = self._require_item(list_id, item_id)
+        current = item.priceQuantityPb if item.HasField("priceQuantityPb") else PB.PBItemQuantity()
+        if quantity_equal(current, quantity):
+            return
         item.priceQuantityPb.CopyFrom(quantity)
         partial = PB.ListItem(identifier=item_id, listId=list_id)
         partial.priceQuantityPb.CopyFrom(quantity)
@@ -412,6 +445,9 @@ class ShoppingListsService(OperationService):
 
     async def set_price_package_size(self, list_id: str, item_id: str, package: Message, *, flush: bool = True) -> None:
         item = self._require_item(list_id, item_id)
+        current = item.pricePackageSizePb if item.HasField("pricePackageSizePb") else PB.PBItemPackageSize()
+        if package_size_equal(current, package):
+            return
         item.pricePackageSizePb.CopyFrom(package)
         partial = PB.ListItem(identifier=item_id, listId=list_id)
         partial.pricePackageSizePb.CopyFrom(package)
@@ -419,59 +455,104 @@ class ShoppingListsService(OperationService):
 
     async def set_price_quantity_override(self, list_id: str, item_id: str, value: bool, *, flush: bool = True) -> None:
         item = self._require_item(list_id, item_id)
+        if bool(item.priceQuantityShouldOverrideItemQuantity) == value:
+            return
         item.priceQuantityShouldOverrideItemQuantity = value
         partial = PB.ListItem(identifier=item_id, listId=list_id, priceQuantityShouldOverrideItemQuantity=value)
         await self.operation("set-list-item-price-quantity-should-override-item-quantity", listId=list_id, listItemId=item_id, listItem=partial, flush=flush)
 
     async def set_price_package_override(self, list_id: str, item_id: str, value: bool, *, flush: bool = True) -> None:
         item = self._require_item(list_id, item_id)
+        if bool(item.pricePackageSizeShouldOverrideItemPackageSize) == value:
+            return
         item.pricePackageSizeShouldOverrideItemPackageSize = value
         partial = PB.ListItem(identifier=item_id, listId=list_id, pricePackageSizeShouldOverrideItemPackageSize=value)
         await self.operation("set-list-item-price-package-size-should-override-item-package-size", listId=list_id, listItemId=item_id, listItem=partial, flush=flush)
 
     async def assign_category(self, list_id: str, item_id: str, assignment: Message, *, flush: bool = True) -> None:
         item = self._require_item(list_id, item_id)
-        # Assignment is carried as a partial ListItem in the modern queue.
-        partial = PB.ListItem(identifier=item_id, listId=list_id)
-        partial.categoryAssignments.add().CopyFrom(assignment)
-        await self.operation("update-list-item-category-assignment", listId=list_id, listItemId=item_id, listItem=partial, flush=flush)
+        if not assignment.categoryGroupId:
+            return
+        normalized = clone_message(assignment)
+        normalized.identifier = uuid5_hex(normalized.categoryGroupId, _CATEGORY_ASSIGNMENT_NAMESPACE)
+        existing = next(
+            (idx for idx, value in enumerate(item.categoryAssignments) if value.identifier == normalized.identifier),
+            -1,
+        )
+        if existing >= 0:
+            item.categoryAssignments[existing].CopyFrom(normalized)
+        else:
+            item.categoryAssignments.add().CopyFrom(normalized)
+        # The web client serializes the complete mutated item, not a one-assignment partial.
+        await self.operation(
+            "update-list-item-category-assignment",
+            listId=list_id,
+            listItemId=item_id,
+            listItem=clone_message(item),
+            flush=flush,
+        )
 
     async def set_category_match_id(self, list_id: str, item_id: str, category_match_id: str, *, flush: bool = True) -> None:
         item = self._require_item(list_id, item_id)
-        old = str(item.categoryMatchId)
         item.categoryMatchId = category_match_id
-        await self.operation("set-list-item-category-match-id", listId=list_id, listItemId=item_id, updatedValue=category_match_id, originalValue=old, flush=flush)
+        item.category = category_match_id if category_match_id in _SYSTEM_ITEM_CATEGORIES else "other"
+        # AnyList mutates first, then sends the full item and calls categoryID() for
+        # originalValue.  Since categoryMatchId is now populated, originalValue is the
+        # new match ID; updatedValue is not used by this handler.
+        await self.operation(
+            "set-list-item-category-match-id",
+            listId=list_id,
+            listItemId=item_id,
+            listItem=clone_message(item),
+            originalValue=category_match_id,
+            flush=flush,
+        )
 
     async def add_store(self, list_id: str, item_id: str, store_id: str, *, flush: bool = True) -> None:
         item = self._require_item(list_id, item_id)
-        if store_id not in item.storeIds:
-            item.storeIds.append(store_id)
+        if store_id in item.storeIds:
+            return
+        item.storeIds.append(store_id)
         await self.operation("add-list-item-store-id", listId=list_id, listItemId=item_id, updatedValue=store_id, flush=flush)
 
     async def remove_store(self, list_id: str, item_id: str, store_id: str, *, flush: bool = True) -> None:
         item = self._require_item(list_id, item_id)
-        if store_id in item.storeIds:
-            item.storeIds.remove(store_id)
+        if store_id not in item.storeIds:
+            return
+        item.storeIds.remove(store_id)
         await self.operation("remove-list-item-store-id", listId=list_id, listItemId=item_id, updatedValue=store_id, flush=flush)
 
     async def save_price(self, list_id: str, item_id: str, price: Message, *, flush: bool = True) -> None:
+        item = self._require_item(list_id, item_id)
+        store_id = str(getattr(price, "storeId", "") or "")
+        empty = (not price.HasField("amount") or float(price.amount) == 0.0) and not (price.details or "")
+        existing_index = next(
+            (idx for idx, value in enumerate(item.prices) if (value.storeId or "") == store_id),
+            -1,
+        )
+        if empty:
+            if existing_index < 0:
+                return
+            del item.prices[existing_index]
+        elif existing_index >= 0:
+            item.prices[existing_index].CopyFrom(price)
+        else:
+            item.prices.add().CopyFrom(price)
         await self.operation("save-item-price", listId=list_id, listItemId=item_id, itemPrice=price, flush=flush)
 
     async def set_price_matchup_tag(
         self, list_id: str, item_id: str, tag: str, *, flush: bool = True
     ) -> None:
         item = self._require_item(list_id, item_id)
-        # AnyList Web mutates first and consequently serializes the current value into
-        # originalValue too. Preserve the useful pre-edit value locally while keeping the
-        # official wire fields and handler.
-        original = str(item.priceMatchupTag)
+        # AnyList Web mutates first and then reads priceMatchupTag for originalValue,
+        # so the wire-level originalValue is intentionally the same as updatedValue.
         item.priceMatchupTag = tag
         await self.operation(
             "set-list-item-price-matchup-tag",
             listId=list_id,
             listItemId=item_id,
             updatedValue=tag,
-            originalValue=original,
+            originalValue=tag,
             flush=flush,
         )
 
