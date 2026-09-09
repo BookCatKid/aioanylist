@@ -1,6 +1,7 @@
 from anylist_sdk.item_semantics import (
-    EXCLUDE_DETAILS, EXCLUDE_NAME, EXCLUDE_PACKAGE_SIZE, EXCLUDE_ITEM_QUANTITY,
-    apply_properties_from_item, item_hash, items_equal, prices_match,
+    EXCLUDE_DETAILS, EXCLUDE_EVENT_ID, EXCLUDE_NAME, EXCLUDE_PACKAGE_SIZE,
+    EXCLUDE_RECIPE_ID, EXCLUDE_ITEM_QUANTITY, apply_properties_from_item, item_hash,
+    items_equal, prices_match,
 )
 from anylist_sdk.proto import PB
 
@@ -12,6 +13,9 @@ def item(name='Milk'):
 def test_item_hash_matches_javascript_32bit_hash_and_name_exclusion() -> None:
     assert item_hash(item('abc')) == 96354
     assert item_hash(item('Milk')) == item_hash(item('milk'))
+    # JS hashString hashes UTF-16 code units, so astral characters are two contributions.
+    assert item_hash(item('😀')) == 1772899
+    assert item_hash(item('A😀B')) == 57849694
     assert item_hash(item(), EXCLUDE_NAME) > 1e300
 
 
@@ -33,10 +37,44 @@ def test_item_equality_quantity_and_package_masks() -> None:
     assert items_equal(a,b,EXCLUDE_PACKAGE_SIZE)
 
 
+def test_recipe_and_event_ids_use_official_casefolded_diacritic_compare() -> None:
+    a = item(); b = item()
+    a.recipeId = 'RÉCIPE'; b.recipeId = 'recipe'
+    a.eventId = 'ÉVENT'; b.eventId = 'event'
+    assert items_equal(a, b)
+
+    b.recipeId = 'different'
+    assert not items_equal(a, b)
+    assert items_equal(a, b, EXCLUDE_RECIPE_ID)
+    b.recipeId = a.recipeId
+    b.eventId = 'different'
+    assert not items_equal(a, b)
+    assert items_equal(a, b, EXCLUDE_EVENT_ID)
+
+
 def test_prices_ignore_empty_entries_and_are_order_insensitive() -> None:
     a=[PB.PBItemPrice(amount=2,storeId='a'),PB.PBItemPrice(amount=3,storeId='b')]
     b=[PB.PBItemPrice(amount=3,storeId='b'),PB.PBItemPrice(),PB.PBItemPrice(amount=2,storeId='a')]
     assert prices_match(a,b)
+
+
+def test_nested_optional_field_presence_matches_protobufjs_direct_comparisons() -> None:
+    from anylist_sdk.item_semantics import ingredient_equal, price_equal
+
+    a = PB.PBIngredient(name='onion')
+    b = PB.PBIngredient(name='onion')
+    assert ingredient_equal(a, b)
+    b.rawIngredient = ''
+    assert not ingredient_equal(a, b)
+    b.ClearField('rawIngredient')
+    b.isHeading = False
+    assert not ingredient_equal(a, b)
+
+    pa = PB.PBItemPrice(amount=2, details='sale')
+    pb = PB.PBItemPrice(amount=2, details='sale')
+    assert price_equal(pa, pb)
+    pb.storeId = ''
+    assert not price_equal(pa, pb)
 
 
 def test_item_ingredient_equality_is_order_independent() -> None:

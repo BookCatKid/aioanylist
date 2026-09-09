@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from google.protobuf.message import Message
 
-from .normalization import localized_sort_key
+from .normalization import localized_sort_key, normalized_for_search
 from .proto import PB
 from .parsing.quantity import amount_as_float, decimal_to_friendly_fraction
 
@@ -26,6 +26,13 @@ EXCLUDE_PRODUCT_UPC = 4096
 
 def _localized_equal(a: str | None, b: str | None) -> bool:
     return localized_sort_key(a or "") == localized_sort_key(b or "")
+
+
+def _optional_scalar_equal(a: Message, b: Message, field: str) -> bool:
+    """Compare a proto2 scalar the way protobuf.js object properties compare directly."""
+    a_has = a.HasField(field)
+    b_has = b.HasField(field)
+    return a_has == b_has and (not a_has or getattr(a, field) == getattr(b, field))
 
 
 def _array_matches(a, b, comparator=None) -> bool:
@@ -74,7 +81,10 @@ def price_equal(a: Message, b: Message) -> bool:
         return False
     if a_has and float(a.amount) != float(b.amount):
         return False
-    return (a.details or "") == (b.details or "") and (a.storeId or "") == (b.storeId or "")
+    if (a.details or "") != (b.details or ""):
+        return False
+    # PBItemPrice.isEqualToPrice compares storeId directly, unlike details' ``|| ""``.
+    return _optional_scalar_equal(a, b, "storeId")
 
 
 def prices_match(a, b) -> bool:
@@ -84,12 +94,15 @@ def prices_match(a, b) -> bool:
 
 
 def ingredient_equal(a: Message, b: Message, *, ignore_identifier: bool = False) -> bool:
-    for field in ("rawIngredient", "quantity", "name", "note"):
-        if (getattr(a, field, "") or "") != (getattr(b, field, "") or ""):
+    # PBIngredient.isEqualToIngredient uses direct property comparison for every field except
+    # name, which explicitly normalizes missing/null to "". Preserve optional-field presence
+    # for the direct-comparison fields because protobuf.js distinguishes unset from set-empty.
+    for field in ("rawIngredient", "quantity", "note", "isHeading"):
+        if not _optional_scalar_equal(a, b, field):
             return False
-    if bool(getattr(a, "isHeading", False)) != bool(getattr(b, "isHeading", False)):
+    if (getattr(a, "name", "") or "") != (getattr(b, "name", "") or ""):
         return False
-    return ignore_identifier or (getattr(a, "identifier", "") or "") == (getattr(b, "identifier", "") or "")
+    return ignore_identifier or _optional_scalar_equal(a, b, "identifier")
 
 
 def same_recipe_ingredient(a: Message, b: Message) -> bool:
@@ -139,8 +152,13 @@ def item_hash(item: Message, excluding_fields: int = 0) -> int | float:
         return float("1.7976931348623157e+308")  # Number.MAX_VALUE
     value = (getattr(item, "name", "") or "").lower()
     result = 0
-    for ch in value:
-        result = ((result << 5) - result + ord(ch)) & 0xFFFFFFFF
+    # _.hashString iterates JavaScript string elements produced by split("").  Those are
+    # UTF-16 code units, not Unicode code points, so non-BMP characters contribute their
+    # surrogate pair as two independent charCodeAt values.
+    encoded = value.encode("utf-16-le", "surrogatepass")
+    for index in range(0, len(encoded), 2):
+        code_unit = encoded[index] | (encoded[index + 1] << 8)
+        result = ((result << 5) - result + code_unit) & 0xFFFFFFFF
         if result & 0x80000000:
             result -= 0x100000000
     return result
@@ -171,10 +189,16 @@ def items_equal(a: Message, b: Message, excluding_fields: int = 0) -> bool:
         return False
     if not (excluding_fields & EXCLUDE_PHOTOS) and not _array_matches(a.photoIds, b.photoIds):
         return False
-    if not (excluding_fields & EXCLUDE_RECIPE_ID) and (getattr(a, "recipeId", "") or "") != (getattr(b, "recipeId", "") or ""):
-        return False
-    if not (excluding_fields & EXCLUDE_EVENT_ID) and (getattr(a, "eventId", "") or "") != (getattr(b, "eventId", "") or ""):
-        return False
+    if not (excluding_fields & EXCLUDE_RECIPE_ID):
+        a_recipe = normalized_for_search(getattr(a, "recipeId", "") or "")
+        b_recipe = normalized_for_search(getattr(b, "recipeId", "") or "")
+        if a_recipe != b_recipe:
+            return False
+    if not (excluding_fields & EXCLUDE_EVENT_ID):
+        a_event = normalized_for_search(getattr(a, "eventId", "") or "")
+        b_event = normalized_for_search(getattr(b, "eventId", "") or "")
+        if a_event != b_event:
+            return False
     if not (excluding_fields & EXCLUDE_STORES) and not _array_matches(a.storeIds, b.storeIds):
         return False
     if not (excluding_fields & EXCLUDE_PRICES) and not prices_match(a.prices, b.prices):
