@@ -37,6 +37,19 @@ def test_tag_data_rejects_missing_official_keys() -> None:
         TagData.from_json("en", {"tags": {}})
 
 
+def test_german_tag_data_allows_missing_english_keyword_index() -> None:
+    german = payload("milch")
+    german.pop("tagKeywordsIndex")
+    parsed = TagData.from_json("de", german)
+    assert parsed.language == "de"
+    assert parsed.tag_keywords_index == {}
+
+    english = payload("milk")
+    english.pop("tagKeywordsIndex")
+    with pytest.raises(TagDataError):
+        TagData.from_json("en", english)
+
+
 @pytest.mark.asyncio
 async def test_active_and_english_loads_german_plus_english() -> None:
     paths=[]

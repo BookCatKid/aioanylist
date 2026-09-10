@@ -38,8 +38,8 @@ def live_mutation_list_id() -> str:
 async def live_client(live_credentials: tuple[str, str, str]) -> AsyncIterator[AnyListClient]:
     email, password, base_url = live_credentials
     client = AnyListClient(base_url=base_url)
-    await client.sign_in(email, password)
     try:
+        await client.sign_in(email, password)
         yield client
     finally:
         await client.close()

@@ -28,6 +28,7 @@ htmlcov/
 .venv/
 venv/
 env/
+.env
 
 # Editors / OS
 .DS_Store

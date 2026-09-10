@@ -16,7 +16,6 @@ _REQUIRED_KEYS = {
     "tags",
     "normalizedDisplayNamesIndex",
     "impliedTags",
-    "tagKeywordsIndex",
     "autocompleteKeywords",
 }
 
@@ -33,6 +32,12 @@ class TagData:
     @classmethod
     def from_json(cls, language: str, value: dict[str, Any]) -> "TagData":
         missing = _REQUIRED_KEYS.difference(value)
+        # AnyList's localized tag-data files may omit tagKeywordsIndex. app.js only uses
+        # that index for the English stemming/classification path; non-English classification
+        # uses normalizedDisplayNamesIndex and separately loads the English resource as a
+        # fallback. The English resource therefore still requires tagKeywordsIndex.
+        if language == "en" and "tagKeywordsIndex" not in value:
+            missing.add("tagKeywordsIndex")
         if missing:
             raise TagDataError(f"AnyList tag data is missing keys: {sorted(missing)!r}")
         return cls(
@@ -40,7 +45,7 @@ class TagData:
             tags=dict(value["tags"]),
             normalized_display_names_index=dict(value["normalizedDisplayNamesIndex"]),
             implied_tags={k: list(v) for k, v in value["impliedTags"].items()},
-            tag_keywords_index={k: list(v) for k, v in value["tagKeywordsIndex"].items()},
+            tag_keywords_index={k: list(v) for k, v in value.get("tagKeywordsIndex", {}).items()},
             autocomplete_keywords=dict(value["autocompleteKeywords"]),
         )
 
