@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from uuid import UUID
+
 import pytest
 
+from anylist_sdk.identifiers import uuid5_hex
 from anylist_sdk.proto import PB
 from anylist_sdk.services.settings import ListSettingsService, MobileSettingsService
 from anylist_sdk.state import AnyListState
@@ -302,6 +305,75 @@ async def test_list_settings_can_clear_optional_scalar_with_absent_wire_field(fa
     op = fake_transport.calls[-1][1]["operations"].operations[0]
     assert op.metadata.handlerId == "set-list-theme-id"
     assert not op.updatedSettings.HasField("listThemeId")
+
+
+@pytest.mark.asyncio
+async def test_new_list_settings_initialization_matches_official_grocery_batch(fake_transport) -> None:
+    state = AnyListState(user_id="user")
+    service = ListSettingsService(fake_transport, state, user_id="user")
+
+    settings = await service.initialize_new_list("list", "group")
+
+    assert settings.listThemeId == "7b1dd303fb6a44fbbed44667f199aa63"
+    assert settings.shouldHideCategories is False
+    assert settings.genericGroceryAutocompleteEnabled is True
+    assert settings.listItemSortOrder == "ALListItemSortOrderAlphabetical"
+    assert settings.listCategoryGroupId == "group"
+    assert settings.shouldRememberItemCategories is True
+    assert settings.favoritesAutocompleteEnabled is True
+    assert settings.recentItemsAutocompleteEnabled is True
+    assert not settings.HasField("categoryGroupingId")
+
+    assert len(fake_transport.calls) == 1
+    operations = fake_transport.calls[0][1]["operations"].operations
+    assert [operation.metadata.handlerId for operation in operations] == [
+        "set-list-theme-id",
+        "set-should-hide-categories",
+        "set-generic-grocery-autocomplete-enabled",
+        "set-list-item-sort-order",
+        "set-list-category-group-id",
+        "set-should-remember-item-categories",
+        "set-favorites-autocomplete-enabled",
+        "set-recent-items-autocomplete-enabled",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_new_list_settings_copies_selected_custom_new_list_theme(fake_transport) -> None:
+    state = AnyListState(user_id="user")
+    service = ListSettingsService(fake_transport, state, user_id="user")
+    template_custom_id = uuid5_hex(
+        "userALCustomSettingsListID", UUID(hex="471ba5c9888f4f30a159308708ba7949")
+    )
+    template = PB.PBListSettings(
+        identifier="template-settings",
+        userId="user",
+        listId="ALCustomSettingsListID",
+        listThemeId=template_custom_id,
+    )
+    template.customTheme.CopyFrom(
+        PB.PBListTheme(
+            identifier=template_custom_id,
+            userId="user",
+            name="My Custom Theme",
+            bannerHexColor="ABCDEF",
+        )
+    )
+    state.list_settings["ALCustomSettingsListID"] = template
+
+    settings = await service.initialize_new_list("list", "group")
+
+    expected_id = uuid5_hex(
+        "userlist", UUID(hex="471ba5c9888f4f30a159308708ba7949")
+    )
+    assert settings.listThemeId == expected_id
+    assert settings.customTheme.identifier == expected_id
+    assert settings.customTheme.userId == "user"
+    assert settings.customTheme.name == "My Custom Theme"
+    assert settings.customTheme.bannerHexColor == "ABCDEF"
+    operations = fake_transport.calls[0][1]["operations"].operations
+    assert operations[0].metadata.handlerId == "save-custom-theme"
+    assert operations[1].metadata.handlerId == "set-list-theme-id"
 
 
 @pytest.mark.asyncio

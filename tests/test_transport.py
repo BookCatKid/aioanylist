@@ -154,6 +154,42 @@ async def test_multipart_numeric_scalar_is_sent_as_normal_text_field() -> None:
 
 
 @pytest.mark.asyncio
+async def test_protobuf_multipart_fields_are_not_file_uploads() -> None:
+    seen: dict[str, object] = {}
+
+    async def endpoint(request: web.Request):
+        seen["content_type"] = request.headers.get("Content-Type", "")
+        multipart = await request.multipart()
+        field = await multipart.next()
+        assert field is not None
+        seen["name"] = field.name
+        seen["filename"] = field.filename
+        seen["part_content_type"] = field.headers.get("Content-Type")
+        seen["operations"] = await field.read()
+        assert await multipart.next() is None
+        return web.Response(body=b"ok")
+
+    app = web.Application()
+    app.router.add_post("/operations", endpoint)
+    async with server(app) as base:
+        async with AnyListTransport(
+            base_url=base, tokens=AuthTokens("user", "access", "refresh")
+        ) as transport:
+            result = await transport.request(
+                "POST", "/operations", fields={"operations": b"\x00\x01proto"}
+            )
+
+    assert result == b"ok"
+    assert seen["content_type"] == (
+        "multipart/form-data; boundary=Boundary+0xAbCdEfGbOuNdArY"
+    )
+    assert seen["name"] == "operations"
+    assert seen["filename"] is None
+    assert seen["part_content_type"] is None
+    assert seen["operations"] == b"\x00\x01proto"
+
+
+@pytest.mark.asyncio
 async def test_timestamped_proto_read_treats_http_304_as_official_noop() -> None:
     async def unchanged(_request: web.Request):
         return web.Response(status=304)

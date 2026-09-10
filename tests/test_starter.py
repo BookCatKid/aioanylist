@@ -85,6 +85,30 @@ async def test_deterministic_favorite_and_recent_lists_are_created_in_correct_in
 
 
 @pytest.mark.asyncio
+async def test_new_shopping_list_starter_side_effects_are_one_ordered_batch(fake_transport):
+    state = AnyListState(user_id="user1")
+    service = StarterListsService(fake_transport, state, user_id="user1")
+
+    recents, favorites = await service.initialize_for_shopping_list(
+        "shopping1", favorite_name="Favoriten"
+    )
+
+    assert recents.identifier == recent_list_id("shopping1")
+    assert favorites.identifier == favorite_list_id("shopping1")
+    assert favorites.name == "Favoriten"
+    assert len(fake_transport.calls) == 1
+    operations = fake_transport.calls[0][1]["operations"].operations
+    assert [operation.listId for operation in operations] == [
+        recent_list_id("shopping1"),
+        favorite_list_id("shopping1"),
+    ]
+    assert [operation.metadata.handlerId for operation in operations] == [
+        "new-starter-list",
+        "new-starter-list",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_recent_list_caps_at_200_and_removes_oldest_before_add():
     service, state = make_service()
     rec = PB.StarterList(

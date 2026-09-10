@@ -332,7 +332,13 @@ class StarterListsService(OperationService):
         )
         return self.state.starter_lists[lst.identifier]
 
-    async def ensure_favorites(self, shopping_list_id: str, *, flush: bool = True) -> StarterList:
+    async def ensure_favorites(
+        self,
+        shopping_list_id: str,
+        *,
+        name: str = "Favorite Items",
+        flush: bool = True,
+    ) -> StarterList:
         identifier = favorite_list_id(shopping_list_id)
         existing = self.state.favorite_item_lists.get(identifier)
         if existing is not None:
@@ -340,7 +346,7 @@ class StarterListsService(OperationService):
         lst = PB.StarterList(
             identifier=identifier,
             listId=shopping_list_id,
-            name="Favorite Items",
+            name=name,
             starterListType=PB.StarterList.Type.FavoriteItemsType,
         )
         self.state.favorite_item_lists[identifier] = clone(lst)
@@ -371,6 +377,29 @@ class StarterListsService(OperationService):
             flush=flush,
         )
         return self.state.recent_item_lists[identifier]
+
+    async def initialize_for_shopping_list(
+        self,
+        shopping_list_id: str,
+        *,
+        favorite_name: str = "Favorite Items",
+        flush: bool = True,
+    ) -> tuple[StarterList, StarterList]:
+        """Mirror EQ()'s post-create Recent/Favorite starter-list batch.
+
+        AnyList Web pauses the shared starter-list queue, creates Recent Items first and
+        Favorite Items second, then releases the queue. Queueing both with ``flush=False``
+        followed by one flush preserves that batch and ordering.
+        """
+        recents = await self.ensure_recents(shopping_list_id, flush=False)
+        favorites = await self.ensure_favorites(
+            shopping_list_id,
+            name=favorite_name,
+            flush=False,
+        )
+        if flush:
+            await self.queue.flush()
+        return recents, favorites
 
     async def remove(self, list_id: str, *, flush: bool = True) -> None:
         self.state.starter_lists.pop(list_id, None)

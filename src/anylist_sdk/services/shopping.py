@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from typing import Any
 from uuid import UUID
 
+import aiohttp
 from google.protobuf.message import Message
 
 from ..identifiers import uuid4_hex, uuid5_hex
@@ -59,6 +61,50 @@ from .base import OperationService, clone_message
 _CATEGORY_RULE_NAMESPACE = UUID(hex="f4338133428d4f0b94027c9b23243f14")
 _CATEGORY_GROUP_NAMESPACE = UUID(hex="f656a81f0e0a419aa45121f4f2eac51b")
 _CATEGORY_ASSIGNMENT_NAMESPACE = UUID(hex="08e5c5bdcd694454a1ffd611b6d9abc0")
+_DEFAULT_SYSTEM_CATEGORIES = (
+    "baby",
+    "bakery",
+    "beverages",
+    "breakfast-and-cereal",
+    "condiments-oils-and-salad-dressings",
+    "cooking-and-baking",
+    "dairy",
+    "deli",
+    "frozen-foods",
+    "grains-pasta-and-side-dishes",
+    "health-and-personal-care",
+    "household-and-cleaning",
+    "meat",
+    "pet-supplies",
+    "produce",
+    "seafood",
+    "snacks-cookies-and-candy",
+    "soups-and-canned-goods",
+    "wine-beer-spirits",
+    "other",
+)
+_DEFAULT_SYSTEM_CATEGORY_NAMES = {
+    "baby": "Baby",
+    "bakery": "Bakery",
+    "beverages": "Beverages",
+    "breakfast-and-cereal": "Breakfast & Cereal",
+    "condiments-oils-and-salad-dressings": "Condiments & Dressings",
+    "cooking-and-baking": "Cooking & Baking",
+    "dairy": "Dairy",
+    "deli": "Deli",
+    "frozen-foods": "Frozen Foods",
+    "grains-pasta-and-side-dishes": "Grains, Pasta & Sides",
+    "health-and-personal-care": "Health & Personal Care",
+    "household-and-cleaning": "Household & Cleaning",
+    "meat": "Meat",
+    "pet-supplies": "Pet Supplies",
+    "produce": "Produce",
+    "seafood": "Seafood",
+    "snacks-cookies-and-candy": "Snacks",
+    "soups-and-canned-goods": "Soups & Canned Goods",
+    "wine-beer-spirits": "Wine, Beer & Spirits",
+    "other": "Other",
+}
 _SYSTEM_ITEM_CATEGORIES = {
     "baby", "bakery", "beverages", "breakfast-and-cereal",
     "condiments-oils-and-salad-dressings", "cooking-and-baking", "dairy",
@@ -85,6 +131,8 @@ class ShoppingListsService(OperationService):
         state: AnyListState,
         *,
         user_id: str,
+        user_email: str | None = None,
+        user_locale: str | None = None,
         journal: OperationJournal | None = None,
     ) -> None:
         super().__init__(
@@ -114,6 +162,9 @@ class ShoppingListsService(OperationService):
             journal=journal,
         )
         self.user_id = user_id
+        self.user_email = user_email
+        self.user_locale = user_locale or "en"
+        self._localized_strings: dict[str, object] | None = None
         self.queue.on_response = self._on_v2_response
         self.legacy_queue.on_response = self._on_legacy_response
         self.on_store_filter_removed: Callable[[str, str, bool], Awaitable[None]] | None = None
@@ -122,9 +173,46 @@ class ShoppingListsService(OperationService):
             [str, Sequence[ListItem], bool, bool], Awaitable[None]
         ] | None = None
         self.on_folder_refresh_requested: Callable[[], Awaitable[object]] | None = None
+        self.on_new_list_settings: Callable[[str, str, int, bool], Awaitable[None]] | None = None
+        self.on_new_list_starter_lists: Callable[[str, str, bool], Awaitable[None]] | None = None
         self._refresh_after_legacy_queue = False
         self._refresh_after_v2_queue = False
         self._refresh_folders_after_legacy_queue = False
+
+    async def _translation_strings(self) -> dict[str, object]:
+        """Load the AnyList-owned i18next resource used by this web build."""
+        language = "de" if self.user_locale.replace("_", "-").lower().startswith("de") else "en"
+        if language == "en":
+            return {}
+        if self._localized_strings is not None:
+            return self._localized_strings
+
+        # bt.Et() in this web build supports exactly en/de and i18next loads this AnyList-owned
+        # resource before the UI starts. Missing strings fall back to their English source key.
+        url = f"{self.transport.base_url}/static/webapp/strings/{language}/translation.json?v=1"
+        try:
+            async with self.transport.session.get(url) as response:
+                if response.status >= 400:
+                    raise ValueError(f"HTTP {response.status}")
+                payload = json.loads(await response.text())
+            if not isinstance(payload, dict):
+                raise ValueError("translation payload is not an object")
+        except (aiohttp.ClientError, ValueError, TypeError, AttributeError):
+            payload = {}
+        self._localized_strings = payload
+        return payload
+
+    async def _localized_string(self, english: str) -> str:
+        payload = await self._translation_strings()
+        return str(payload.get(english) or english)
+
+    async def _default_category_names(self) -> dict[str, str]:
+        """Return the official i18next names used when constructing a new grocery list."""
+        payload = await self._translation_strings()
+        return {
+            system: str(payload.get(english_name) or english_name)
+            for system, english_name in _DEFAULT_SYSTEM_CATEGORY_NAMES.items()
+        }
 
     async def operation(
         self,
@@ -263,11 +351,85 @@ class ShoppingListsService(OperationService):
                 return idx
         return -1
 
-    async def create(self, name: str, *, list_id: str | None = None, flush: bool = True) -> ShoppingList:
+    async def create(
+        self,
+        name: str,
+        *,
+        list_id: str | None = None,
+        folder_id: str | None = None,
+        list_type: int = 0,
+        initialize_starter_lists: bool = True,
+        flush: bool = True,
+    ) -> ShoppingList:
         list_id = list_id or uuid4_hex()
-        lst = PB.ShoppingList(identifier=list_id, name=name)
+        folder_id = folder_id or self.state.root_folder_id
+        if not folder_id:
+            raise RuntimeError("Load list folders before creating a shopping list")
+        if not self.user_email:
+            raise RuntimeError(
+                "Shopping-list creation requires the authenticated account email; use "
+                "AnyListClient.sign_in() or pass user_email= with pre-existing tokens"
+            )
+        if list_type not in {0, 1, 2}:
+            raise ValueError("list_type must be 0 (grocery), 1 (categorized), or 2 (basic)")
+
+        # Sdt.Cf constructs the category set before ShoppingListManager.EQ. Grocery mode
+        # (0) gets the full built-in category set; categorized/manual and basic modes get a
+        # single "other" category. All three use the deterministic default group ID.
+        category_names = await self._default_category_names()
+        group_id = uuid5_hex(list_id, _CATEGORY_GROUP_NAMESPACE)
+        group = PB.PBListCategoryGroup(identifier=group_id, listId=list_id)
+        system_categories = _DEFAULT_SYSTEM_CATEGORIES if list_type == 0 else ("other",)
+        for sort_index, system_category in enumerate(system_categories):
+            category = group.categories.add(
+                identifier=uuid4_hex(),
+                categoryGroupId=group_id,
+                listId=list_id,
+                systemCategory=system_category,
+                name=category_names[system_category],
+                icon=system_category,
+                sortIndex=sort_index,
+            )
+            if system_category == "other":
+                group.defaultCategoryId = category.identifier
+
+        lst = PB.ShoppingList(
+            identifier=list_id,
+            name=name,
+            creator=self.user_id,
+            listItemSortOrder=(
+                PB.ShoppingList.ListItemSortOrder.Alphabetical
+                if list_type == 0
+                else PB.ShoppingList.ListItemSortOrder.Manual
+            ),
+        )
+        lst.sharedUsers.add(userId=self.user_id, email=self.user_email)
         self.state.shopping_lists[list_id] = clone(lst)
-        await self.operation("new-shopping-list", listId=list_id, list=lst, flush=flush)
+        self._store_category_group(group)
+
+        folder = self.state.list_folders.get(folder_id)
+        if folder is not None and all(str(item.identifier) != list_id for item in folder.items):
+            folder.items.add(
+                identifier=list_id,
+                itemType=PB.PBListFolderItem.ItemType.ListType,
+            )
+
+        await self.operation(
+            "new-shopping-list",
+            listId=list_id,
+            list=lst,
+            listFolderId=folder_id,
+            updatedCategoryGroup=group,
+            flush=flush,
+        )
+        if self.on_new_list_settings is not None:
+            await self.on_new_list_settings(list_id, group_id, list_type, flush)
+        if initialize_starter_lists and self.on_new_list_starter_lists is not None:
+            await self.on_new_list_starter_lists(
+                list_id,
+                await self._localized_string("Favorite Items"),
+                flush,
+            )
         return self.state.shopping_lists[list_id]
 
     async def rename(self, list_id: str, name: str, *, flush: bool = True) -> None:

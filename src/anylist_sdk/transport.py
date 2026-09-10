@@ -22,6 +22,7 @@ from .types import AuthTokens
 BASE_URL = "https://www.anylist.com"
 PHOTOS_BASE_URL = "https://photos.anylist.com/"
 API_VERSION = "3"
+MULTIPART_BOUNDARY = "Boundary+0xAbCdEfGbOuNdArY"
 
 TokenCallback = Callable[[AuthTokens], Awaitable[None] | None]
 
@@ -76,6 +77,30 @@ class AnyListTransport:
             "X-AnyLeaf-Client-Identifier": self.client_id,
         }
 
+    @staticmethod
+    def _multipart_body(
+        fields: Mapping[str, bytes | str | int | float],
+    ) -> tuple[bytes, str]:
+        """Encode fields exactly like AnyList Web's ALMultipartFormData builder.
+
+        Ordinary protobuf fields are binary form values, *not* file uploads: every part
+        carries only ``Content-Disposition: form-data; name="..."``.  A filename or
+        per-part Content-Type changes how the edit endpoints parse ``operations``.
+        """
+        chunks: list[bytes] = []
+        boundary = MULTIPART_BOUNDARY.encode("ascii")
+        for index, (name, value) in enumerate(fields.items()):
+            chunks.append((b"--" if index == 0 else b"\r\n--") + boundary + b"\r\n")
+            chunks.append(
+                f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode("utf-8")
+            )
+            if isinstance(value, (bytes, bytearray, memoryview)):
+                chunks.append(bytes(value))
+            else:
+                chunks.append(str(value).encode("utf-8"))
+        chunks.append(b"\r\n--" + boundary + b"--\r\n")
+        return b"".join(chunks), f"multipart/form-data; boundary={MULTIPART_BOUNDARY}"
+
     async def _publish_tokens(self, tokens: AuthTokens) -> None:
         self.tokens = tokens
         if self.token_callback is not None:
@@ -94,11 +119,13 @@ class AnyListTransport:
         return value
 
     async def sign_in(self, email: str, password: str) -> AuthTokens:
-        form = aiohttp.FormData()
-        form.add_field("email", email)
-        form.add_field("password", password)
+        body, content_type = self._multipart_body({"email": email, "password": password})
         try:
-            async with self.session.post(f"{self.base_url}/auth/token", data=form) as response:
+            async with self.session.post(
+                f"{self.base_url}/auth/token",
+                data=body,
+                headers={"Content-Type": content_type},
+            ) as response:
                 raw = await response.read()
                 if response.status >= 400:
                     raise AuthenticationError(f"AnyList sign-in failed with HTTP {response.status}")
@@ -127,11 +154,14 @@ class AnyListTransport:
             if not force and stale_token and self.tokens.access_token != stale_token:
                 return self.tokens
 
-            form = aiohttp.FormData()
-            form.add_field("refresh_token", self.tokens.refresh_token)
+            body, content_type = self._multipart_body(
+                {"refresh_token": self.tokens.refresh_token}
+            )
             try:
                 async with self.session.post(
-                    f"{self.base_url}/auth/token/refresh", data=form
+                    f"{self.base_url}/auth/token/refresh",
+                    data=body,
+                    headers={"Content-Type": content_type},
                 ) as response:
                     raw = await response.read()
                     if response.status >= 400:
@@ -176,18 +206,14 @@ class AnyListTransport:
             headers.update(self._auth_headers())
             stale_token = self.tokens.access_token if self.tokens else None
 
-        form = aiohttp.FormData()
-        for name, value in (fields or {}).items():
-            if isinstance(value, (bytes, bytearray, memoryview)):
-                form.add_field(name, value, filename=name, content_type="application/octet-stream")
-            else:
-                # AnyList's multipart builder accepts ordinary scalar form values. In
-                # particular recipe-email event_type is passed as a number in app.js.
-                form.add_field(name, str(value))
+        body: bytes | None = None
+        if fields:
+            body, content_type = self._multipart_body(fields)
+            headers.setdefault("Content-Type", content_type)
         url = endpoint if endpoint.startswith("http") else f"{self.base_url}{endpoint}"
 
         try:
-            async with self.session.request(method, url, data=form, headers=headers) as response:
+            async with self.session.request(method, url, data=body, headers=headers) as response:
                 body = await response.read()
                 if response.status == 304:
                     raise NotModifiedError(f"AnyList reports {endpoint} is not modified")

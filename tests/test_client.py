@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import pytest
 
 from anylist_sdk.client import AnyListClient
@@ -124,6 +122,49 @@ async def test_shopping_recent_callback_routes_to_starter_lists(monkeypatch) -> 
         "list", [PB.ListItem(identifier="item")], False, False
     )
     assert seen == [("list", ["item"], False, False)]
+
+
+@pytest.mark.asyncio
+async def test_new_shopping_list_routes_official_settings_initialization(monkeypatch) -> None:
+    client = AnyListClient(tokens=tokens(), user_email="user@example.com")
+    client.state.root_folder_id = "root"
+    client.state.list_folders["root"] = PB.PBListFolder(identifier="root")
+    seen = []
+
+    async def initialize(list_id, category_group_id, *, list_type=0, flush=True):
+        seen.append((list_id, category_group_id, list_type, flush))
+        return PB.PBListSettings(identifier="settings", listId=list_id)
+
+    monkeypatch.setattr(client.list_settings, "initialize_new_list", initialize)
+    await client.lists.create(
+        "List",
+        list_id="list",
+        list_type=2,
+        initialize_starter_lists=False,
+        flush=False,
+    )
+
+    assert len(seen) == 1
+    assert seen[0][0] == "list"
+    assert seen[0][1]
+    assert seen[0][2:] == (2, False)
+
+
+@pytest.mark.asyncio
+async def test_new_shopping_list_routes_official_starter_side_effects(monkeypatch) -> None:
+    client = AnyListClient(tokens=tokens(), user_email="user@example.com")
+    client.state.root_folder_id = "root"
+    client.state.list_folders["root"] = PB.PBListFolder(identifier="root")
+    seen = []
+
+    async def starter_init(list_id, *, favorite_name="Favorite Items", flush=True):
+        seen.append((list_id, favorite_name, flush))
+        return (PB.StarterList(), PB.StarterList())
+
+    monkeypatch.setattr(client.starter_lists, "initialize_for_shopping_list", starter_init)
+    await client.lists.create("List", list_id="list", flush=False)
+
+    assert seen == [("list", "Favorite Items", False)]
 
 
 @pytest.mark.asyncio

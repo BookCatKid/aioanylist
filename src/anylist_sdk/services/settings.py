@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import hashlib
 from typing import Any
+from uuid import UUID
 
 from google.protobuf.message import Message
 
 from ..operations import OperationJournal, QueueSpec
+from ..identifiers import uuid5_hex
 from ..proto import (
     PB,
     PBListSettings,
@@ -16,6 +18,21 @@ from ..proto import (
 from ..state import AnyListState
 from ..transport import AnyListTransport
 from .base import OperationService, clone_message
+
+
+_CUSTOM_THEME_NAMESPACE = UUID(hex="471ba5c9888f4f30a159308708ba7949")
+_DEFAULT_COLOR_THEME_IDS = {
+    0: "7b1dd303fb6a44fbbed44667f199aa63",
+    1: "c314b1dbf4d94b0493b02dca94d6453d",
+    2: "b080cdc28dd94207819cab9005c91be3",
+    3: "eba40aa7b96241d3912af580e41d8d88",
+    4: "254bc21da06e44aba7ea1e3395276b53",
+    5: "42f2ebf231c34ef695cffee6904c51c0",
+    6: "c8280208796e41e7a9d6a597c4b4ec8a",
+    7: "229bac21b3684e8794a88e9051d3255c",
+    8: "2469b102a84c4033977ca5a08572893e",
+}
+_CUSTOM_SETTINGS_LIST_ID = "ALCustomSettingsListID"
 
 
 def _present_value(message: Message, field: str) -> Any:
@@ -127,6 +144,89 @@ class ListSettingsService(OperationService):
         if list_id: value.listId = list_id
         self._store[list_id] = value
         return value
+
+    def _selected_new_list_theme_id(self) -> str:
+        """Return YF("ALCustomSettingsListID").identifier from AnyList Web.
+
+        New-list theme selection is stored in the synthetic custom-settings list.  When
+        listThemeId is absent, tI() falls back through listColorType and ultimately to the
+        built-in Aqua theme (color type 0).
+        """
+        template = self.get(_CUSTOM_SETTINGS_LIST_ID)
+        if template is None:
+            return _DEFAULT_COLOR_THEME_IDS[0]
+        if template.HasField("listThemeId") and template.listThemeId:
+            return str(template.listThemeId)
+        color_type = int(template.listColorType) if template.HasField("listColorType") else 0
+        return _DEFAULT_COLOR_THEME_IDS.get(color_type, _DEFAULT_COLOR_THEME_IDS[0])
+
+    async def initialize_new_list(
+        self,
+        list_id: str,
+        category_group_id: str,
+        *,
+        list_type: int = 0,
+        flush: bool = True,
+    ) -> PBListSettings:
+        """Queue the exact per-list settings batch emitted by ShoppingListManager.EQ().
+
+        ``list_type`` uses the web client's values: 0 grocery, 1 categorized/manual,
+        2 basic.  The web manager pauses its settings queue while these operations are
+        assembled and then releases it; using ``flush=False`` for each mutation followed
+        by one queue flush produces the same single-batch behavior.
+
+        The separate Recent Items / Favorite Items starter-list creation performed after
+        this batch is intentionally not part of this helper.
+        """
+        if list_type not in {0, 1, 2}:
+            raise ValueError("list_type must be 0 (grocery), 1 (categorized), or 2 (basic)")
+
+        selected_theme_id = self._selected_new_list_theme_id()
+        template_custom_id = uuid5_hex(
+            self.user_id + _CUSTOM_SETTINGS_LIST_ID, _CUSTOM_THEME_NAMESPACE
+        )
+        if selected_theme_id == template_custom_id:
+            template = self.get(_CUSTOM_SETTINGS_LIST_ID)
+            if template is not None and template.HasField("customTheme"):
+                theme = clone_message(template.customTheme)
+            else:
+                theme = PB.PBListTheme(
+                    identifier=template_custom_id,
+                    userId=self.user_id,
+                    name="Custom",
+                )
+            new_custom_id = uuid5_hex(self.user_id + list_id, _CUSTOM_THEME_NAMESPACE)
+            theme.identifier = new_custom_id
+            theme.userId = self.user_id
+            await self.set(list_id, "customTheme", theme, flush=False)
+            await self.set(list_id, "listThemeId", new_custom_id, flush=False)
+        else:
+            await self.set(list_id, "listThemeId", selected_theme_id, flush=False)
+
+        if list_type == 2:
+            await self.set(list_id, "shouldHideCategories", True, flush=False)
+            await self.set(list_id, "genericGroceryAutocompleteEnabled", False, flush=False)
+            sort_order = "ALListItemSortOrderManual"
+        elif list_type == 0:
+            await self.set(list_id, "shouldHideCategories", False, flush=False)
+            await self.set(list_id, "genericGroceryAutocompleteEnabled", True, flush=False)
+            sort_order = "ALListItemSortOrderAlphabetical"
+        else:
+            await self.set(list_id, "shouldHideCategories", False, flush=False)
+            await self.set(list_id, "genericGroceryAutocompleteEnabled", False, flush=False)
+            sort_order = "ALListItemSortOrderManual"
+
+        await self.set(list_id, "listItemSortOrder", sort_order, flush=False)
+        await self.set(list_id, "listCategoryGroupId", category_group_id, flush=False)
+        # hI("576...", listId) is an empty method in the current official web build;
+        # there is deliberately no categoryGroupingId operation here.
+        await self.set(list_id, "shouldRememberItemCategories", True, flush=False)
+        await self.set(list_id, "favoritesAutocompleteEnabled", True, flush=False)
+        await self.set(list_id, "recentItemsAutocompleteEnabled", True, flush=False)
+
+        if flush:
+            await self.queue.flush()
+        return self.ensure(list_id)
 
     async def refresh(self) -> PBListSettingsList | None:
         """Refresh list settings through the official direct-read endpoint."""

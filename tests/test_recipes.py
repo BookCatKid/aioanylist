@@ -187,7 +187,7 @@ async def test_recipe_update_does_not_recreate_checked_identity_changed_item(fak
     old_recipe = PB.PBRecipe(identifier="recipe", name="Soup")
     old_ing = old_recipe.ingredients.add(identifier="ing", quantity="1 cup", name="tomatoes")
     new_recipe = PB.PBRecipe(identifier="recipe", name="Soup")
-    new_ing = new_recipe.ingredients.add(identifier="ing", quantity="1 lb", name="tomatoes")
+    new_recipe.ingredients.add(identifier="ing", quantity="1 lb", name="tomatoes")
     old_source = ingredient_to_item_ingredient(old_ing, old_recipe)
     old_id = recipe_list_item_identifier(old_source, list_id)
 

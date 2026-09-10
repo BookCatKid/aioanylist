@@ -161,7 +161,6 @@ def test_photo_url_uses_official_s3_base_with_separator() -> None:
 
 @pytest.mark.asyncio
 async def test_photo_byte_upload_refreshes_401_and_retries_same_server_filename() -> None:
-    from contextlib import asynccontextmanager
     from aiohttp import web
     from anylist_sdk.services.http_api import PhotosService
     from anylist_sdk.transport import AnyListTransport

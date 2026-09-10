@@ -8,7 +8,9 @@ from anylist_sdk.state import AnyListState
 
 
 def service(fake_transport):
-    return ShoppingListsService(fake_transport, AnyListState(user_id="user"), user_id="user")
+    return ShoppingListsService(
+        fake_transport, AnyListState(user_id="user"), user_id="user", user_email="user@example.com"
+    )
 
 
 @pytest.mark.asyncio
@@ -52,18 +54,101 @@ async def test_shopping_refresh_defers_until_v2_queue_drains(fake_transport) -> 
 @pytest.mark.asyncio
 async def test_ordinary_list_and_item_operations_use_official_legacy_queue(fake_transport) -> None:
     svc = service(fake_transport)
+    svc.state.root_folder_id = "root"
+    svc.state.list_folders["root"] = PB.PBListFolder(identifier="root")
 
     await svc.create("Groceries", list_id="list")
     assert fake_transport.calls[-1][0] == "/data/shopping-lists/update"
     create_op = fake_transport.calls[-1][1]["operations"].operations[0]
     assert create_op.metadata.handlerId == "new-shopping-list"
     assert not create_op.metadata.HasField("operationClass")
+    assert create_op.listFolderId == "root"
+    assert create_op.updatedCategoryGroup.identifier
+    assert create_op.updatedCategoryGroup.listId == "list"
+    assert len(create_op.updatedCategoryGroup.categories) == 20
+    assert create_op.updatedCategoryGroup.defaultCategoryId
+    assert create_op.list.listItemSortOrder == PB.ShoppingList.ListItemSortOrder.Alphabetical
+    assert create_op.list.creator == "user"
+    assert len(create_op.list.sharedUsers) == 1
+    assert create_op.list.sharedUsers[0].userId == "user"
+    assert create_op.list.sharedUsers[0].email == "user@example.com"
+    assert svc.state.list_folders["root"].items[0].identifier == "list"
 
     await svc.add_item("list", "Milk", item_id="item")
     assert fake_transport.calls[-1][0] == "/data/shopping-lists/update"
     item_op = fake_transport.calls[-1][1]["operations"].operations[0]
     assert item_op.metadata.handlerId == "add-shopping-list-item"
     assert not item_op.metadata.HasField("operationClass")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("list_type", "expected_categories", "expected_sort"),
+    [
+        (0, 20, PB.ShoppingList.ListItemSortOrder.Alphabetical),
+        (1, 1, PB.ShoppingList.ListItemSortOrder.Manual),
+        (2, 1, PB.ShoppingList.ListItemSortOrder.Manual),
+    ],
+)
+async def test_new_list_type_controls_initial_categories_and_sort_order(
+    fake_transport, list_type: int, expected_categories: int, expected_sort: int
+) -> None:
+    svc = service(fake_transport)
+    svc.state.root_folder_id = "root"
+    svc.state.list_folders["root"] = PB.PBListFolder(identifier="root")
+
+    await svc.create("List", list_id="list", list_type=list_type)
+
+    operation = fake_transport.calls[0][1]["operations"].operations[0]
+    assert len(operation.updatedCategoryGroup.categories) == expected_categories
+    assert operation.list.listItemSortOrder == expected_sort
+    if list_type != 0:
+        assert [x.systemCategory for x in operation.updatedCategoryGroup.categories] == ["other"]
+        assert operation.updatedCategoryGroup.defaultCategoryId
+
+
+@pytest.mark.asyncio
+async def test_create_requires_account_email_for_official_owner_pair(fake_transport) -> None:
+    state = AnyListState(user_id="user", root_folder_id="root")
+    state.list_folders["root"] = PB.PBListFolder(identifier="root")
+    svc = ShoppingListsService(fake_transport, state, user_id="user")
+
+    with pytest.raises(RuntimeError, match="account email"):
+        await svc.create("Groceries", list_id="list")
+
+    assert fake_transport.calls == []
+
+
+@pytest.mark.asyncio
+async def test_create_uses_official_german_category_strings(fake_transport) -> None:
+    class Response:
+        status = 200
+        async def text(self):
+            import json
+            return json.dumps({"Other": "Sonstiges", "Produce": "Obst & Gemüse"})
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): return None
+
+    class Session:
+        def get(self, url):
+            assert url.endswith("/static/webapp/strings/de/translation.json?v=1")
+            return Response()
+
+    fake_transport.base_url = "https://www.anylist.com"
+    fake_transport.session = Session()
+    state = AnyListState(user_id="user", root_folder_id="root")
+    state.list_folders["root"] = PB.PBListFolder(identifier="root")
+    svc = ShoppingListsService(
+        fake_transport, state, user_id="user", user_email="user@example.com", user_locale="de-DE"
+    )
+
+    await svc.create("Einkauf", list_id="list")
+
+    op = fake_transport.calls[-1][1]["operations"].operations[0]
+    by_system = {c.systemCategory: c.name for c in op.updatedCategoryGroup.categories}
+    assert by_system["other"] == "Sonstiges"
+    assert by_system["produce"] == "Obst & Gemüse"
+    assert by_system["dairy"] == "Dairy"  # missing translation keys fall back to English
 
 
 @pytest.mark.asyncio
@@ -464,7 +549,7 @@ async def test_list_category_group_v2_operation_contracts(fake_transport) -> Non
 async def test_list_item_category_operation_contracts(fake_transport) -> None:
     svc = service(fake_transport)
     shopping = PB.ShoppingList(identifier="list")
-    item = shopping.items.add(identifier="item", listId="list", name="Milk")
+    shopping.items.add(identifier="item", listId="list", name="Milk")
     svc.state.shopping_lists["list"] = shopping
     assignment = PB.PBListItemCategoryAssignment(categoryGroupId="group", categoryId="cat")
 

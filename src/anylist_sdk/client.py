@@ -47,8 +47,9 @@ class AnyListClient:
     web_state: WebStateService | None
     raw: RawAPI
     def __init__(self,session:aiohttp.ClientSession|None=None,*,tokens:AuthTokens|None=None,
-                 client_id:str|None=None,cache_dir:str|Path|None=None,
+                 user_email:str|None=None,client_id:str|None=None,cache_dir:str|Path|None=None,
                  journal:OperationJournal|None=None,base_url:str="https://www.anylist.com") -> None:
+        self._sign_in_email: str | None = user_email
         self.cache_dir=Path(cache_dir) if cache_dir is not None else None
         self.transport=AnyListTransport(session,base_url=base_url,client_id=client_id,tokens=tokens)
         self.state=AnyListState(user_id=(tokens.user_id if tokens else None))
@@ -73,7 +74,14 @@ class AnyListClient:
             self.meal_plan=self.account=self.photos=self.sharing=self.alexa=self.web_state=None
             self.raw=RawAPI(self.transport);self._services_ready=False;return
         j=self._journal
-        self.lists=ShoppingListsService(self.transport,self.state,user_id=user_id,journal=j)
+        self.lists=ShoppingListsService(
+            self.transport,
+            self.state,
+            user_id=user_id,
+            user_email=self._sign_in_email,
+            user_locale=(self.tokens.user_locale if self.tokens else None),
+            journal=j,
+        )
         self.recipes=RecipesService(self.transport,self.state,user_id=user_id,journal=j)
         self.folders=FoldersService(self.transport,self.state,user_id=user_id,journal=j)
         self.categories=UserCategoriesService(self.transport,self.state,user_id=user_id,journal=j)
@@ -94,11 +102,36 @@ class AnyListClient:
         self.lists.on_store_filter_removed = self._clear_selected_store_filter
         self.lists.on_category_group_removed = self._migrate_selected_category_group
         self.lists.on_items_became_recent = self._record_recent_items
+        self.lists.on_new_list_settings = self._initialize_new_list_settings
+        self.lists.on_new_list_starter_lists = self._initialize_new_list_starter_lists
         self.folders.on_list_removed = self._remove_list_from_folder_tree
         self.lists.on_folder_refresh_requested = self.folders.refresh
         self.folders.on_shopping_refresh_requested = self.lists.refresh
         self._bind_sync_queue_guards()
         self._services_ready=True
+
+    async def _initialize_new_list_settings(
+        self, list_id: str, category_group_id: str, list_type: int, flush: bool
+    ) -> None:
+        settings = self.list_settings
+        assert settings is not None
+        await settings.initialize_new_list(
+            list_id,
+            category_group_id,
+            list_type=list_type,
+            flush=flush,
+        )
+
+    async def _initialize_new_list_starter_lists(
+        self, list_id: str, favorite_name: str, flush: bool
+    ) -> None:
+        starter_lists = self.starter_lists
+        assert starter_lists is not None
+        await starter_lists.initialize_for_shopping_list(
+            list_id,
+            favorite_name=favorite_name,
+            flush=flush,
+        )
 
     def _bind_sync_queue_guards(self) -> None:
         """Route aggregate snapshots through the official per-manager pending-op guards."""
@@ -189,6 +222,7 @@ class AnyListClient:
     async def sign_in(self,email:str,password:str)->AuthTokens:
         previous_user = self.state.user_id
         tokens=await self.transport.sign_in(email,password)
+        self._sign_in_email = email
         self.tag_data.locale=tokens.user_locale or "en-US"
         # A client instance can be reused after logout. Never expose data from a previous
         # account through the new account's services.

@@ -600,7 +600,7 @@ async def test_template_group_operation_contracts(fake_transport) -> None:
     assert root_op.metadata.handlerId == "create-root-template-group"
     assert root_op.templateGroup.identifier == "root"
 
-    child = await service.create_template_group(
+    await service.create_template_group(
         "Child", root.identifier, icon="folder", group_id="child", flush=False
     )
     child_op = service.queue._pending[-1]

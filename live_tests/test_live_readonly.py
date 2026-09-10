@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-from collections.abc import Awaitable, Callable
 from typing import Any
 
 import pytest
@@ -28,7 +27,12 @@ def _nested_mapping_digest(
     return tuple(sorted((key, _mapping_digest(value)) for key, value in values.items()))
 
 
-def _state_fingerprint(state: Any, *, include_category_marker: bool = True) -> tuple[object, ...]:
+def _state_fingerprint(
+    state: Any,
+    *,
+    include_category_marker: bool = True,
+    include_legacy_order_marker: bool = True,
+) -> tuple[object, ...]:
     # Compare the synchronized model without printing account data. The category response
     # identifier is optionally excluded because the direct /all response uses the literal
     # marker "all" while aggregate sync may carry another non-empty response identifier; the
@@ -36,7 +40,11 @@ def _state_fingerprint(state: Any, *, include_category_marker: bool = True) -> t
     return (
         state.user_id,
         _mapping_digest(state.shopping_lists),
-        tuple(state.ordered_shopping_list_ids),
+        (
+            tuple(state.ordered_shopping_list_ids)
+            if include_legacy_order_marker
+            else ("<ignored-legacy-order-marker>",)
+        ),
         _mapping_digest(state.list_responses),
         _nested_mapping_digest(state.list_stores),
         _nested_mapping_digest(state.list_store_filters),
@@ -143,9 +151,12 @@ async def test_live_incremental_sync_is_structurally_stable(live_client: Any) ->
         load_tag_data=False,
         restore_pending=False,
     )
-    before = _state_fingerprint(state)
+    # ShoppingListsResponse.orderedIds is legacy runtime state: the real server sends it on
+    # full sync and sends an empty array on unchanged deltas. app.js stores that array in $oj$JK
+    # but never reads $oj$JK anywhere, so it is not synchronized user-visible ordering state.
+    before = _state_fingerprint(state, include_legacy_order_marker=False)
     await live_client.refresh()
-    after = _state_fingerprint(state)
+    after = _state_fingerprint(state, include_legacy_order_marker=False)
     assert after == before
 
 
