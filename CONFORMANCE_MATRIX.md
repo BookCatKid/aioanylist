@@ -17,7 +17,7 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 
 - Offline suite: **475 passing** at the latest local gate.
 - Current read-only live suite: **9/9 passing** with the corrected multipart transport.
-- Guarded disposable-list mutation suite: **37 passed, 1 safely skipped without writing** in the latest complete live run. Coverage now includes the disposable shopping list, its deterministic Recent/Favorite starter lists, starter-list settings, temporary disposable-linked starter lists, exact starter-list ordering restoration, a fully restored disposable folder-tree round trip, explicit client-wide flush, queue pause/resume, and durable operation replay after simulated abrupt loss.
+- Guarded disposable-list mutation suite: **39 passed, 1 safely skipped without writing** in the latest complete live run. Coverage now includes the disposable shopping list, its deterministic Recent/Favorite starter lists, starter-list settings, temporary disposable-linked starter lists, exact starter-list ordering restoration, a fully restored disposable folder-tree round trip, explicit client-wide flush, queue pause/resume, durable operation replay after simulated abrupt loss, real cross-client WebSocket invalidation delivery, and automatic reconnect catch-up after a forced transport loss.
 - The reusable server-side disposable list **`AnyList SDK Conformance Test`** exists and is retained for future verification. Mutation guards require both its reserved ID and exact name before any write.
 - No normal shopping list was mutated. Temporary items/stores/filters/categories/rules/provenance created by live tests were removed again; removal paths suppress Recent Items where required.
 - The protobuf multipart correction is now **live write verified**: AnyList requires binary protobuf fields as ordinary multipart form fields with no filename and no per-part Content-Type.
@@ -63,9 +63,9 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 
 | Functionality | Status | Evidence / next check |
 |---|---|---|
-| `RealtimeClient.add_listener()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Socket lifecycle is live-tested; a real invalidation message/reconnect catch-up has not yet been induced. |
-| `RealtimeClient.add_reconnect_listener()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Socket lifecycle is live-tested; a real invalidation message/reconnect catch-up has not yet been induced. |
-| `RealtimeClient.events()` | 🧪 OFFLINE VERIFIED | Socket lifecycle is live-tested; a real invalidation message/reconnect catch-up has not yet been induced. |
+| `RealtimeClient.add_listener()` | ✅ LIVE VERIFIED | A second authenticated client mutated the disposable shopping list; the registered client listener received `refresh-shopping-lists` and refreshed state without a manual refresh. |
+| `RealtimeClient.add_reconnect_listener()` | ✅ LIVE VERIFIED | A transport-level socket abort triggered automatic reconnect; reconnect callbacks ran and the built-in catch-up refresh recovered a disposable mutation made while disconnected. |
+| `RealtimeClient.events()` | ✅ LIVE VERIFIED | The live event iterator yielded the real `refresh-shopping-lists` invalidation produced by a second client. |
 | `RealtimeClient.start()` | ✅ LIVE VERIFIED | Real WebSocket connected, survived multiple heartbeat intervals, stopped, and restarted. |
 | `RealtimeClient.stop()` | ✅ LIVE VERIFIED | Real WebSocket connected, survived multiple heartbeat intervals, stopped, and restarted. |
 

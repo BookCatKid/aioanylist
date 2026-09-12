@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from uuid import uuid4
 
@@ -204,6 +205,45 @@ async def _remove_named_starter_items(
         ids = [str(item.identifier) for item in starter.items if str(item.name) in names]
         if ids:
             await live_client.starter_lists.bulk_remove_items(starter_id, ids)
+
+
+async def _wait_for_shopping_invalidation(live_client, *, timeout: float = 15.0):
+    async def next_matching():
+        async for event in live_client.realtime.events():
+            if event.message == "refresh-shopping-lists":
+                return event
+        raise AssertionError("realtime event iterator ended unexpectedly")
+
+    return await asyncio.wait_for(next_matching(), timeout=timeout)
+
+
+async def _wait_for_item_state(
+    live_client,
+    list_id: str,
+    item_id: str,
+    *,
+    present: bool,
+    timeout: float = 15.0,
+) -> None:
+    async def condition() -> None:
+        while True:
+            assert live_client.lists is not None
+            exists = live_client.lists.item(list_id, item_id) is not None
+            if exists is present:
+                return
+            await asyncio.sleep(0.05)
+
+    await asyncio.wait_for(condition(), timeout=timeout)
+
+
+async def _wait_for_realtime_connected_state(
+    live_client, *, connected: bool, timeout: float = 15.0
+) -> None:
+    async def condition() -> None:
+        while live_client.realtime.connected.is_set() is not connected:
+            await asyncio.sleep(0.05)
+
+    await asyncio.wait_for(condition(), timeout=timeout)
 
 
 @pytest.mark.asyncio
@@ -831,6 +871,134 @@ async def test_live_journal_restore_replays_disposable_favorite_item(
                 await restorer.starter_lists.bulk_remove_items(favorite_id, ids)
     finally:
         await restorer.close()
+
+
+@pytest.mark.asyncio
+async def test_live_realtime_invalidation_refreshes_disposable_list_from_second_client(
+    live_client, live_mutation_list_id: str
+) -> None:
+    await _load_and_require_disposable(live_client, live_mutation_list_id)
+    tokens = live_client.tokens
+    assert tokens is not None
+    assert live_client.lists is not None
+
+    await live_client.realtime.start()
+    mutator = AnyListClient(base_url=live_client.transport.base_url, tokens=tokens)
+    item_id = ""
+    event_task = asyncio.create_task(_wait_for_shopping_invalidation(live_client))
+    try:
+        await mutator.load(realtime=False, load_tag_data=False, restore_pending=False)
+        assert mutator.lists is not None
+        created = await mutator.lists.add_item(
+            live_mutation_list_id, f"sdk-realtime-{uuid4().hex}"
+        )
+        item_id = str(created.identifier)
+
+        event = await event_task
+        assert event.message == "refresh-shopping-lists"
+        await _wait_for_item_state(
+            live_client,
+            live_mutation_list_id,
+            item_id,
+            present=True,
+        )
+    finally:
+        if not event_task.done():
+            event_task.cancel()
+            await asyncio.gather(event_task, return_exceptions=True)
+        if item_id:
+            if mutator.lists is not None:
+                await mutator.lists.refresh()
+            if mutator.lists is not None and mutator.lists.item(live_mutation_list_id, item_id):
+                await mutator.lists.bulk_remove_items(
+                    live_mutation_list_id,
+                    [item_id],
+                    remember_recent=False,
+                )
+        await mutator.close()
+        await live_client.realtime.stop()
+
+
+@pytest.mark.asyncio
+async def test_live_realtime_automatic_reconnect_catches_up_disposable_change(
+    live_client, live_mutation_list_id: str, monkeypatch
+) -> None:
+    await _load_and_require_disposable(live_client, live_mutation_list_id)
+    tokens = live_client.tokens
+    assert tokens is not None
+    assert live_client.lists is not None
+
+    session = live_client.transport.session
+    original_ws_connect = session.ws_connect
+    captured_ws = []
+    captured = asyncio.Event()
+
+    class CapturingContext:
+        def __init__(self, inner):
+            self.inner = inner
+
+        async def __aenter__(self):
+            ws = await self.inner.__aenter__()
+            captured_ws.append(ws)
+            captured.set()
+            return ws
+
+        async def __aexit__(self, *args):
+            return await self.inner.__aexit__(*args)
+
+    def capture_ws_connect(*args, **kwargs):
+        return CapturingContext(original_ws_connect(*args, **kwargs))
+
+    monkeypatch.setattr(session, "ws_connect", capture_ws_connect)
+    reconnect_seen = asyncio.Event()
+    reconnect_callback_count = len(live_client.realtime._reconnect_callbacks)
+    live_client.realtime.add_reconnect_listener(reconnect_seen.set)
+
+    mutator = AnyListClient(base_url=live_client.transport.base_url, tokens=tokens)
+    item_id = ""
+    try:
+        await live_client.realtime.start()
+        await asyncio.wait_for(captured.wait(), timeout=15.0)
+        assert captured_ws
+
+        # Keep enough retry window to make the disposable mutation while the listener is
+        # definitely offline. The connection's +2s retry-reset timer is cancelled on close.
+        live_client.realtime._retry_delay = 2.0
+        connection = captured_ws[-1]._conn
+        assert connection is not None
+        transport = connection.transport
+        assert transport is not None
+        transport.abort()
+        await _wait_for_realtime_connected_state(live_client, connected=False)
+
+        await mutator.load(realtime=False, load_tag_data=False, restore_pending=False)
+        assert mutator.lists is not None
+        created = await mutator.lists.add_item(
+            live_mutation_list_id, f"sdk-reconnect-{uuid4().hex}"
+        )
+        item_id = str(created.identifier)
+        assert live_client.lists.item(live_mutation_list_id, item_id) is None
+
+        await asyncio.wait_for(reconnect_seen.wait(), timeout=15.0)
+        await _wait_for_realtime_connected_state(live_client, connected=True)
+        await _wait_for_item_state(
+            live_client,
+            live_mutation_list_id,
+            item_id,
+            present=True,
+        )
+    finally:
+        del live_client.realtime._reconnect_callbacks[reconnect_callback_count:]
+        if item_id and mutator.lists is not None:
+            await mutator.lists.refresh()
+            if mutator.lists.item(live_mutation_list_id, item_id) is not None:
+                await mutator.lists.bulk_remove_items(
+                    live_mutation_list_id,
+                    [item_id],
+                    remember_recent=False,
+                )
+        await mutator.close()
+        await live_client.realtime.stop()
 
 
 @pytest.mark.asyncio
