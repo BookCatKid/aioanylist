@@ -17,7 +17,7 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 
 - Offline suite: **475 passing** at the latest local gate.
 - Current read-only live suite: **9/9 passing** with the corrected multipart transport.
-- Guarded disposable-list mutation suite: **33 passed, 1 safely skipped without writing** in the latest complete live run. Coverage now includes the disposable shopping list, its deterministic Recent/Favorite starter lists, starter-list settings, temporary disposable-linked starter lists, and exact starter-list ordering restoration.
+- Guarded disposable-list mutation suite: **34 passed, 1 safely skipped without writing** in the latest complete live run. Coverage now includes the disposable shopping list, its deterministic Recent/Favorite starter lists, starter-list settings, temporary disposable-linked starter lists, exact starter-list ordering restoration, and a fully restored disposable folder-tree round trip.
 - The reusable server-side disposable list **`AnyList SDK Conformance Test`** exists and is retained for future verification. Mutation guards require both its reserved ID and exact name before any write.
 - No normal shopping list was mutated. Temporary items/stores/filters/categories/rules/provenance created by live tests were removed again; removal paths suppress Recent Items where required.
 - The protobuf multipart correction is now **live write verified**: AnyList requires binary protobuf fields as ordinary multipart form fields with no filename and no per-part Content-Type.
@@ -254,21 +254,21 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 
 | Functionality | Status | Evidence / next check |
 |---|---|---|
-| `FoldersService.operation()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
+| `FoldersService.operation()` | ✅ LIVE VERIFIED | Exercised by every disposable folder mutation in the guarded live round trip. |
 | `FoldersService.all()` | 🧪 OFFLINE VERIFIED |  |
 | `FoldersService.get()` | 🧪 OFFLINE VERIFIED |  |
-| `FoldersService.has_pending_delete_items()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
+| `FoldersService.has_pending_delete_items()` | 🧪 OFFLINE VERIFIED | Queue-introspection helper; folder delete operations are live verified, but this helper itself is not a distinct server behavior. |
 | `FoldersService.refresh()` | ✅ LIVE VERIFIED | Called against the real endpoint and decoded/applied successfully. |
-| `FoldersService.create()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `FoldersService.rename()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `FoldersService.set_hex_color()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `FoldersService.set_icon()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `FoldersService.set_lists_sort_order()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `FoldersService.set_folder_sort_position()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `FoldersService.reorder()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `FoldersService.move()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `FoldersService.delete_items()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `FoldersService.delete_folder()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
+| `FoldersService.create()` | ✅ LIVE VERIFIED | Created a temporary parent folder and nested child containing only disposable resources; fresh reads confirmed both. |
+| `FoldersService.rename()` | ✅ LIVE VERIFIED | Temporary folder rename persisted on a fresh read. |
+| `FoldersService.set_hex_color()` | ✅ LIVE VERIFIED | Temporary folder color persisted on a fresh read. |
+| `FoldersService.set_icon()` | ✅ LIVE VERIFIED | Temporary folder icon persisted on a fresh read. |
+| `FoldersService.set_lists_sort_order()` | ✅ LIVE VERIFIED | Temporary folder setting persisted on a fresh read. |
+| `FoldersService.set_folder_sort_position()` | ✅ LIVE VERIFIED | Temporary folder setting persisted on a fresh read. |
+| `FoldersService.reorder()` | ✅ LIVE VERIFIED | Reordered only items inside the temporary disposable folder and restored the original parent ordering exactly. |
+| `FoldersService.move()` | ✅ LIVE VERIFIED | Moved only the disposable shopping list into and back out of the temporary folder; fresh reads confirmed both directions. |
+| `FoldersService.delete_items()` | ✅ LIVE VERIFIED | Exercised by recursive disposable-folder cleanup; fresh read confirmed removed folder items were absent. |
+| `FoldersService.delete_folder()` | ✅ LIVE VERIFIED | Recursively removed the temporary child/parent folder tree; final fresh state matched the exact original folder tree. |
 
 ## Starter / Favorites / Recents
 

@@ -164,6 +164,25 @@ async def _fresh_starter_order(live_client) -> list[str]:
         await fresh.close()
 
 
+async def _fresh_folder_state(live_client) -> tuple[str, dict[str, object]]:
+    """Read the folder tree through a fresh client and return deep-copied folders."""
+    tokens = live_client.tokens
+    assert tokens is not None
+    fresh = AnyListClient(base_url=live_client.transport.base_url, tokens=tokens)
+    try:
+        await fresh.load(realtime=False, load_tag_data=False, restore_pending=False)
+        assert fresh.folders is not None
+        root_id = str(fresh.state.root_folder_id or "")
+        copied: dict[str, object] = {}
+        for identifier, value in fresh.state.list_folders.items():
+            clone = PB.PBListFolder()
+            clone.CopyFrom(value)
+            copied[str(identifier)] = clone
+        return root_id, copied
+    finally:
+        await fresh.close()
+
+
 async def _ensure_disposable_starters(live_client, shopping_list_id: str) -> None:
     await _load_and_require_disposable(live_client, shopping_list_id)
     assert live_client.starter_lists is not None
@@ -763,6 +782,174 @@ async def test_live_disposable_custom_starter_create_reorder_remove_round_trip(
         assert list(fresh.state.ordered_starter_list_ids) == original_order
     finally:
         await fresh.close()
+
+
+@pytest.mark.asyncio
+async def test_live_disposable_folder_round_trip(
+    live_client, live_mutation_list_id: str
+) -> None:
+    await _load_and_require_disposable(live_client, live_mutation_list_id)
+    assert live_client.folders is not None
+    root_id, initial_folders = await _fresh_folder_state(live_client)
+    if not root_id:
+        pytest.fail("server has no root folder; refusing folder mutation", pytrace=False)
+
+    parent_matches: list[str] = []
+    for folder_id, folder in initial_folders.items():
+        assert isinstance(folder, PB.PBListFolder)
+        if any(
+            int(item.itemType) == 0 and str(item.identifier) == live_mutation_list_id
+            for item in folder.items
+        ):
+            parent_matches.append(folder_id)
+    if len(parent_matches) != 1:
+        pytest.fail(
+            "disposable shopping list does not have exactly one folder parent; refusing folder mutation",
+            pytrace=False,
+        )
+
+    original_parent_id = parent_matches[0]
+    original_parent = initial_folders[original_parent_id]
+    assert isinstance(original_parent, PB.PBListFolder)
+    original_items: list[object] = []
+    for item in original_parent.items:
+        clone = PB.PBListFolderItem()
+        clone.CopyFrom(item)
+        original_items.append(clone)
+
+    temp_parent = await live_client.folders.create(
+        f"SDK Disposable Folder {uuid4().hex[:8]}",
+        parent_id=original_parent_id,
+        hex_color="A1B2C3",
+    )
+    temp_parent_id = str(temp_parent.identifier)
+    temp_child_id = ""
+    list_item = PB.PBListFolderItem(identifier=live_mutation_list_id, itemType=0)
+
+    try:
+        await live_client.folders.rename(
+            temp_parent_id, f"SDK Disposable Folder Renamed {uuid4().hex[:8]}"
+        )
+        await live_client.folders.set_hex_color(temp_parent_id, "C3B2A1")
+        await live_client.folders.set_icon(temp_parent_id, "star")
+        await live_client.folders.set_lists_sort_order(temp_parent_id, 2)
+        await live_client.folders.set_folder_sort_position(temp_parent_id, 4)
+
+        temp_child = await live_client.folders.create(
+            f"SDK Disposable Child {uuid4().hex[:8]}", parent_id=temp_parent_id
+        )
+        temp_child_id = str(temp_child.identifier)
+
+        _, folders = await _fresh_folder_state(live_client)
+        parent = folders.get(original_parent_id)
+        temp = folders.get(temp_parent_id)
+        child = folders.get(temp_child_id)
+        assert isinstance(parent, PB.PBListFolder)
+        assert isinstance(temp, PB.PBListFolder)
+        assert isinstance(child, PB.PBListFolder)
+        untouched = [
+            (int(item.itemType), str(item.identifier))
+            for item in parent.items
+            if not (int(item.itemType) == 1 and str(item.identifier) == temp_parent_id)
+        ]
+        assert untouched == [
+            (int(item.itemType), str(item.identifier)) for item in original_items
+        ]
+        assert temp.folderSettings.folderHexColor == "C3B2A1"
+        assert temp.folderSettings.icon.iconName == "star"
+        assert temp.folderSettings.listsSortOrder == 2
+        assert temp.folderSettings.folderSortPosition == 4
+
+        await live_client.folders.move(
+            [list_item], original_parent_id, temp_parent_id
+        )
+        _, folders = await _fresh_folder_state(live_client)
+        parent = folders[original_parent_id]
+        temp = folders[temp_parent_id]
+        assert isinstance(parent, PB.PBListFolder)
+        assert isinstance(temp, PB.PBListFolder)
+        assert not any(
+            int(item.itemType) == 0 and str(item.identifier) == live_mutation_list_id
+            for item in parent.items
+        )
+        assert any(
+            int(item.itemType) == 0 and str(item.identifier) == live_mutation_list_id
+            for item in temp.items
+        )
+
+        desired_temp_items = [
+            PB.PBListFolderItem(identifier=temp_child_id, itemType=1),
+            PB.PBListFolderItem(identifier=live_mutation_list_id, itemType=0),
+        ]
+        await live_client.folders.reorder(temp_parent_id, desired_temp_items)
+        _, folders = await _fresh_folder_state(live_client)
+        temp = folders[temp_parent_id]
+        assert isinstance(temp, PB.PBListFolder)
+        assert [
+            (int(item.itemType), str(item.identifier)) for item in temp.items
+        ] == [(1, temp_child_id), (0, live_mutation_list_id)]
+
+        await live_client.folders.move([list_item], temp_parent_id, original_parent_id)
+
+        # Keep every original parent item in its exact original order while the temporary
+        # folder still exists as one disposable trailing entry.
+        parent_with_temp = [PB.PBListFolderItem() for _ in original_items]
+        for target, source in zip(parent_with_temp, original_items):
+            target.CopyFrom(source)
+        parent_with_temp.append(
+            PB.PBListFolderItem(identifier=temp_parent_id, itemType=1)
+        )
+        await live_client.folders.reorder(original_parent_id, parent_with_temp)
+
+        # The temporary child is empty; recursive delete therefore exercises child + parent
+        # folder deletion without deleting any shopping list.
+        await live_client.folders.delete_folder(temp_parent_id, original_parent_id)
+    finally:
+        await live_client.folders.refresh()
+        # If a failure occurred while the disposable list was inside a temporary folder,
+        # move only that list back before deleting the disposable folder tree.
+        if temp_parent_id and live_client.folders.get(temp_parent_id) is not None:
+            temp = live_client.folders.get(temp_parent_id)
+            assert temp is not None
+            if any(
+                int(item.itemType) == 0 and str(item.identifier) == live_mutation_list_id
+                for item in temp.items
+            ):
+                await live_client.folders.move(
+                    [list_item], temp_parent_id, original_parent_id
+                )
+            if live_client.folders.get(temp_parent_id) is not None:
+                await live_client.folders.delete_folder(
+                    temp_parent_id, original_parent_id
+                )
+        await live_client.folders.refresh()
+        parent = live_client.folders.get(original_parent_id)
+        if parent is not None:
+            current = [
+                (int(item.itemType), str(item.identifier)) for item in parent.items
+            ]
+            expected = [
+                (int(item.itemType), str(item.identifier)) for item in original_items
+            ]
+            if current != expected:
+                await live_client.folders.reorder(
+                    original_parent_id,
+                    [
+                        PB.PBListFolderItem(
+                            identifier=str(item.identifier), itemType=int(item.itemType)
+                        )
+                        for item in original_items
+                    ],
+                )
+
+    _, final_folders = await _fresh_folder_state(live_client)
+    assert temp_parent_id not in final_folders
+    assert temp_child_id not in final_folders
+    final_parent = final_folders[original_parent_id]
+    assert isinstance(final_parent, PB.PBListFolder)
+    assert [
+        (int(item.itemType), str(item.identifier)) for item in final_parent.items
+    ] == [(int(item.itemType), str(item.identifier)) for item in original_items]
 
 
 @pytest.mark.asyncio
