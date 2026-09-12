@@ -1945,6 +1945,101 @@ async def test_live_disposable_recipes_and_collections_round_trip(live_client) -
 
 
 @pytest.mark.asyncio
+async def test_live_disposable_recipe_cooking_state_round_trip(live_client) -> None:
+    await live_client.load(realtime=False, load_tag_data=False, restore_pending=False)
+    user_id = live_client.user_id
+    assert user_id is not None
+    assert live_client.mobile_settings is not None
+    settings = live_client.state.mobile_app_settings
+    assert settings is not None
+
+    recipes = RecipesService(live_client.transport, live_client.state, user_id=user_id)
+
+    def cooking_state_snapshot(values) -> dict[tuple[str, str], bytes]:
+        return {
+            (str(value.recipeId or ""), str(value.eventId or "")): value.SerializeToString(
+                deterministic=True
+            )
+            for value in values
+        }
+
+    async def fresh_snapshot() -> tuple[dict[tuple[str, str], bytes], list[object]]:
+        tokens = live_client.tokens
+        assert tokens is not None
+        fresh = AnyListClient(base_url=live_client.transport.base_url, tokens=tokens)
+        try:
+            await fresh.load(realtime=False, load_tag_data=False, restore_pending=False)
+            fresh_settings = fresh.state.mobile_app_settings
+            assert fresh_settings is not None
+            values = list(fresh_settings.recipeCookingStates)
+            return cooking_state_snapshot(values), values
+        finally:
+            await fresh.close()
+
+    before_snapshot = cooking_state_snapshot(settings.recipeCookingStates)
+    marker = uuid4().hex
+    recipe_id = ""
+    try:
+        recipe = await recipes.create(f"SDK Disposable Cooking State Recipe {marker}")
+        recipe_id = str(recipe.identifier)
+        cooking_state = PB.PBRecipeCookingState(
+            recipeId=recipe_id,
+            lastOpenedTimestamp=123456.25,
+            selectedTabId=2,
+            selectedStepNumber=1,
+        )
+        cooking_state.checkedIngredientIds.extend([f"sdk-{marker[:8]}"])
+
+        await live_client.mobile_settings.save_recipe_cooking_states([cooking_state])
+        assert live_client.mobile_settings.queue.pending_count == 0
+
+        saved_snapshot, saved_values = await fresh_snapshot()
+        key = (recipe_id, "")
+        assert key in saved_snapshot
+        saved_state = next(
+            value
+            for value in saved_values
+            if str(value.recipeId or "") == recipe_id and not str(value.eventId or "")
+        )
+        assert float(saved_state.lastOpenedTimestamp) == 123456.25
+        assert int(saved_state.selectedTabId) == 2
+        assert int(saved_state.selectedStepNumber) == 1
+        assert list(saved_state.checkedIngredientIds) == [f"sdk-{marker[:8]}"]
+        assert {
+            existing_key: saved_snapshot[existing_key]
+            for existing_key in before_snapshot
+            if existing_key in saved_snapshot
+        } == before_snapshot
+
+        await live_client.mobile_settings.remove_recipe_cooking_states([cooking_state])
+        assert live_client.mobile_settings.queue.pending_count == 0
+
+        after_snapshot, _ = await fresh_snapshot()
+        assert key not in after_snapshot
+        assert after_snapshot == before_snapshot
+
+        await recipes.remove(recipe_id)
+        recipe_id = ""
+    finally:
+        await live_client.mobile_settings.refresh()
+        current_settings = live_client.state.mobile_app_settings
+        if current_settings is not None and recipe_id:
+            leftovers = [
+                value
+                for value in current_settings.recipeCookingStates
+                if str(value.recipeId or "") == recipe_id
+            ]
+            if leftovers:
+                await live_client.mobile_settings.remove_recipe_cooking_states(leftovers)
+        await recipes.refresh()
+        if recipe_id and recipe_id in live_client.state.recipes:
+            await recipes.remove(recipe_id)
+
+    final_snapshot, _ = await fresh_snapshot()
+    assert final_snapshot == before_snapshot
+
+
+@pytest.mark.asyncio
 async def test_live_disposable_meal_plan_events_labels_and_items_round_trip(live_client) -> None:
     await live_client.load(realtime=False, load_tag_data=False, restore_pending=False)
     user_id = live_client.user_id
