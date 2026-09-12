@@ -7,6 +7,7 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 - **✅ LIVE VERIFIED** — the current code path has been exercised against the real AnyList service and the exercised result was validated. This is the strongest evidence available; it does **not** mean every imaginable edge case is mathematically proven.
 - **✅ LOCAL VERIFIED** — behavior is intentionally local-only and has been verified end-to-end locally (for example token logout).
 - **🧪 OFFLINE VERIFIED** — official `app.js` / embedded schema behavior is covered by offline regression tests, but the method has not yet been proven with a live server mutation/readback.
+- **🟡 LIVE PARTIAL** — a meaningful live path passed, but another direction/side effect remains intentionally untested.
 - **🟠 LIVE RETEST REQUIRED** — relevant implementation changed after the last live attempt; do not treat older live results as current proof.
 - **⚪ NOT LIVE TESTED** — no current live evidence.
 - **🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE** — deliberately not tested because the user authorized writes only to the single disposable shopping list, not other lists/global resources/external side effects.
@@ -15,10 +16,12 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 ## Current checkpoint
 
 - Offline suite: **473 passing** at the latest local gate.
-- Current corrected multipart transport: **8 read-only live tests passed** in one run; the ninth was blocked during fixture setup by AnyList returning HTTP 503 from `/auth/token`. The harness now authenticates once per pytest session and suppresses credential-bearing auth tracebacks.
-- Before the multipart correction, the expanded read-only suite reached **9/9 live passing**; those results remain useful but do not override a retest requirement for changed transport behavior.
-- A disposable list ID is reserved locally for **`AnyList SDK Conformance Test`**, but the list is **not yet confirmed to exist on the server**. No pre-existing list has been modified.
-- Source-proven live-write bug fixed locally: AnyList protobuf multipart fields must be ordinary binary form parts with **no filename and no per-part Content-Type**. Previous write attempts were parsed as file uploads and received zero processed operation IDs.
+- Current read-only live suite: **9/9 passing** with the corrected multipart transport.
+- Guarded disposable-list mutation suite: **19 passed, 1 safely skipped without writing**. The skip is the reversible list-local flags test because the server did not materialize the optional fields required for exact restoration.
+- The reusable server-side disposable list **`AnyList SDK Conformance Test`** exists and is retained for future verification. Mutation guards require both its reserved ID and exact name before any write.
+- No normal shopping list was mutated. Temporary items/stores/filters/categories/rules/provenance created by live tests were removed again; removal paths suppress Recent Items where required.
+- The protobuf multipart correction is now **live write verified**: AnyList requires binary protobuf fields as ordinary multipart form fields with no filename and no per-part Content-Type.
+- Live conformance found and fixed a categorization-rule identity bug: single, bulk, and migration rule creation now use the official deterministic UUIDv5 of `lower(itemName) + categoryGroupId + listId`. Offline regressions and live server readback both confirm it.
 - Known official quirk: `ShoppingListsResponse.orderedIds` is populated on a full response and empty on unchanged deltas; `app.js` stores its private `$oj$JK` value but never reads it. Real ordering is folder-managed.
 - Known official contradiction: `set-web-selected-meal-plan-event-id` exists in JavaScript but `PBMobileAppSettings` has no `webSelectedMealPlanEventId` field.
 
@@ -44,8 +47,8 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 | `AnyListTransport.sign_in()` | ✅ LIVE VERIFIED | Succeeded repeatedly with current multipart implementation; AnyList later began returning HTTP 503 after repeated test logins. |
 | `AnyListTransport.refresh_access_token()` | ✅ LIVE VERIFIED |  |
 | `AnyListTransport.logout()` | ✅ LOCAL VERIFIED |  |
-| `AnyListTransport.request()` | 🟠 LIVE RETEST REQUIRED | Live read paths passed; binary multipart write behavior is source-proven and offline-tested but still needs a successful write acknowledgment. |
-| `AnyListTransport.post_proto()` | 🟠 LIVE RETEST REQUIRED | Live read paths passed; binary multipart write behavior is source-proven and offline-tested but still needs a successful write acknowledgment. |
+| `AnyListTransport.request()` | ✅ LIVE VERIFIED | Current read and protobuf-write paths both succeeded live after exact multipart correction. |
+| `AnyListTransport.post_proto()` | ✅ LIVE VERIFIED | Current read and protobuf-write paths both succeeded live after exact multipart correction. |
 
 ## Sync
 
@@ -118,79 +121,79 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 |---|---|---|
 | `ShoppingListsService.operation()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
 | `ShoppingListsService.all()` | 🧪 OFFLINE VERIFIED |  |
-| `ShoppingListsService.get()` | 🧪 OFFLINE VERIFIED |  |
-| `ShoppingListsService.item()` | 🧪 OFFLINE VERIFIED |  |
+| `ShoppingListsService.get()` | ✅ LIVE VERIFIED | Used by the guarded disposable-list tests and fresh-session server readback. |
+| `ShoppingListsService.item()` | ✅ LIVE VERIFIED | Used repeatedly for live temporary-item verification and cleanup. |
 | `ShoppingListsService.has_pending_new_list()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
 | `ShoppingListsService.remove_list_local()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
 | `ShoppingListsService.refresh()` | ✅ LIVE VERIFIED | Called against the real endpoint and decoded/applied successfully. |
-| `ShoppingListsService.create()` | 🟠 LIVE RETEST REQUIRED | Reserved disposable ID only; earlier creates were ignored because protobuf multipart fields were sent as file uploads. Current transport/create fixes await live retry after auth 503 clears. |
-| `ShoppingListsService.rename()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
+| `ShoppingListsService.create()` | ✅ LIVE VERIFIED | Created the reserved disposable shopping list with starter-list side effects disabled; a fresh authenticated state confirmed server persistence. |
+| `ShoppingListsService.rename()` | ✅ LIVE VERIFIED | Temporary rename persisted on a fresh read and was restored to the exact guard name. |
 | `ShoppingListsService.set_password()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.add_item()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.add_items()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.revive_matching_item()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.remove_item()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.set_checked()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.rename_item()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.set_details()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.set_product_upc()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.set_photo()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.set_quantity()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.set_package_size()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.set_quantity_override()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.set_package_override()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.set_price_quantity()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.set_price_package_size()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.set_price_quantity_override()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.set_price_package_override()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.assign_category()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.set_category_match_id()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.add_store()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.remove_store()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.save_price()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.set_price_matchup_tag()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.set_allows_multiple_category_groups()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.set_new_item_position()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.move_item()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.bulk_set_checked()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.bulk_remove_items()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.clear()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.remove_checked()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.uncheck_all()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.unshare()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.add_notification_location()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.add_store_ids_to_items()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.remove_store_ids_from_items()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.remove_store_id_from_all_items()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.save_store()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.delete_store()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.set_sorted_store_ids()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.save_store_filter()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.delete_store_filter()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.set_sorted_store_filter_ids()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.save_list_category()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.migrate_list_category()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.rename_list_category()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.set_list_category_icon()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.save_category_group()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.migrate_category_group()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.delete_category_group()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.rename_category_group()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.set_default_category()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.set_sorted_category_ids()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.remove_category_ids()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.save_categorization_rule()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.bulk_save_categorization_rules()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.migrate_categorization_rules()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.remove_categorization_rules_for_category_ids()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.reorder_items()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.add_recipe_ingredient()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.remove_recipe_ingredient()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.sync_recipe_update()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.sync_recipe_event_update()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.sync_event_list_update()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.remove_event_references()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.remove_recipe_references()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
+| `ShoppingListsService.add_item()` | ✅ LIVE VERIFIED | Temporary items persisted on fresh server reads and were removed with Recent Items suppressed. |
+| `ShoppingListsService.add_items()` | ✅ LIVE VERIFIED | Bulk-created temporary items persisted and were used for ordering/uncheck tests. |
+| `ShoppingListsService.revive_matching_item()` | ✅ LIVE VERIFIED | Checked temporary item was revived via the safe unchecked path and verified on a fresh read. |
+| `ShoppingListsService.remove_item()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Official behavior writes the removed item into Recent Items; current authorization forbids touching that side list. |
+| `ShoppingListsService.set_checked()` | 🟡 LIVE PARTIAL | `checked=False` is live verified. `checked=True` intentionally remains untested because official behavior writes Recent Items. |
+| `ShoppingListsService.rename_item()` | ✅ LIVE VERIFIED | Persisted on a fresh server read. |
+| `ShoppingListsService.set_details()` | ✅ LIVE VERIFIED | Persisted on a fresh server read. |
+| `ShoppingListsService.set_product_upc()` | ✅ LIVE VERIFIED | Persisted on a fresh server read. |
+| `ShoppingListsService.set_photo()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Temporary-item photo-reference test is safe, but the latest attempt was blocked by DNS before authentication; no live write occurred. |
+| `ShoppingListsService.set_quantity()` | ✅ LIVE VERIFIED | Persisted exact protobuf quantity on a fresh read. |
+| `ShoppingListsService.set_package_size()` | ✅ LIVE VERIFIED | Persisted exact protobuf package size on a fresh read. |
+| `ShoppingListsService.set_quantity_override()` | ✅ LIVE VERIFIED | Persisted on a fresh read. |
+| `ShoppingListsService.set_package_override()` | ✅ LIVE VERIFIED | Persisted on a fresh read. |
+| `ShoppingListsService.set_price_quantity()` | ✅ LIVE VERIFIED | Persisted exact protobuf value on a fresh read. |
+| `ShoppingListsService.set_price_package_size()` | ✅ LIVE VERIFIED | Persisted exact protobuf value on a fresh read. |
+| `ShoppingListsService.set_price_quantity_override()` | ✅ LIVE VERIFIED | Persisted on a fresh read. |
+| `ShoppingListsService.set_price_package_override()` | ✅ LIVE VERIFIED | Persisted on a fresh read. |
+| `ShoppingListsService.assign_category()` | ✅ LIVE VERIFIED | Temporary-item category assignment persisted on a fresh read. |
+| `ShoppingListsService.set_category_match_id()` | ✅ LIVE VERIFIED | Temporary-item category match/category fields persisted on a fresh read. |
+| `ShoppingListsService.add_store()` | ✅ LIVE VERIFIED | Temporary store ID assignment persisted on a fresh read and was reversed. |
+| `ShoppingListsService.remove_store()` | ✅ LIVE VERIFIED | Temporary store ID removal persisted on a fresh read. |
+| `ShoppingListsService.save_price()` | ✅ LIVE VERIFIED | Temporary item price add/remove persisted on fresh reads. |
+| `ShoppingListsService.set_price_matchup_tag()` | ✅ LIVE VERIFIED | Persisted on a fresh server read. |
+| `ShoppingListsService.set_allows_multiple_category_groups()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Guarded live test safely skipped because the server omitted the optional field needed for exact restoration; no write occurred. |
+| `ShoppingListsService.set_new_item_position()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Guarded live test safely skipped because the server omitted the optional field needed for exact restoration; no write occurred. |
+| `ShoppingListsService.move_item()` | ✅ LIVE VERIFIED | Single-item movement persisted in server ordering. |
+| `ShoppingListsService.bulk_set_checked()` | 🟡 LIVE PARTIAL | Bulk uncheck is live verified. Bulk cross-off remains intentionally untested because it writes Recent Items. |
+| `ShoppingListsService.bulk_remove_items()` | 🟡 LIVE PARTIAL | Live verified with `remember_recent=False`; the default Recent Items side effect is intentionally outside current authorization. |
+| `ShoppingListsService.clear()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Official behavior populates Recent Items before clearing; intentionally not exercised. |
+| `ShoppingListsService.remove_checked()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Official behavior preserves removed items in Recent Items; intentionally not exercised. |
+| `ShoppingListsService.uncheck_all()` | ✅ LIVE VERIFIED | Temporary checked items were uncrossed without Recent Items writes and verified on a fresh read. |
+| `ShoppingListsService.unshare()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Could affect another user/share relationship; intentionally not exercised. |
+| `ShoppingListsService.add_notification_location()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Could create location-notification/geofence state and has no same-scope cleanup path in this SDK surface. |
+| `ShoppingListsService.add_store_ids_to_items()` | ✅ LIVE VERIFIED | Temporary item/store association persisted on fresh read. |
+| `ShoppingListsService.remove_store_ids_from_items()` | ✅ LIVE VERIFIED | Temporary association removal persisted on fresh read. |
+| `ShoppingListsService.remove_store_id_from_all_items()` | ✅ LIVE VERIFIED | Temporary store cleanup persisted on fresh read. |
+| `ShoppingListsService.save_store()` | ✅ LIVE VERIFIED | Temporary store create/update persisted on fresh reads. |
+| `ShoppingListsService.delete_store()` | ✅ LIVE VERIFIED | Temporary store deletion persisted on fresh read. |
+| `ShoppingListsService.set_sorted_store_ids()` | ✅ LIVE VERIFIED | Temporary store ordering persisted on fresh read. |
+| `ShoppingListsService.save_store_filter()` | ✅ LIVE VERIFIED | Temporary filter create/update persisted on fresh reads. |
+| `ShoppingListsService.delete_store_filter()` | ✅ LIVE VERIFIED | Temporary filter deletion persisted on fresh read. |
+| `ShoppingListsService.set_sorted_store_filter_ids()` | ✅ LIVE VERIFIED | Temporary filter ordering persisted on fresh read. |
+| `ShoppingListsService.save_list_category()` | ✅ LIVE VERIFIED | Temporary list category creation persisted on fresh read. |
+| `ShoppingListsService.migrate_list_category()` | ✅ LIVE VERIFIED | Migration handler accepted a temporary category and fresh read confirmed it. |
+| `ShoppingListsService.rename_list_category()` | ✅ LIVE VERIFIED | Temporary category rename persisted on fresh read. |
+| `ShoppingListsService.set_list_category_icon()` | ✅ LIVE VERIFIED | Temporary category icon persisted on fresh read. |
+| `ShoppingListsService.save_category_group()` | ✅ LIVE VERIFIED | Temporary category group/categories persisted on fresh read. |
+| `ShoppingListsService.migrate_category_group()` | ✅ LIVE VERIFIED | Migration handler persisted the temporary group. |
+| `ShoppingListsService.delete_category_group()` | ✅ LIVE VERIFIED | Temporary group deletion and category cleanup persisted. |
+| `ShoppingListsService.rename_category_group()` | ✅ LIVE VERIFIED | Temporary group rename persisted. |
+| `ShoppingListsService.set_default_category()` | ✅ LIVE VERIFIED | Temporary default-category change persisted. |
+| `ShoppingListsService.set_sorted_category_ids()` | ✅ LIVE VERIFIED | Temporary category ordering persisted. |
+| `ShoppingListsService.remove_category_ids()` | ✅ LIVE VERIFIED | Temporary category removal persisted and associated rule cleanup was verified. |
+| `ShoppingListsService.save_categorization_rule()` | ✅ LIVE VERIFIED | Server readback confirms official deterministic UUIDv5 identity; live-discovered mismatch fixed and regression-tested. |
+| `ShoppingListsService.bulk_save_categorization_rules()` | ✅ LIVE VERIFIED | Bulk rules persisted with official deterministic UUIDv5 identities; live-discovered mismatch fixed. |
+| `ShoppingListsService.migrate_categorization_rules()` | ✅ LIVE VERIFIED | Migration rules persisted with official deterministic UUIDv5 identities; live-discovered mismatch fixed. |
+| `ShoppingListsService.remove_categorization_rules_for_category_ids()` | ✅ LIVE VERIFIED | Temporary categorization rules were removed and absence confirmed on fresh read. |
+| `ShoppingListsService.reorder_items()` | ✅ LIVE VERIFIED | Manual ordering of temporary items persisted on a fresh read. |
+| `ShoppingListsService.add_recipe_ingredient()` | ✅ LIVE VERIFIED | Recipe-provenance shopping item creation was verified entirely within the disposable list. |
+| `ShoppingListsService.remove_recipe_ingredient()` | ✅ LIVE VERIFIED | Recipe provenance removal persisted without touching a server recipe object. |
+| `ShoppingListsService.sync_recipe_update()` | ✅ LIVE VERIFIED | Recipe-update reconciliation changed only disposable-list provenance/items and persisted live. |
+| `ShoppingListsService.sync_recipe_event_update()` | ✅ LIVE VERIFIED | Event-linked recipe provenance update persisted on the disposable list. |
+| `ShoppingListsService.sync_event_list_update()` | ✅ LIVE VERIFIED | Free-form event-list provenance update persisted on the disposable list. |
+| `ShoppingListsService.remove_event_references()` | ✅ LIVE VERIFIED | Event provenance cleanup persisted on fresh read. |
+| `ShoppingListsService.remove_recipe_references()` | ✅ LIVE VERIFIED | Recipe provenance cleanup persisted on fresh read. |
 | `ShoppingListsService.raw_legacy_operation()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
 | `ShoppingListsService.flush()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
 | `ShoppingListsService.restore()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
@@ -201,9 +204,9 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 |---|---|---|
 | `ListSettingsService.get()` | 🧪 OFFLINE VERIFIED |  |
 | `ListSettingsService.ensure()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED |  |
-| `ListSettingsService.initialize_new_list()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Reproduces the official new-list theme/category/autocomplete/sort settings batch. Safe to live-test only for the authorized disposable shopping list. |
+| `ListSettingsService.initialize_new_list()` | ✅ LIVE VERIFIED | Exercised by creation of the retained disposable list with fresh-session persistence. |
 | `ListSettingsService.refresh()` | ✅ LIVE VERIFIED | Called against the real endpoint and decoded/applied successfully. |
-| `ListSettingsService.set()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED |  |
+| `ListSettingsService.set()` | ✅ LIVE VERIFIED | Multiple per-list settings were toggled, verified on fresh reads, then restored exactly. |
 | `ListSettingsService.clear_store_filter_id()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED |  |
 | `ListSettingsService.set_migrated_list_category_group_id()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED |  |
 | `ListSettingsService.remove()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED |  |

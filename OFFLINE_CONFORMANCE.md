@@ -17,7 +17,8 @@ Unofficial clients are not used as protocol authority.
 
 ## Offline verification status
 
-- Full offline test suite: `456 passed`.
+- Original offline checkpoint suite: `456 passed`.
+- Current offline suite after subsequent live-conformance fixes: `473 passed` (see `CONFORMANCE_MATRIX.md` for the current live status).
 - Official operation-handler inventory: `185` handler IDs.
   - All `185` are explicitly represented by tests.
   - `184` have a normal serializable SDK path.
@@ -131,6 +132,4 @@ ANYLIST_LIVE_MUTATIONS=1
 ANYLIST_LIVE_LIST_ID=<shopping-list-id>
 ```
 
-The initial mutation harness only adds and removes one uniquely named item in that supplied
-list and attempts cleanup in a `finally` block. It never creates or deletes an account, sends
-email, changes sharing/Alexa/iCalendar state, uploads photos, or restores archived operations.
+The mutation harness has since expanded beyond the original one-item pilot. It is hard-guarded to the approved disposable shopping-list ID and exact name, verifies mutations through fresh server reads, suppresses Recent Items side effects where required, and cleans up temporary list-local resources. Current live results and the precise tested/untested boundary are tracked in `CONFORMANCE_MATRIX.md`. It still never deletes an account, sends email, changes sharing/Alexa/iCalendar state, uploads photos, or restores archived operations without additional authorization.

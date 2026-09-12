@@ -1487,27 +1487,60 @@ class ShoppingListsService(OperationService):
     async def save_categorization_rule(
         self, rule: PBListCategorizationRule, *, flush: bool = True
     ) -> str:
-        updated = clone_message(rule)
-        self._categorization_rule_index(str(updated.listId))[str(updated.identifier)] = clone_message(updated)
+        updated = self._canonical_categorization_rule(rule)
+        list_id = str(updated.listId)
+        self._categorization_rule_index(list_id)[str(updated.identifier)] = clone_message(updated)
         return await self.operation(
             "save-categorization-rule",
-            listId=str(updated.listId),
+            listId=list_id,
             updatedCategorizationRule=clone_message(updated),
             operation_class=PB.PBOperationMetadata.OperationClass.ListCategorizationRuleOperation,
             flush=flush,
         )
 
+    def _canonical_categorization_rule(
+        self, rule: PBListCategorizationRule, *, list_id: str | None = None
+    ) -> PBListCategorizationRule:
+        """Build the deterministic rule shape used by every official creation path."""
+        resolved_list_id = list_id or str(rule.listId)
+        category_group_id = str(rule.categoryGroupId)
+        item_name = str(rule.itemName)
+        identifier = category_rule_identifier(
+            item_name, category_group_id, resolved_list_id
+        )
+        existing = self._categorization_rule_index(resolved_list_id).get(identifier)
+        if existing is not None:
+            updated = clone_message(existing)
+        else:
+            updated = PB.PBListCategorizationRule(
+                identifier=identifier,
+                listId=resolved_list_id,
+                categoryGroupId=category_group_id,
+                itemName=item_name.lower(),
+            )
+        if rule.categoryId:
+            updated.categoryId = rule.categoryId
+        else:
+            updated.ClearField("categoryId")
+        return updated
+
     async def bulk_save_categorization_rules(
         self, list_id: str, rules: Sequence[PBListCategorizationRule], *, flush: bool = True
     ) -> None:
         index = self._categorization_rule_index(list_id)
-        for rule in rules:
+        canonical = [
+            self._canonical_categorization_rule(rule, list_id=list_id)
+            for rule in rules
+        ]
+        for rule in canonical:
             index[str(rule.identifier)] = clone_message(rule)
-        for start in range(0, len(rules), 25):
+        for start in range(0, len(canonical), 25):
             await self.operation(
                 "bulk-save-categorization-rules",
                 listId=list_id,
-                updatedCategorizationRules=[clone_message(x) for x in rules[start : start + 25]],
+                updatedCategorizationRules=[
+                    clone_message(x) for x in canonical[start : start + 25]
+                ],
                 operation_class=PB.PBOperationMetadata.OperationClass.ListCategorizationRuleOperation,
                 flush=False,
             )
@@ -1518,13 +1551,19 @@ class ShoppingListsService(OperationService):
         self, list_id: str, rules: Sequence[PBListCategorizationRule], *, flush: bool = True
     ) -> None:
         index = self._categorization_rule_index(list_id)
-        for rule in rules:
+        canonical = [
+            self._canonical_categorization_rule(rule, list_id=list_id)
+            for rule in rules
+        ]
+        for rule in canonical:
             index[str(rule.identifier)] = clone_message(rule)
-        for start in range(0, len(rules), 25):
+        for start in range(0, len(canonical), 25):
             await self.operation(
                 "migrate-per-user-categorization-rules",
                 listId=list_id,
-                updatedCategorizationRules=[clone_message(x) for x in rules[start : start + 25]],
+                updatedCategorizationRules=[
+                    clone_message(x) for x in canonical[start : start + 25]
+                ],
                 operation_class=PB.PBOperationMetadata.OperationClass.ListCategorizationRuleOperation,
                 flush=False,
             )

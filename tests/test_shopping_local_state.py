@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from anylist_sdk.proto import PB
-from anylist_sdk.services.shopping import ShoppingListsService
+from anylist_sdk.services.shopping import ShoppingListsService, category_rule_identifier
 from anylist_sdk.state import AnyListState
 
 
@@ -582,7 +582,13 @@ async def test_list_categorization_rule_v2_operation_contracts(fake_transport) -
         save.metadata.operationClass
         == PB.PBOperationMetadata.OperationClass.ListCategorizationRuleOperation
     )
-    assert save.updatedCategorizationRule == rule
+    expected_id = category_rule_identifier("milk", "group", "list")
+    assert save.updatedCategorizationRule.identifier == expected_id
+    assert save.updatedCategorizationRule.itemName == "milk"
+    assert save.updatedCategorizationRule.categoryGroupId == "group"
+    assert save.updatedCategorizationRule.categoryId == "cat"
+    assert expected_id in svc.state.list_categorization_rules["list"]
+    assert "rule" not in svc.state.list_categorization_rules["list"]
 
     rules = [
         PB.PBListCategorizationRule(
@@ -603,6 +609,19 @@ async def test_list_categorization_rule_v2_operation_contracts(fake_transport) -
         if op.metadata.handlerId == "bulk-save-categorization-rules"
     ]
     assert [len(op.updatedCategorizationRules) for op in bulk_operations] == [25, 1]
+    bulk_expected_ids = [
+        category_rule_identifier(rule.itemName, rule.categoryGroupId, rule.listId)
+        for rule in rules
+    ]
+    assert [
+        value.identifier
+        for op in bulk_operations
+        for value in op.updatedCategorizationRules
+    ] == bulk_expected_ids
+    assert set(svc.state.list_categorization_rules["list"]) == {
+        expected_id,
+        *bulk_expected_ids,
+    }
     assert all(
         op.metadata.operationClass
         == PB.PBOperationMetadata.OperationClass.ListCategorizationRuleOperation
@@ -613,6 +632,7 @@ async def test_list_categorization_rule_v2_operation_contracts(fake_transport) -
     migrate = fake_transport.calls[-1][1]["operations"].operations[0]
     assert migrate.metadata.handlerId == "migrate-per-user-categorization-rules"
     assert len(migrate.updatedCategorizationRules) == 2
+    assert [value.identifier for value in migrate.updatedCategorizationRules] == bulk_expected_ids[:2]
 
 
 @pytest.mark.asyncio
@@ -669,14 +689,22 @@ async def test_bulk_categorization_rules_update_local_state_and_bucket_at_25(fak
     svc = service(fake_transport)
     rules = [
         PB.PBListCategorizationRule(
-            identifier=f"r{i}", listId="list", categoryGroupId="group", categoryId="cat"
+            identifier=f"r{i}",
+            listId="list",
+            categoryGroupId="group",
+            categoryId="cat",
+            itemName=f"item-{i}",
         )
         for i in range(27)
     ]
 
     await svc.bulk_save_categorization_rules("list", rules)
 
-    assert len(svc.state.list_categorization_rules["list"]) == 27
+    expected_ids = {
+        category_rule_identifier(rule.itemName, rule.categoryGroupId, rule.listId)
+        for rule in rules
+    }
+    assert set(svc.state.list_categorization_rules["list"]) == expected_ids
     batches = [call[1]["operations"].operations for call in fake_transport.calls]
     # Queue flushing after the second enqueue sends both queued operations in one request.
     assert sum(len(batch) for batch in batches) >= 2

@@ -11,6 +11,7 @@ from anylist_sdk.derived import (
     ingredient_to_item_ingredient,
 )
 from anylist_sdk.proto import PB, ListItem, ShoppingList
+from anylist_sdk.services.shopping import category_rule_identifier
 
 
 DISPOSABLE_LIST_NAME = "AnyList SDK Conformance Test"
@@ -437,7 +438,7 @@ async def test_live_category_group_category_and_rule_round_trip(
     group_id = uuid4().hex
     category_a_id = uuid4().hex
     category_b_id = uuid4().hex
-    rule_id = uuid4().hex
+    caller_rule_id = uuid4().hex
     group = PB.PBListCategoryGroup(
         identifier=group_id,
         listId=live_mutation_list_id,
@@ -482,11 +483,15 @@ async def test_live_category_group_category_and_rule_round_trip(
             current_group, [category_b_id, category_a_id]
         )
 
+        rule_name = f"sdk-rule-{caller_rule_id[:8]}"
+        persisted_rule_id = category_rule_identifier(
+            rule_name, group_id, live_mutation_list_id
+        )
         rule = PB.PBListCategorizationRule(
-            identifier=rule_id,
+            identifier=caller_rule_id,
             listId=live_mutation_list_id,
             categoryGroupId=group_id,
-            itemName=f"sdk-rule-{rule_id[:8]}",
+            itemName=rule_name,
             categoryId=category_b_id,
         )
         await live_client.lists.save_categorization_rule(rule)
@@ -498,7 +503,8 @@ async def test_live_category_group_category_and_rule_round_trip(
         )
         assert snapshot["categories"][category_b_id].icon == "other"
         assert snapshot["categories"][category_b_id].sortIndex == 0
-        assert rule_id in snapshot["categorization_rules"]
+        assert persisted_rule_id in snapshot["categorization_rules"]
+        assert caller_rule_id not in snapshot["categorization_rules"]
     finally:
         current_group = live_client.state.list_category_groups.get(
             live_mutation_list_id, {}
@@ -525,7 +531,7 @@ async def test_live_category_group_category_and_rule_round_trip(
     assert group_id not in snapshot["category_groups"]
     assert category_a_id not in snapshot["categories"]
     assert category_b_id not in snapshot["categories"]
-    assert rule_id not in snapshot["categorization_rules"]
+    assert persisted_rule_id not in snapshot["categorization_rules"]
 
 
 @pytest.mark.asyncio
@@ -538,7 +544,7 @@ async def test_live_category_migration_and_bulk_rule_handlers(
     category_a_id = uuid4().hex
     category_b_id = uuid4().hex
     category_c_id = uuid4().hex
-    rule_ids = [uuid4().hex, uuid4().hex, uuid4().hex]
+    caller_rule_ids = [uuid4().hex, uuid4().hex, uuid4().hex]
     group = PB.PBListCategoryGroup(
         identifier=group_id,
         listId=live_mutation_list_id,
@@ -567,27 +573,31 @@ async def test_live_category_migration_and_bulk_rule_handlers(
         sortIndex=2,
     )
     rules = [
-        PB.PBListCategorizationRule(
-            identifier=rule_ids[0],
-            listId=live_mutation_list_id,
-            categoryGroupId=group_id,
-            itemName=f"sdk-bulk-a-{rule_ids[0][:8]}",
-            categoryId=category_a_id,
-        ),
-        PB.PBListCategorizationRule(
-            identifier=rule_ids[1],
-            listId=live_mutation_list_id,
-            categoryGroupId=group_id,
-            itemName=f"sdk-bulk-b-{rule_ids[1][:8]}",
-            categoryId=category_b_id,
-        ),
-        PB.PBListCategorizationRule(
-            identifier=rule_ids[2],
-            listId=live_mutation_list_id,
-            categoryGroupId=group_id,
-            itemName=f"sdk-migrate-a-{rule_ids[2][:8]}",
-            categoryId=category_a_id,
-        ),
+            PB.PBListCategorizationRule(
+                identifier=caller_rule_ids[0],
+                listId=live_mutation_list_id,
+                categoryGroupId=group_id,
+                itemName=f"sdk-bulk-a-{caller_rule_ids[0][:8]}",
+                categoryId=category_a_id,
+            ),
+            PB.PBListCategorizationRule(
+                identifier=caller_rule_ids[1],
+                listId=live_mutation_list_id,
+                categoryGroupId=group_id,
+                itemName=f"sdk-bulk-b-{caller_rule_ids[1][:8]}",
+                categoryId=category_b_id,
+            ),
+            PB.PBListCategorizationRule(
+                identifier=caller_rule_ids[2],
+                listId=live_mutation_list_id,
+                categoryGroupId=group_id,
+                itemName=f"sdk-migrate-a-{caller_rule_ids[2][:8]}",
+                categoryId=category_a_id,
+            ),
+        ]
+    persisted_rule_ids = [
+        category_rule_identifier(rule.itemName, group_id, live_mutation_list_id)
+        for rule in rules
     ]
     try:
         await live_client.lists.migrate_category_group(group)
@@ -606,7 +616,8 @@ async def test_live_category_migration_and_bulk_rule_handlers(
         assert {category_a_id, category_b_id, category_c_id}.issubset(
             snapshot["categories"]
         )
-        assert set(rule_ids).issubset(snapshot["categorization_rules"])
+        assert set(persisted_rule_ids).issubset(snapshot["categorization_rules"])
+        assert not set(caller_rule_ids) & set(snapshot["categorization_rules"])
 
         current_group = live_client.state.list_category_groups[live_mutation_list_id][group_id]
         current_c = live_client.state.list_categories[live_mutation_list_id][category_c_id]
@@ -638,7 +649,7 @@ async def test_live_category_migration_and_bulk_rule_handlers(
     snapshot = await _fresh_list_scope(live_client, live_mutation_list_id)
     assert group_id not in snapshot["category_groups"]
     assert not {category_a_id, category_b_id, category_c_id} & set(snapshot["categories"])
-    assert not set(rule_ids) & set(snapshot["categorization_rules"])
+    assert not set(persisted_rule_ids) & set(snapshot["categorization_rules"])
 
 
 @pytest.mark.asyncio
