@@ -1022,7 +1022,7 @@ class ShoppingListsService(OperationService):
         if not items:
             return []
         if self.on_items_became_recent is not None:
-            await self.on_items_became_recent(list_id, items, True, False)
+            await self.on_items_became_recent(list_id, items, True, flush)
         return await self.bulk_remove_items(
             list_id,
             [str(item.identifier) for item in items],
@@ -1037,7 +1037,7 @@ class ShoppingListsService(OperationService):
         if not items:
             return []
         if self.on_items_became_recent is not None:
-            await self.on_items_became_recent(list_id, items, True, False)
+            await self.on_items_became_recent(list_id, items, True, flush)
         return await self.bulk_remove_items(
             list_id,
             [str(item.identifier) for item in items],

@@ -10,18 +10,19 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 - **🟡 LIVE PARTIAL** — a meaningful live path passed, but another direction/side effect remains intentionally untested.
 - **🟠 LIVE RETEST REQUIRED** — relevant implementation changed after the last live attempt; do not treat older live results as current proof.
 - **⚪ NOT LIVE TESTED** — no current live evidence.
-- **🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE** — deliberately not tested because the user authorized writes only to the single disposable shopping list, not other lists/global resources/external side effects.
+- **🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE** — deliberately not tested because it would affect resources outside the disposable-list ecosystem, global/account state that cannot be isolated, another person, or an external side effect without a cleanup path.
 - **⚠️ OFFICIAL CONTRADICTION** — official JavaScript and embedded protobuf schema conflict; do not invent a wire format.
 
 ## Current checkpoint
 
-- Offline suite: **473 passing** at the latest local gate.
+- Offline suite: **475 passing** at the latest local gate.
 - Current read-only live suite: **9/9 passing** with the corrected multipart transport.
-- Guarded disposable-list mutation suite: **22 passed, 1 safely skipped without writing**. The skip is the reversible list-local flags case because the server did not materialize the optional fields required for exact restoration.
+- Guarded disposable-list mutation suite: **33 passed, 1 safely skipped without writing** in the latest complete live run. Coverage now includes the disposable shopping list, its deterministic Recent/Favorite starter lists, starter-list settings, temporary disposable-linked starter lists, and exact starter-list ordering restoration.
 - The reusable server-side disposable list **`AnyList SDK Conformance Test`** exists and is retained for future verification. Mutation guards require both its reserved ID and exact name before any write.
 - No normal shopping list was mutated. Temporary items/stores/filters/categories/rules/provenance created by live tests were removed again; removal paths suppress Recent Items where required.
 - The protobuf multipart correction is now **live write verified**: AnyList requires binary protobuf fields as ordinary multipart form fields with no filename and no per-part Content-Type.
 - Live conformance found and fixed a categorization-rule identity bug: single, bulk, and migration rule creation now use the official deterministic UUIDv5 of `lower(itemName) + categoryGroupId + listId`. Offline regressions and live server readback both confirm it.
+- Live conformance also found and fixed a cross-service flush bug: `clear()` and `remove_checked()` could commit the shopping-list removal while leaving their required Recent Items promotion queued locally. Both now propagate the caller's flush request to the Recent/Favorite starter queue, matching the official web flow; offline regressions and live readback confirm the fix.
 - Known official quirk: `ShoppingListsResponse.orderedIds` is populated on a full response and empty on unchanged deltas; `app.js` stores its private `$oj$JK` value but never reads it. Real ordering is folder-managed.
 - Known official contradiction: `set-web-selected-meal-plan-event-id` exists in JavaScript but `PBMobileAppSettings` has no `webSelectedMealPlanEventId` field.
 
@@ -132,8 +133,8 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 | `ShoppingListsService.add_item()` | ✅ LIVE VERIFIED | Temporary items persisted on fresh server reads and were removed with Recent Items suppressed. |
 | `ShoppingListsService.add_items()` | ✅ LIVE VERIFIED | Bulk-created temporary items persisted and were used for ordering/uncheck tests. |
 | `ShoppingListsService.revive_matching_item()` | ✅ LIVE VERIFIED | Checked temporary item was revived via the safe unchecked path and verified on a fresh read. |
-| `ShoppingListsService.remove_item()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Official behavior writes the removed item into Recent Items; current authorization forbids touching that side list. |
-| `ShoppingListsService.set_checked()` | 🟡 LIVE PARTIAL | `checked=False` is live verified. `checked=True` intentionally remains untested because official behavior writes Recent Items. |
+| `ShoppingListsService.remove_item()` | ✅ LIVE VERIFIED | Normal removal persisted on a fresh shopping-list read and created the corresponding unchecked clone in the disposable Recent Items list. |
+| `ShoppingListsService.set_checked()` | ✅ LIVE VERIFIED | Both cross-off and uncross directions are live verified; cross-off created exactly one disposable Recent clone with a fresh ID. |
 | `ShoppingListsService.rename_item()` | ✅ LIVE VERIFIED | Persisted on a fresh server read. |
 | `ShoppingListsService.set_details()` | ✅ LIVE VERIFIED | Persisted on a fresh server read. |
 | `ShoppingListsService.set_product_upc()` | ✅ LIVE VERIFIED | Persisted on a fresh server read. |
@@ -155,10 +156,10 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 | `ShoppingListsService.set_allows_multiple_category_groups()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Guarded live test safely skipped because the server omitted the optional field needed for exact restoration; no write occurred. |
 | `ShoppingListsService.set_new_item_position()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Guarded live test safely skipped because the server omitted the optional field needed for exact restoration; no write occurred. |
 | `ShoppingListsService.move_item()` | ✅ LIVE VERIFIED | Single-item movement persisted in server ordering. |
-| `ShoppingListsService.bulk_set_checked()` | 🟡 LIVE PARTIAL | Bulk uncheck is live verified. Bulk cross-off remains intentionally untested because it writes Recent Items. |
-| `ShoppingListsService.bulk_remove_items()` | 🟡 LIVE PARTIAL | Live verified with `remember_recent=False`; the default Recent Items side effect is intentionally outside current authorization. |
-| `ShoppingListsService.clear()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Official behavior populates Recent Items before clearing; intentionally not exercised. |
-| `ShoppingListsService.remove_checked()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Official behavior preserves removed items in Recent Items; intentionally not exercised. |
+| `ShoppingListsService.bulk_set_checked()` | ✅ LIVE VERIFIED | Bulk cross-off and bulk uncheck are both live verified; cross-off populated only the disposable Recent list. |
+| `ShoppingListsService.bulk_remove_items()` | ✅ LIVE VERIFIED | Both `remember_recent=False` and default Recent Items promotion are live verified with fresh readback. |
+| `ShoppingListsService.clear()` | ✅ LIVE VERIFIED | Cleared the disposable shopping list and populated its Recent Items list; this live test exposed and then confirmed the cross-service flush fix. |
+| `ShoppingListsService.remove_checked()` | ✅ LIVE VERIFIED | Removed only checked disposable items while preserving their existing Recent entries without duplicates; live-confirmed after the cross-service flush fix. |
 | `ShoppingListsService.uncheck_all()` | ✅ LIVE VERIFIED | Temporary checked items were uncrossed without Recent Items writes and verified on a fresh read. |
 | `ShoppingListsService.unshare()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Could affect another user/share relationship; intentionally not exercised. |
 | `ShoppingListsService.add_notification_location()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Could create location-notification/geofence state and has no same-scope cleanup path in this SDK surface. |
@@ -281,42 +282,42 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 | `StarterListsService.aggregate_favorites()` | 🧪 OFFLINE VERIFIED |  |
 | `StarterListsService.autocomplete_items()` | 🧪 OFFLINE VERIFIED |  |
 | `StarterListsService.ordered_user_lists()` | 🧪 OFFLINE VERIFIED |  |
-| `StarterListsService.get()` | 🧪 OFFLINE VERIFIED |  |
+| `StarterListsService.get()` | ✅ LIVE VERIFIED | Used throughout fresh-session verification of the disposable Recent/Favorite and temporary custom starter lists. |
 | `StarterListsService.refresh()` | ✅ LIVE VERIFIED | Called against the real endpoint and decoded/applied successfully. |
-| `StarterListsService.refresh_order()` | ✅ LIVE VERIFIED | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `StarterListsService.create()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `StarterListsService.ensure_favorites()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `StarterListsService.ensure_recents()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `StarterListsService.initialize_for_shopping_list()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Exact post-create Recent/Favorite starter-list batch is implemented offline, but the live disposable-list creation explicitly disables it to avoid touching other lists. |
-| `StarterListsService.remove()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `StarterListsService.add_item()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `StarterListsService.bulk_add_items()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `StarterListsService.record_recent_items()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `StarterListsService.remove_item()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `StarterListsService.bulk_remove_items()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `StarterListsService.clear()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `StarterListsService.rename()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `StarterListsService.set_item_name()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `StarterListsService.set_item_details()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `StarterListsService.set_product_upc()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `StarterListsService.set_photo()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `StarterListsService.set_quantity()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `StarterListsService.set_quantity_override()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `StarterListsService.set_price_quantity()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `StarterListsService.set_price_quantity_override()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `StarterListsService.set_package_size()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `StarterListsService.set_package_override()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `StarterListsService.set_price_package_size()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `StarterListsService.set_price_package_override()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `StarterListsService.add_store()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `StarterListsService.remove_store()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `StarterListsService.add_store_ids_to_items()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `StarterListsService.remove_store_ids_from_items()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `StarterListsService.remove_store_from_all_items()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `StarterListsService.save_price()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `StarterListsService.remove_price()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `StarterListsService.reorder_lists()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `StarterListsService.flush()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
+| `StarterListsService.refresh_order()` | ✅ LIVE VERIFIED | Fresh clients read the ordered-ID endpoint repeatedly during temporary custom starter-list ordering tests. |
+| `StarterListsService.create()` | ✅ LIVE VERIFIED | Created two temporary user starter lists linked to the disposable shopping list and confirmed both on a fresh client. |
+| `StarterListsService.ensure_favorites()` | ✅ LIVE VERIFIED | Created/verified the deterministic Favorite Items list for the disposable shopping list. |
+| `StarterListsService.ensure_recents()` | ✅ LIVE VERIFIED | Created/verified the deterministic Recent Items list for the disposable shopping list. |
+| `StarterListsService.initialize_for_shopping_list()` | ✅ LIVE VERIFIED | Created Recent then Favorite as one deterministic post-create batch; both survived fresh-session readback. |
+| `StarterListsService.remove()` | ✅ LIVE VERIFIED | Removed both disposable deterministic starter lists and temporary custom starter lists; fresh clients confirmed absence before recreation/cleanup. |
+| `StarterListsService.add_item()` | ✅ LIVE VERIFIED | Favorite item CRUD persisted on fresh readback. |
+| `StarterListsService.bulk_add_items()` | ✅ LIVE VERIFIED | Favorite bulk adds and the Recent 201→200 cap test persisted on the server. |
+| `StarterListsService.record_recent_items()` | ✅ LIVE VERIFIED | Exercised naturally by shopping cross-off/remove/bulk-remove/clear/remove-checked; fresh Recents readback confirmed replacement/skip-existing behavior. |
+| `StarterListsService.remove_item()` | ✅ LIVE VERIFIED | Favorite item removal persisted on fresh readback. |
+| `StarterListsService.bulk_remove_items()` | ✅ LIVE VERIFIED | Favorite/Recent bulk cleanup persisted on fresh readback. |
+| `StarterListsService.clear()` | ✅ LIVE VERIFIED | Cleared the disposable Favorite list and fresh read confirmed zero items. |
+| `StarterListsService.rename()` | ✅ LIVE VERIFIED | Temporary Favorite rename persisted and was restored. |
+| `StarterListsService.set_item_name()` | ✅ LIVE VERIFIED | Temporary Favorite item field persisted on fresh read. |
+| `StarterListsService.set_item_details()` | ✅ LIVE VERIFIED | Temporary Favorite item field persisted on fresh read. |
+| `StarterListsService.set_product_upc()` | ✅ LIVE VERIFIED | Temporary Favorite item field persisted on fresh read. |
+| `StarterListsService.set_photo()` | ✅ LIVE VERIFIED | Photo-reference set/clear persisted on a temporary Favorite item; no external photo upload occurred. |
+| `StarterListsService.set_quantity()` | ✅ LIVE VERIFIED | Exact quantity protobuf persisted on a temporary Favorite item. |
+| `StarterListsService.set_quantity_override()` | ✅ LIVE VERIFIED | Persisted on a temporary Favorite item. |
+| `StarterListsService.set_price_quantity()` | ✅ LIVE VERIFIED | Exact price-quantity protobuf persisted on a temporary Favorite item. |
+| `StarterListsService.set_price_quantity_override()` | ✅ LIVE VERIFIED | Persisted on a temporary Favorite item. |
+| `StarterListsService.set_package_size()` | ✅ LIVE VERIFIED | Exact package-size protobuf persisted on a temporary Favorite item. |
+| `StarterListsService.set_package_override()` | ✅ LIVE VERIFIED | Persisted on a temporary Favorite item. |
+| `StarterListsService.set_price_package_size()` | ✅ LIVE VERIFIED | Exact price package-size protobuf persisted on a temporary Favorite item. |
+| `StarterListsService.set_price_package_override()` | ✅ LIVE VERIFIED | Persisted on a temporary Favorite item. |
+| `StarterListsService.add_store()` | ✅ LIVE VERIFIED | Temporary store ID persisted on a Favorite item. |
+| `StarterListsService.remove_store()` | ✅ LIVE VERIFIED | Temporary store ID removal persisted. |
+| `StarterListsService.add_store_ids_to_items()` | ✅ LIVE VERIFIED | Bulk store-ID association persisted on the disposable Favorite list. |
+| `StarterListsService.remove_store_ids_from_items()` | ✅ LIVE VERIFIED | Bulk association removal persisted. |
+| `StarterListsService.remove_store_from_all_items()` | ✅ LIVE VERIFIED | Temporary store ID cleanup executed and fresh item state was clean. |
+| `StarterListsService.save_price()` | ✅ LIVE VERIFIED | Temporary Favorite item price add persisted. |
+| `StarterListsService.remove_price()` | ✅ LIVE VERIFIED | Temporary Favorite item price removal persisted. |
+| `StarterListsService.reorder_lists()` | ✅ LIVE VERIFIED | Two temporary disposable-linked starter IDs were reordered while all pre-existing IDs retained their exact relative order, then the original order was restored. |
+| `StarterListsService.flush()` | ✅ LIVE VERIFIED | Exercised by bulk starter mutations, including the live 201-item Recent cap batch. |
 | `StarterListsService.restore()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
 
 ## Recipes

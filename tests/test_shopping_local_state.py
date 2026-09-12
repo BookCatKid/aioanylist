@@ -1091,6 +1091,24 @@ async def test_clear_promotes_with_skip_existing_then_removes_without_duplicate_
 
 
 @pytest.mark.asyncio
+async def test_clear_propagates_requested_flush_to_recent_promotion(fake_transport) -> None:
+    svc = service(fake_transport)
+    svc.state.shopping_lists["list"] = PB.ShoppingList(
+        identifier="list",
+        items=[PB.ListItem(identifier="a", listId="list", name="A")],
+    )
+    seen = []
+
+    async def recent(list_id, items, skip_existing, flush):
+        seen.append((list_id, [x.identifier for x in items], skip_existing, flush))
+
+    svc.on_items_became_recent = recent
+    await svc.clear("list", flush=True)
+
+    assert seen == [("list", ["a"], True, True)]
+
+
+@pytest.mark.asyncio
 async def test_remove_checked_only_promotes_and_removes_crossed_items(fake_transport) -> None:
     svc = service(fake_transport)
     svc.state.shopping_lists["list"] = PB.ShoppingList(
@@ -1112,6 +1130,24 @@ async def test_remove_checked_only_promotes_and_removes_crossed_items(fake_trans
     assert [x.identifier for x in removed] == ["b", "c"]
     assert [x.identifier for x in svc.state.shopping_lists["list"].items] == ["a"]
     assert seen == [(["b", "c"], True, False)]
+
+
+@pytest.mark.asyncio
+async def test_remove_checked_propagates_requested_flush_to_recent_promotion(fake_transport) -> None:
+    svc = service(fake_transport)
+    svc.state.shopping_lists["list"] = PB.ShoppingList(
+        identifier="list",
+        items=[PB.ListItem(identifier="a", listId="list", checked=True)],
+    )
+    seen = []
+
+    async def recent(list_id, items, skip_existing, flush):
+        seen.append((list_id, [x.identifier for x in items], skip_existing, flush))
+
+    svc.on_items_became_recent = recent
+    await svc.remove_checked("list", flush=True)
+
+    assert seen == [("list", ["a"], True, True)]
 
 
 @pytest.mark.asyncio

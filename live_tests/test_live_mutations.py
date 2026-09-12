@@ -12,6 +12,7 @@ from anylist_sdk.derived import (
 )
 from anylist_sdk.proto import PB, ListItem, ShoppingList
 from anylist_sdk.services.shopping import category_rule_identifier
+from anylist_sdk.services.starter import favorite_list_id, recent_list_id
 
 
 DISPOSABLE_LIST_NAME = "AnyList SDK Conformance Test"
@@ -115,6 +116,77 @@ async def _remove_without_recents(live_client, list_id: str, item_ids: list[str]
         )
 
 
+async def _fresh_disposable_starters(live_client, shopping_list_id: str) -> dict[str, object]:
+    """Read only the deterministic starter lists associated with the disposable list."""
+    tokens = live_client.tokens
+    assert tokens is not None
+    fresh = AnyListClient(base_url=live_client.transport.base_url, tokens=tokens)
+
+    def copied(value):
+        if value is None:
+            return None
+        out = value.__class__()
+        out.CopyFrom(value)
+        return out
+
+    try:
+        await fresh.load(realtime=False, load_tag_data=False, restore_pending=False)
+        assert fresh.starter_lists is not None
+        return {
+            "recent": copied(
+                fresh.starter_lists.get(recent_list_id(shopping_list_id))
+            ),
+            "favorite": copied(
+                fresh.starter_lists.get(favorite_list_id(shopping_list_id))
+            ),
+            "recent_settings": copied(
+                fresh.state.starter_list_settings.get(recent_list_id(shopping_list_id))
+            ),
+            "favorite_settings": copied(
+                fresh.state.starter_list_settings.get(favorite_list_id(shopping_list_id))
+            ),
+        }
+    finally:
+        await fresh.close()
+
+
+async def _fresh_starter_order(live_client) -> list[str]:
+    """Read starter-list ordering through a fresh client state mirror."""
+    tokens = live_client.tokens
+    assert tokens is not None
+    fresh = AnyListClient(base_url=live_client.transport.base_url, tokens=tokens)
+    try:
+        await fresh.load(realtime=False, load_tag_data=False, restore_pending=False)
+        assert fresh.starter_lists is not None
+        await fresh.starter_lists.refresh_order()
+        return list(fresh.state.ordered_starter_list_ids)
+    finally:
+        await fresh.close()
+
+
+async def _ensure_disposable_starters(live_client, shopping_list_id: str) -> None:
+    await _load_and_require_disposable(live_client, shopping_list_id)
+    assert live_client.starter_lists is not None
+    await live_client.starter_lists.initialize_for_shopping_list(shopping_list_id)
+
+
+async def _remove_named_starter_items(
+    live_client, shopping_list_id: str, names: set[str]
+) -> None:
+    assert live_client.starter_lists is not None
+    await live_client.starter_lists.refresh()
+    for starter_id in (
+        recent_list_id(shopping_list_id),
+        favorite_list_id(shopping_list_id),
+    ):
+        starter = live_client.starter_lists.get(starter_id)
+        if starter is None:
+            continue
+        ids = [str(item.identifier) for item in starter.items if str(item.name) in names]
+        if ids:
+            await live_client.starter_lists.bulk_remove_items(starter_id, ids)
+
+
 @pytest.mark.asyncio
 async def test_live_create_reserved_disposable_list_only(
     live_client, live_mutation_list_id: str
@@ -149,6 +221,548 @@ async def test_live_disposable_list_guard(live_client, live_mutation_list_id: st
     fresh = await _fresh_server_list(live_client, live_mutation_list_id)
     assert fresh is not None
     assert fresh.name == DISPOSABLE_LIST_NAME
+
+
+@pytest.mark.asyncio
+async def test_live_initialize_disposable_recent_and_favorite_lists(
+    live_client, live_mutation_list_id: str
+) -> None:
+    await _ensure_disposable_starters(live_client, live_mutation_list_id)
+    snapshot = await _fresh_disposable_starters(live_client, live_mutation_list_id)
+    recent = snapshot["recent"]
+    favorite = snapshot["favorite"]
+    assert recent is not None
+    assert favorite is not None
+    assert recent.identifier == recent_list_id(live_mutation_list_id)
+    assert favorite.identifier == favorite_list_id(live_mutation_list_id)
+    assert recent.listId == live_mutation_list_id
+    assert favorite.listId == live_mutation_list_id
+    assert recent.starterListType == PB.StarterList.Type.RecentItemsType
+    assert favorite.starterListType == PB.StarterList.Type.FavoriteItemsType
+
+
+@pytest.mark.asyncio
+async def test_live_cross_off_records_disposable_recent_item(
+    live_client, live_mutation_list_id: str
+) -> None:
+    await _ensure_disposable_starters(live_client, live_mutation_list_id)
+    assert live_client.lists is not None
+    marker = f"sdk-recent-cross-{uuid4().hex}"
+    created = await live_client.lists.add_item(live_mutation_list_id, marker)
+    item_id = str(created.identifier)
+    try:
+        await live_client.lists.set_checked(live_mutation_list_id, item_id, True)
+        fresh = await _fresh_server_list(live_client, live_mutation_list_id)
+        assert fresh is not None
+        persisted = next((item for item in fresh.items if item.identifier == item_id), None)
+        assert persisted is not None and persisted.checked
+
+        starters = await _fresh_disposable_starters(live_client, live_mutation_list_id)
+        recent = starters["recent"]
+        assert recent is not None
+        matches = [item for item in recent.items if item.name == marker]
+        assert len(matches) == 1
+        assert not matches[0].checked
+        assert matches[0].identifier != item_id
+        assert matches[0].listId == recent_list_id(live_mutation_list_id)
+
+        await live_client.lists.set_checked(live_mutation_list_id, item_id, False)
+    finally:
+        await _remove_without_recents(live_client, live_mutation_list_id, [item_id])
+        await _remove_named_starter_items(
+            live_client, live_mutation_list_id, {marker}
+        )
+
+
+@pytest.mark.asyncio
+async def test_live_normal_remove_records_disposable_recent_item(
+    live_client, live_mutation_list_id: str
+) -> None:
+    await _ensure_disposable_starters(live_client, live_mutation_list_id)
+    assert live_client.lists is not None
+    marker = f"sdk-recent-remove-{uuid4().hex}"
+    created = await live_client.lists.add_item(live_mutation_list_id, marker)
+    item_id = str(created.identifier)
+    try:
+        await live_client.lists.remove_item(live_mutation_list_id, item_id)
+        fresh = await _fresh_server_list(live_client, live_mutation_list_id)
+        assert fresh is not None
+        assert all(item.identifier != item_id for item in fresh.items)
+
+        starters = await _fresh_disposable_starters(live_client, live_mutation_list_id)
+        recent = starters["recent"]
+        assert recent is not None
+        matches = [item for item in recent.items if item.name == marker]
+        assert len(matches) == 1
+        assert not matches[0].checked
+    finally:
+        await _remove_named_starter_items(
+            live_client, live_mutation_list_id, {marker}
+        )
+
+
+@pytest.mark.asyncio
+async def test_live_clear_and_remove_checked_preserve_disposable_recents(
+    live_client, live_mutation_list_id: str
+) -> None:
+    shopping = await _load_and_require_disposable(live_client, live_mutation_list_id)
+    if shopping.items:
+        pytest.fail(
+            "disposable shopping list is not empty; refusing destructive clear/remove-checked test",
+            pytrace=False,
+        )
+    await _ensure_disposable_starters(live_client, live_mutation_list_id)
+    assert live_client.lists is not None
+
+    clear_names = {f"sdk-clear-{uuid4().hex}", f"sdk-clear-{uuid4().hex}"}
+    checked_names = {
+        f"sdk-remove-checked-{uuid4().hex}",
+        f"sdk-remove-checked-{uuid4().hex}",
+    }
+    all_names = clear_names | checked_names
+    try:
+        clear_items = [PB.ListItem(name=name) for name in clear_names]
+        await live_client.lists.add_items(live_mutation_list_id, clear_items)
+        await live_client.lists.clear(live_mutation_list_id)
+        fresh = await _fresh_server_list(live_client, live_mutation_list_id)
+        assert fresh is not None and not fresh.items
+
+        starters = await _fresh_disposable_starters(live_client, live_mutation_list_id)
+        recent = starters["recent"]
+        assert recent is not None
+        assert clear_names.issubset({str(item.name) for item in recent.items})
+
+        checked_items = [PB.ListItem(name=name) for name in checked_names]
+        created = await live_client.lists.add_items(live_mutation_list_id, checked_items)
+        ids = [str(item.identifier) for item in created]
+        await live_client.lists.bulk_set_checked(live_mutation_list_id, ids, True)
+
+        before = await _fresh_disposable_starters(live_client, live_mutation_list_id)
+        recent_before = before["recent"]
+        assert recent_before is not None
+        before_counts = {
+            name: sum(1 for item in recent_before.items if item.name == name)
+            for name in checked_names
+        }
+        assert before_counts == {name: 1 for name in checked_names}
+
+        await live_client.lists.remove_checked(live_mutation_list_id)
+        fresh = await _fresh_server_list(live_client, live_mutation_list_id)
+        assert fresh is not None and not fresh.items
+        after = await _fresh_disposable_starters(live_client, live_mutation_list_id)
+        recent_after = after["recent"]
+        assert recent_after is not None
+        after_counts = {
+            name: sum(1 for item in recent_after.items if item.name == name)
+            for name in checked_names
+        }
+        assert after_counts == before_counts
+    finally:
+        await _remove_named_starter_items(
+            live_client, live_mutation_list_id, all_names
+        )
+        current = live_client.lists.get(live_mutation_list_id)
+        if current is not None and current.items:
+            await _remove_without_recents(
+                live_client,
+                live_mutation_list_id,
+                [str(item.identifier) for item in current.items],
+            )
+
+
+@pytest.mark.asyncio
+async def test_live_favorite_starter_item_crud_and_fields(
+    live_client, live_mutation_list_id: str
+) -> None:
+    await _ensure_disposable_starters(live_client, live_mutation_list_id)
+    assert live_client.starter_lists is not None
+    favorite_id = favorite_list_id(live_mutation_list_id)
+    marker = f"sdk-favorite-{uuid4().hex}"
+    created = await live_client.starter_lists.add_item(
+        favorite_id, PB.ListItem(name=marker)
+    )
+    item_id = str(created.identifier)
+    final_name = f"{marker}-renamed"
+    details = f"details-{uuid4().hex}"
+    upc = "012345678905"
+    photo_id = f"sdk-favorite-photo-{uuid4().hex}"
+    quantity = PB.PBItemQuantity(amount="2", unit="cup", rawQuantity="2 cups")
+    package = PB.PBItemPackageSize(size="12", unit="oz", rawPackageSize="12 oz")
+    price_quantity = PB.PBItemQuantity(amount="1", unit="each", rawQuantity="1 each")
+    price_package = PB.PBItemPackageSize(size="6", unit="oz", rawPackageSize="6 oz")
+    store_a = f"sdk-store-{uuid4().hex}"
+    store_b = f"sdk-store-{uuid4().hex}"
+    price = PB.PBItemPrice(storeId=store_a, amount=3.5, details="sdk-price")
+    try:
+        await live_client.starter_lists.set_item_name(favorite_id, item_id, final_name)
+        await live_client.starter_lists.set_item_details(favorite_id, item_id, details)
+        await live_client.starter_lists.set_product_upc(favorite_id, item_id, upc)
+        await live_client.starter_lists.set_photo(favorite_id, item_id, photo_id)
+        await live_client.starter_lists.set_quantity(favorite_id, item_id, quantity)
+        await live_client.starter_lists.set_quantity_override(favorite_id, item_id, True)
+        await live_client.starter_lists.set_package_size(favorite_id, item_id, package)
+        await live_client.starter_lists.set_package_override(favorite_id, item_id, True)
+        await live_client.starter_lists.set_price_quantity(favorite_id, item_id, price_quantity)
+        await live_client.starter_lists.set_price_quantity_override(
+            favorite_id, item_id, True
+        )
+        await live_client.starter_lists.set_price_package_size(
+            favorite_id, item_id, price_package
+        )
+        await live_client.starter_lists.set_price_package_override(
+            favorite_id, item_id, True
+        )
+        await live_client.starter_lists.add_store(favorite_id, item_id, store_a)
+        await live_client.starter_lists.add_store_ids_to_items(
+            favorite_id, [item_id], [store_b]
+        )
+        await live_client.starter_lists.save_price(favorite_id, item_id, price)
+
+        snapshot = await _fresh_disposable_starters(live_client, live_mutation_list_id)
+        favorite = snapshot["favorite"]
+        assert favorite is not None
+        persisted = next((x for x in favorite.items if x.identifier == item_id), None)
+        assert persisted is not None
+        assert persisted.name == final_name
+        assert persisted.details == details
+        assert persisted.productUpc == upc
+        assert list(persisted.photoIds) == [photo_id]
+        assert persisted.quantityPb.SerializeToString() == quantity.SerializeToString()
+        assert persisted.packageSizePb.SerializeToString() == package.SerializeToString()
+        assert persisted.priceQuantityPb.SerializeToString() == price_quantity.SerializeToString()
+        assert persisted.pricePackageSizePb.SerializeToString() == price_package.SerializeToString()
+        assert set(persisted.storeIds) == {store_a, store_b}
+        assert len(persisted.prices) == 1 and persisted.prices[0].amount == 3.5
+
+        await live_client.starter_lists.remove_store(favorite_id, item_id, store_a)
+        await live_client.starter_lists.remove_store_ids_from_items(
+            favorite_id, [item_id], [store_b]
+        )
+        await live_client.starter_lists.remove_store_from_all_items(favorite_id, store_a)
+        await live_client.starter_lists.remove_price(favorite_id, item_id, store_a)
+        await live_client.starter_lists.set_photo(favorite_id, item_id, None)
+
+        snapshot = await _fresh_disposable_starters(live_client, live_mutation_list_id)
+        favorite = snapshot["favorite"]
+        assert favorite is not None
+        persisted = next((x for x in favorite.items if x.identifier == item_id), None)
+        assert persisted is not None
+        assert not persisted.storeIds
+        assert not persisted.prices
+        assert not persisted.photoIds
+    finally:
+        await live_client.starter_lists.refresh()
+        favorite = live_client.starter_lists.get(favorite_id)
+        if favorite is not None and any(x.identifier == item_id for x in favorite.items):
+            await live_client.starter_lists.remove_item(favorite_id, item_id)
+
+
+@pytest.mark.asyncio
+async def test_live_favorite_starter_rename_bulk_remove_and_clear(
+    live_client, live_mutation_list_id: str
+) -> None:
+    await _ensure_disposable_starters(live_client, live_mutation_list_id)
+    assert live_client.starter_lists is not None
+    favorite_id = favorite_list_id(live_mutation_list_id)
+    snapshot = await _fresh_disposable_starters(live_client, live_mutation_list_id)
+    favorite = snapshot["favorite"]
+    assert favorite is not None
+    if favorite.items:
+        pytest.fail(
+            "disposable Favorite Items list is not empty; refusing destructive starter clear test",
+            pytrace=False,
+        )
+    original_name = str(favorite.name)
+    temporary_name = f"SDK Favorite {uuid4().hex[:8]}"
+    names = [f"sdk-favorite-bulk-{uuid4().hex}" for _ in range(3)]
+    clear_names = [f"sdk-favorite-clear-{uuid4().hex}" for _ in range(2)]
+    try:
+        await live_client.starter_lists.rename(favorite_id, temporary_name)
+        renamed = await _fresh_disposable_starters(live_client, live_mutation_list_id)
+        assert renamed["favorite"] is not None
+        assert renamed["favorite"].name == temporary_name
+        await live_client.starter_lists.rename(favorite_id, original_name)
+
+        added = await live_client.starter_lists.bulk_add_items(
+            favorite_id, [PB.ListItem(name=name) for name in names]
+        )
+        ids = [str(item.identifier) for item in added]
+        snapshot = await _fresh_disposable_starters(live_client, live_mutation_list_id)
+        persisted = snapshot["favorite"]
+        assert persisted is not None
+        assert set(names).issubset({str(item.name) for item in persisted.items})
+
+        await live_client.starter_lists.remove_item(favorite_id, ids[0])
+        await live_client.starter_lists.bulk_remove_items(favorite_id, ids[1:])
+        snapshot = await _fresh_disposable_starters(live_client, live_mutation_list_id)
+        persisted = snapshot["favorite"]
+        assert persisted is not None
+        assert not set(names) & {str(item.name) for item in persisted.items}
+
+        await live_client.starter_lists.bulk_add_items(
+            favorite_id, [PB.ListItem(name=name) for name in clear_names]
+        )
+        await live_client.starter_lists.clear(favorite_id)
+        snapshot = await _fresh_disposable_starters(live_client, live_mutation_list_id)
+        persisted = snapshot["favorite"]
+        assert persisted is not None and not persisted.items
+    finally:
+        await live_client.starter_lists.refresh()
+        favorite = live_client.starter_lists.get(favorite_id)
+        if favorite is not None and favorite.name != original_name:
+            await live_client.starter_lists.rename(favorite_id, original_name)
+        if favorite is not None:
+            cleanup_names = set(names) | set(clear_names)
+            cleanup_ids = [
+                str(item.identifier)
+                for item in favorite.items
+                if str(item.name) in cleanup_names
+            ]
+            if cleanup_ids:
+                await live_client.starter_lists.bulk_remove_items(
+                    favorite_id, cleanup_ids
+                )
+
+
+@pytest.mark.asyncio
+async def test_live_recent_items_200_cap_and_oldest_eviction(
+    live_client, live_mutation_list_id: str
+) -> None:
+    await _ensure_disposable_starters(live_client, live_mutation_list_id)
+    assert live_client.starter_lists is not None
+    recent_id = recent_list_id(live_mutation_list_id)
+    snapshot = await _fresh_disposable_starters(live_client, live_mutation_list_id)
+    recent = snapshot["recent"]
+    assert recent is not None
+    if recent.items:
+        pytest.fail(
+            "disposable Recent Items list is not empty; refusing 200-cap test",
+            pytrace=False,
+        )
+
+    prefix = f"sdk-cap-{uuid4().hex}-"
+    names = [f"{prefix}{index:03d}" for index in range(201)]
+    try:
+        added = await live_client.starter_lists.bulk_add_items(
+            recent_id, [PB.ListItem(name=name) for name in names]
+        )
+        assert len(added) == 200
+        snapshot = await _fresh_disposable_starters(live_client, live_mutation_list_id)
+        recent = snapshot["recent"]
+        assert recent is not None
+        persisted_names = [
+            str(item.name)
+            for item in recent.items
+            if str(item.name).startswith(prefix)
+        ]
+        assert len(persisted_names) == 200
+        assert names[0] not in persisted_names
+        assert set(persisted_names) == set(names[1:])
+    finally:
+        await live_client.starter_lists.refresh()
+        recent = live_client.starter_lists.get(recent_id)
+        if recent is not None:
+            ids = [
+                str(item.identifier)
+                for item in recent.items
+                if str(item.name).startswith(prefix)
+            ]
+            if ids:
+                await live_client.starter_lists.bulk_remove_items(recent_id, ids)
+
+
+@pytest.mark.asyncio
+async def test_live_remove_and_recreate_disposable_recent_and_favorite_lists(
+    live_client, live_mutation_list_id: str
+) -> None:
+    await _ensure_disposable_starters(live_client, live_mutation_list_id)
+    assert live_client.starter_lists is not None
+    recent_id = recent_list_id(live_mutation_list_id)
+    favorite_id = favorite_list_id(live_mutation_list_id)
+    snapshot = await _fresh_disposable_starters(live_client, live_mutation_list_id)
+    recent = snapshot["recent"]
+    favorite = snapshot["favorite"]
+    assert recent is not None and favorite is not None
+    if recent.items or favorite.items:
+        pytest.fail(
+            "disposable starter lists are not empty; refusing lifecycle removal test",
+            pytrace=False,
+        )
+
+    await live_client.starter_lists.remove(recent_id)
+    await live_client.starter_lists.remove(favorite_id)
+    removed = await _fresh_disposable_starters(live_client, live_mutation_list_id)
+    assert removed["recent"] is None
+    assert removed["favorite"] is None
+
+    await live_client.starter_lists.initialize_for_shopping_list(live_mutation_list_id)
+    recreated = await _fresh_disposable_starters(live_client, live_mutation_list_id)
+    assert recreated["recent"] is not None
+    assert recreated["favorite"] is not None
+
+
+@pytest.mark.asyncio
+async def test_live_disposable_favorite_starter_settings_round_trip(
+    live_client, live_mutation_list_id: str
+) -> None:
+    await _ensure_disposable_starters(live_client, live_mutation_list_id)
+    assert live_client.starter_list_settings is not None
+    favorite_id = favorite_list_id(live_mutation_list_id)
+    before = await _fresh_disposable_starters(live_client, live_mutation_list_id)
+    original = before["favorite_settings"]
+
+    if original is None:
+        await live_client.starter_list_settings.set(
+            favorite_id, "shouldHideCategories", True
+        )
+        changed = await _fresh_disposable_starters(live_client, live_mutation_list_id)
+        settings = changed["favorite_settings"]
+        assert settings is not None
+        assert settings.HasField("shouldHideCategories")
+        assert settings.shouldHideCategories is True
+
+        await live_client.starter_list_settings.remove(favorite_id)
+        restored = await _fresh_disposable_starters(live_client, live_mutation_list_id)
+        assert restored["favorite_settings"] is None
+        return
+
+    if not original.HasField("shouldHideCategories"):
+        pytest.skip(
+            "existing disposable Favorite settings omit the reversible test field"
+        )
+
+    original_value = bool(original.shouldHideCategories)
+    try:
+        await live_client.starter_list_settings.set(
+            favorite_id, "shouldHideCategories", not original_value
+        )
+        changed = await _fresh_disposable_starters(live_client, live_mutation_list_id)
+        settings = changed["favorite_settings"]
+        assert settings is not None
+        assert settings.HasField("shouldHideCategories")
+        assert bool(settings.shouldHideCategories) is (not original_value)
+    finally:
+        await live_client.starter_list_settings.set(
+            favorite_id, "shouldHideCategories", original_value
+        )
+    restored = await _fresh_disposable_starters(live_client, live_mutation_list_id)
+    settings = restored["favorite_settings"]
+    assert settings is not None
+    assert settings.HasField("shouldHideCategories")
+    assert bool(settings.shouldHideCategories) is original_value
+
+
+@pytest.mark.asyncio
+async def test_live_bulk_remove_records_disposable_recent_items(
+    live_client, live_mutation_list_id: str
+) -> None:
+    await _ensure_disposable_starters(live_client, live_mutation_list_id)
+    assert live_client.lists is not None
+    names = {f"sdk-bulk-recent-{uuid4().hex}" for _ in range(2)}
+    created = await live_client.lists.add_items(
+        live_mutation_list_id, [PB.ListItem(name=name) for name in names]
+    )
+    ids = [str(item.identifier) for item in created]
+    try:
+        removed = await live_client.lists.bulk_remove_items(live_mutation_list_id, ids)
+        assert {str(item.name) for item in removed} == names
+        fresh = await _fresh_server_list(live_client, live_mutation_list_id)
+        assert fresh is not None
+        assert not names & {str(item.name) for item in fresh.items}
+
+        starters = await _fresh_disposable_starters(live_client, live_mutation_list_id)
+        recent = starters["recent"]
+        assert recent is not None
+        assert names.issubset({str(item.name) for item in recent.items})
+    finally:
+        await _remove_named_starter_items(live_client, live_mutation_list_id, names)
+        current = live_client.lists.get(live_mutation_list_id)
+        if current is not None:
+            leftovers = [
+                str(item.identifier) for item in current.items if str(item.name) in names
+            ]
+            if leftovers:
+                await _remove_without_recents(live_client, live_mutation_list_id, leftovers)
+
+
+@pytest.mark.asyncio
+async def test_live_disposable_custom_starter_create_reorder_remove_round_trip(
+    live_client, live_mutation_list_id: str
+) -> None:
+    await _load_and_require_disposable(live_client, live_mutation_list_id)
+    assert live_client.starter_lists is not None
+    await live_client.starter_lists.refresh()
+    original_order = await _fresh_starter_order(live_client)
+    first_id = uuid4().hex
+    second_id = uuid4().hex
+    first_name = f"SDK Disposable Starter A {first_id[:8]}"
+    second_name = f"SDK Disposable Starter B {second_id[:8]}"
+    created_ids = {first_id, second_id}
+
+    try:
+        await live_client.starter_lists.create(
+            first_name,
+            list_id=first_id,
+            user_list_id=live_mutation_list_id,
+            starter_type=PB.StarterList.Type.UserType,
+        )
+        await live_client.starter_lists.create(
+            second_name,
+            list_id=second_id,
+            user_list_id=live_mutation_list_id,
+            starter_type=PB.StarterList.Type.UserType,
+        )
+
+        tokens = live_client.tokens
+        assert tokens is not None
+        fresh = AnyListClient(base_url=live_client.transport.base_url, tokens=tokens)
+        try:
+            await fresh.load(realtime=False, load_tag_data=False, restore_pending=False)
+            assert fresh.starter_lists is not None
+            first = fresh.starter_lists.get(first_id)
+            second = fresh.starter_lists.get(second_id)
+            assert first is not None and second is not None
+            assert first.listId == live_mutation_list_id
+            assert second.listId == live_mutation_list_id
+            assert first.name == first_name and second.name == second_name
+        finally:
+            await fresh.close()
+
+        after_create_order = await _fresh_starter_order(live_client)
+        untouched = [identifier for identifier in after_create_order if identifier not in created_ids]
+        if untouched != original_order:
+            pytest.fail(
+                "starter-list ordering changed outside the two disposable temporary IDs; refusing reorder",
+                pytrace=False,
+            )
+
+        swapped_order = original_order + [second_id, first_id]
+        await live_client.starter_lists.reorder_lists(swapped_order)
+        assert await _fresh_starter_order(live_client) == swapped_order
+
+    finally:
+        # The server keeps every extant user starter list represented in ordered IDs, so
+        # remove the disposable temporary lists before restoring the exact original order.
+        await live_client.starter_lists.refresh()
+        for identifier in (first_id, second_id):
+            if live_client.starter_lists.get(identifier) is not None:
+                await live_client.starter_lists.remove(identifier)
+        current_order = await _fresh_starter_order(live_client)
+        if current_order != original_order:
+            await live_client.starter_lists.reorder_lists(original_order)
+
+    tokens = live_client.tokens
+    assert tokens is not None
+    fresh = AnyListClient(base_url=live_client.transport.base_url, tokens=tokens)
+    try:
+        await fresh.load(realtime=False, load_tag_data=False, restore_pending=False)
+        assert fresh.starter_lists is not None
+        assert fresh.starter_lists.get(first_id) is None
+        assert fresh.starter_lists.get(second_id) is None
+        await fresh.starter_lists.refresh_order()
+        assert list(fresh.state.ordered_starter_list_ids) == original_order
+    finally:
+        await fresh.close()
 
 
 @pytest.mark.asyncio
