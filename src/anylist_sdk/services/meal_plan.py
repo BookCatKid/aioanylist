@@ -519,6 +519,12 @@ class MealPlanService(OperationService):
             for event_id, event in self.state.meal_plan_events.items()
             if event.recipeId == recipe_id
         ]
+        # app.js 84361-84383 fetches the matching template-event array here, but then maps
+        # the normal-event array (`i`) a second time instead of the template array (`$`).
+        # That is an apparent upstream typo.  This SDK intentionally diverges at this one
+        # point: include the actual matching template-event IDs so deleting a recipe's meal-
+        # plan references removes both stores.  The alternative is schema-valid and is
+        # covered by both an offline regression and live server readback.
         template_ids = [
             event_id
             for event_id, event in self.state.meal_plan_template_events.items()

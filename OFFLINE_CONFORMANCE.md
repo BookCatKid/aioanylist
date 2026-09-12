@@ -65,10 +65,14 @@ tokens only instead of sending an unsupported bearer request.
 
 ### `delete-events-for-recipe-id` template-event quirk
 
-The official bundle appears to obtain the template-event array and then map the normal-event
-array a second time in this path. That looks like an upstream client typo. The SDK does not
-copy the apparent typo without live evidence that reproducing it is required for server
-conformance.
+The official bundle obtains the matching template-event array and then maps the normal-event
+array a second time. That is a concrete source-level upstream typo: the fetched template-event
+array is otherwise unused. The SDK intentionally diverges here and sends the actual matching
+template-event IDs after the normal-event IDs. This is not inferred from a network trace: the
+source difference is explicit, the protobuf schema supports both ID sets, an offline regression
+locks the divergence, and a live disposable recipe test proved that the server removes both the
+normal event and template event. Treat this as an evidence-backed correctness divergence, not
+as exact `app.js` parity.
 
 ## Pure-Python portability limitation
 
@@ -101,9 +105,15 @@ from read-only checks to mutations:
 8. Specifically observe the two source contradictions above before deciding whether any
    compatibility shim is justified.
 
-No further protocol behavior should be invented merely to make a live test pass. Any live
-deviation should first be captured, compared with `app.js` and the embedded schema, and then
-implemented as a source- or server-proven behavior.
+`app.js` is the primary behavioral authority. The default is exact reconstruction, and no
+protocol behavior may be invented merely from a captured request or because a live server will
+accept it. A deliberate divergence is allowed only when all of the following are true: the
+official executable path is identified precisely; the defect/limitation is concrete rather than
+speculative; the alternative is supported by the official schema/runtime model; an offline
+regression records the difference; and a live disposable test proves the alternative behaves as
+intended. Such cases must be documented explicitly as intentional divergences rather than
+described as parity. Genuine source/schema contradictions remain unresolved until there is enough
+evidence to avoid inventing missing wire information.
 
 ### Opt-in live harness
 

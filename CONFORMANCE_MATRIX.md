@@ -1,6 +1,6 @@
 # AnyList SDK Conformance Matrix
 
-This is the authoritative verification checklist for the SDK. It is intentionally stricter than the unit-test suite: a method is not called “live verified” merely because its wire contract is reconstructed from `app.js`.
+This is the authoritative verification checklist for the SDK. **Official executable `app.js` behavior is the primary specification.** Exact source reconstruction is the default; captured requests or server acceptance alone never justify invented behavior. A deliberate divergence is allowed only when the source defect/limitation is explicit, the alternative is supported by the official schema/runtime model, and both offline regression evidence and a disposable live test prove the alternative. Such cases are labeled as intentional divergences rather than parity.
 
 ## Status legend
 
@@ -9,6 +9,7 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 - **🧪 OFFLINE VERIFIED** — official `app.js` / embedded schema behavior is covered by offline regression tests, but the method has not yet been proven with a live server mutation/readback.
 - **🟡 LIVE PARTIAL** — a meaningful live path passed, but another direction/side effect remains intentionally untested.
 - **🟠 LIVE RETEST REQUIRED** — relevant implementation changed after the last live attempt; do not treat older live results as current proof.
+- **🔷 VERIFIED INTENTIONAL DIVERGENCE** — differs deliberately from a precisely identified `app.js` path because the official path has a concrete defect/limitation; the alternative is schema-supported and locked by both offline and live evidence.
 - **⚪ NOT LIVE TESTED** — no current live evidence.
 - **🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE** — deliberately not tested because it would modify pre-existing non-disposable state, another person, an account-wide setting that cannot be isolated, or an external/irreversible side effect without a cleanup path. Tests may create and fully remove uniquely identified disposable resources in otherwise global domains.
 - **⚠️ OFFICIAL CONTRADICTION** — official JavaScript and embedded protobuf schema conflict; do not invent a wire format.
@@ -387,7 +388,7 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 | `MealPlanService.set_event_list_item_details()` | ✅ LIVE VERIFIED | Disposable event-list-item details persisted on fresh readback. |
 | `MealPlanService.set_event_list_item_quantity()` | ✅ LIVE VERIFIED | Disposable event-list-item quantity protobuf persisted on fresh readback. |
 | `MealPlanService.set_event_list_item_package_size()` | ✅ LIVE VERIFIED | Disposable event-list-item package-size protobuf persisted on fresh readback. |
-| `MealPlanService.delete_events_for_recipe_id()` | ✅ LIVE VERIFIED | A disposable recipe with one normal event and one template event was deleted from both event stores; fresh state confirmed both absent despite the suspicious app.js typo. |
+| `MealPlanService.delete_events_for_recipe_id()` | 🔷 VERIFIED INTENTIONAL DIVERGENCE | `app.js` 84361-84383 fetches matching template events but maps the normal-event array twice, leaving the fetched template array unused. The SDK deliberately sends normal IDs followed by the actual template-event IDs. The protobuf shape supports this, an offline regression locks the difference, and a disposable live recipe test confirmed both event stores are cleared. |
 | `MealPlanService.set_template_name()` | ✅ LIVE VERIFIED | Disposable template name persisted on fresh readback. |
 | `MealPlanService.set_template_icon()` | ✅ LIVE VERIFIED | Disposable template icon persisted on fresh readback. |
 | `MealPlanService.add_template_day_ids()` | ✅ LIVE VERIFIED | Added real UUID template-day IDs to a disposable template; operation acknowledged live. |

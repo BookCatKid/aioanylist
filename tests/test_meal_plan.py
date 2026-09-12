@@ -646,12 +646,21 @@ async def test_delete_events_for_recipe_operation_has_official_marker_shape(fake
     state.meal_plan_events["event"] = PB.PBCalendarEvent(
         identifier="event", calendarId="cal", recipeId="recipe", eventType=0
     )
+    state.meal_plan_template_events["template-event"] = PB.PBCalendarEvent(
+        identifier="template-event", calendarId="cal", recipeId="recipe", eventType=2
+    )
     service = MealPlanService(fake_transport, state, user_id="user")
 
     await service.delete_events_for_recipe_id("recipe", flush=False)
 
     operation = service.queue._pending[-1]
     assert operation.metadata.handlerId == "delete-events-for-recipe-id"
+    # Intentional evidence-backed divergence: app.js maps the normal-event array twice
+    # (84364-84373), despite fetching the template-event array in between.  The SDK sends
+    # both real IDs so the recipe cleanup actually removes references from both stores.
+    assert list(operation.eventIds) == ["event", "template-event"]
     assert operation.updatedEvent.calendarId == "cal"
     assert operation.updatedEvent.recipeId == "recipe"
     assert operation.updatedEvent.identifier
+    assert "event" not in state.meal_plan_events
+    assert "template-event" not in state.meal_plan_template_events
