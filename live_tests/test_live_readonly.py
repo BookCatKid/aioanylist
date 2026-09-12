@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import re
 from typing import Any
 
 import pytest
 from google.protobuf.message import Message
+
+from anylist_sdk.autocomplete import AutocompleteEngine
+from anylist_sdk.categorization import Categorizer
+from anylist_sdk.tag_data import TagDataManager
 
 
 pytestmark = pytest.mark.live
@@ -206,6 +211,61 @@ async def test_live_official_tag_data_languages_and_memory_cache(live_client: An
     assert german.tags
     assert await live_client.tag_data.get("en") is english
     assert await live_client.tag_data.get("de") is german
+
+
+@pytest.mark.asyncio
+async def test_live_autocomplete_and_categorization_use_official_tag_data(live_client: Any) -> None:
+    german_manager = TagDataManager(live_client.transport, locale="de-DE")
+    german, english = await german_manager.active_and_english()
+
+    german_pair = next(
+        (text, tag)
+        for text, tag in german.normalized_display_names_index.items()
+        if text and tag and tag in german.tags
+    )
+    german_text, german_tag = german_pair
+    assert Categorizer.classify_with(german, german_text) == german_tag
+
+    categorizer = Categorizer(german_manager)
+    assert await categorizer.classify(german_text) == german_tag
+
+    english_text, english_tag = next(
+        (text, tag)
+        for text, tag in english.normalized_display_names_index.items()
+        if text
+        and tag
+        and tag in english.tags
+        and text not in german.normalized_display_names_index
+    )
+    assert await categorizer.classify(english_text) == english_tag
+
+    keyword = expected_text = None
+    for group in german.autocomplete_keywords.values():
+        if not isinstance(group, dict):
+            continue
+        for candidate, rows in group.items():
+            if (
+                isinstance(candidate, str)
+                and len(candidate) > 1
+                and re.fullmatch(r"[A-Za-zÄÖÜäöüß]+", candidate)
+                and rows
+            ):
+                keyword = candidate
+                expected_text = str(rows[0][0])
+                break
+        if keyword is not None:
+            break
+
+    assert keyword is not None and expected_text is not None
+    suggestions = await AutocompleteEngine(german_manager).suggestions(
+        keyword,
+        include_favorites=False,
+        include_recents=False,
+    )
+    assert any(
+        suggestion.source == "generic" and suggestion.text == expected_text
+        for suggestion in suggestions
+    )
 
 
 @pytest.mark.asyncio

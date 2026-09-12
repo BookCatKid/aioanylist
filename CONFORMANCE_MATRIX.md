@@ -16,7 +16,7 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 ## Current checkpoint
 
 - Offline suite: **475 passing** at the latest local gate.
-- Current read-only live suite: **9/9 passing** with the corrected multipart transport.
+- Current read-only live suite: **10/10 passing** with the corrected multipart transport, including live autocomplete/categorization against official English/German tag resources.
 - Guarded disposable-list mutation suite: **39 passed, 1 safely skipped without writing** in the latest complete live run. Coverage now includes the disposable shopping list, its deterministic Recent/Favorite starter lists, starter-list settings, temporary disposable-linked starter lists, exact starter-list ordering restoration, a fully restored disposable folder-tree round trip, explicit client-wide flush, queue pause/resume, durable operation replay after simulated abrupt loss, real cross-client WebSocket invalidation delivery, and automatic reconnect catch-up after a forced transport loss.
 - The reusable server-side disposable list **`AnyList SDK Conformance Test`** exists and is retained for future verification. Mutation guards require both its reserved ID and exact name before any write.
 - No normal shopping list was mutated. Temporary items/stores/filters/categories/rules/provenance created by live tests were removed again; removal paths suppress Recent Items where required.
@@ -82,14 +82,14 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 
 | Functionality | Status | Evidence / next check |
 |---|---|---|
-| `AutocompleteEngine.suggestions()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED |  |
+| `AutocompleteEngine.suggestions()` | ✅ LIVE VERIFIED | Queried a real official German autocomplete keyword from live tag data and returned the corresponding generic suggestion. |
 
 ## Categorization
 
 | Functionality | Status | Evidence / next check |
 |---|---|---|
-| `Categorizer.classify_with()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED |  |
-| `Categorizer.classify()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED |  |
+| `Categorizer.classify_with()` | ✅ LIVE VERIFIED | Classified a real German normalized display-name entry from AnyList's official live tag resource to its exact tag. |
+| `Categorizer.classify()` | ✅ LIVE VERIFIED | Live German classification succeeded and English fallback correctly classified an English-only official tag-data entry. |
 
 ## Operation queue
 
