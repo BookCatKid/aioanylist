@@ -17,7 +17,7 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 
 - Offline suite: **475 passing** at the latest local gate.
 - Current read-only live suite: **9/9 passing** with the corrected multipart transport.
-- Guarded disposable-list mutation suite: **34 passed, 1 safely skipped without writing** in the latest complete live run. Coverage now includes the disposable shopping list, its deterministic Recent/Favorite starter lists, starter-list settings, temporary disposable-linked starter lists, exact starter-list ordering restoration, and a fully restored disposable folder-tree round trip.
+- Guarded disposable-list mutation suite: **37 passed, 1 safely skipped without writing** in the latest complete live run. Coverage now includes the disposable shopping list, its deterministic Recent/Favorite starter lists, starter-list settings, temporary disposable-linked starter lists, exact starter-list ordering restoration, a fully restored disposable folder-tree round trip, explicit client-wide flush, queue pause/resume, and durable operation replay after simulated abrupt loss.
 - The reusable server-side disposable list **`AnyList SDK Conformance Test`** exists and is retained for future verification. Mutation guards require both its reserved ID and exact name before any write.
 - No normal shopping list was mutated. Temporary items/stores/filters/categories/rules/provenance created by live tests were removed again; removal paths suppress Recent Items where required.
 - The protobuf multipart correction is now **live write verified**: AnyList requires binary protobuf fields as ordinary multipart form fields with no filename and no per-part Content-Type.
@@ -35,7 +35,7 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 | `AnyListClient.sign_in()` | ✅ LIVE VERIFIED | Succeeded repeatedly with current multipart implementation; AnyList later began returning HTTP 503 after repeated test logins. |
 | `AnyListClient.load()` | ✅ LIVE VERIFIED |  |
 | `AnyListClient.refresh()` | ✅ LIVE VERIFIED | Called against the real endpoint and decoded/applied successfully. |
-| `AnyListClient.flush()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED |  |
+| `AnyListClient.flush()` | ✅ LIVE VERIFIED | Deferred Favorite mutation remained absent from a fresh server read until `client.flush()`; explicit flush then persisted exactly one item. |
 | `AnyListClient.logout()` | ✅ LOCAL VERIFIED |  |
 | `AnyListClient.close()` | ✅ LIVE VERIFIED |  |
 
@@ -95,15 +95,15 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 
 | Functionality | Status | Evidence / next check |
 |---|---|---|
-| `OperationQueue.pending_count()` | 🧪 OFFLINE VERIFIED |  |
-| `OperationQueue.paused()` | 🧪 OFFLINE VERIFIED |  |
-| `OperationQueue.pause()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED |  |
-| `OperationQueue.resume()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED |  |
-| `OperationQueue.new_operation()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED |  |
-| `OperationQueue.enqueue()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED |  |
-| `OperationQueue.add()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED |  |
-| `OperationQueue.restore()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED |  |
-| `OperationQueue.flush()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED |  |
+| `OperationQueue.pending_count()` | ✅ LIVE VERIFIED | Guarded live tests observed pending queue state before explicit flush, while paused, and after journal restore. |
+| `OperationQueue.paused()` | ✅ LIVE VERIFIED | Starter queue remained paused while a Favorite mutation stayed server-absent, then cleared on resume. |
+| `OperationQueue.pause()` | ✅ LIVE VERIFIED | Paused the disposable Favorite queue; `flush=True` enqueue did not reach the server while paused. |
+| `OperationQueue.resume()` | ✅ LIVE VERIFIED | `resume(flush=True)` flushed the retained Favorite mutation and fresh readback confirmed persistence. |
+| `OperationQueue.new_operation()` | ✅ LIVE VERIFIED | Exercised by live domain mutations, including the deferred Favorite queue/replay tests. |
+| `OperationQueue.enqueue()` | ✅ LIVE VERIFIED | Deferred live Favorite mutation remained locally pending until explicit client flush. |
+| `OperationQueue.add()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Domain live tests exercise `new_operation()` + `enqueue()` through service wrappers; the convenience `add()` method itself is not called by the live harness. |
+| `OperationQueue.restore()` | ✅ LIVE VERIFIED | A journaled Favorite operation survived simulated abrupt loss, restored into a fresh queue, flushed, and was confirmed by a new server read. |
+| `OperationQueue.flush()` | ✅ LIVE VERIFIED | Explicit client/service flush, pause/resume flush, and restored-operation replay all succeeded against the real edit endpoint. |
 
 ## File operation journal
 
@@ -112,9 +112,9 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 | `OperationJournal.save()` | 🧪 OFFLINE VERIFIED | Abstract durable-journal contract exercised through the file journal and queue persistence tests. |
 | `OperationJournal.load()` | 🧪 OFFLINE VERIFIED | Abstract durable-journal contract exercised through the file journal and queue restoration tests. |
 | `OperationJournal.clear()` | 🧪 OFFLINE VERIFIED | Abstract durable-journal contract exercised through queue acknowledgment/account-boundary cleanup tests. |
-| `FileOperationJournal.save()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED |  |
-| `FileOperationJournal.load()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED |  |
-| `FileOperationJournal.clear()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED |  |
+| `FileOperationJournal.save()` | ✅ LIVE VERIFIED | Deferred Favorite mutation produced a durable local archive before any server write. |
+| `FileOperationJournal.load()` | ✅ LIVE VERIFIED | A fresh client restored the archived real-service Favorite operation after simulated abrupt loss. |
+| `FileOperationJournal.clear()` | ✅ LIVE VERIFIED | Successful replay/ack removed the archived operation file; fresh server read confirmed the mutation before cleanup. |
 
 ## Shopping lists & list-local resources
 

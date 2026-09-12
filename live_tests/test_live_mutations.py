@@ -672,6 +672,168 @@ async def test_live_disposable_favorite_starter_settings_round_trip(
 
 
 @pytest.mark.asyncio
+async def test_live_client_flush_sends_deferred_disposable_favorite_item(
+    live_client, live_mutation_list_id: str
+) -> None:
+    await _ensure_disposable_starters(live_client, live_mutation_list_id)
+    assert live_client.starter_lists is not None
+    favorite_id = favorite_list_id(live_mutation_list_id)
+    marker = f"sdk-client-flush-{uuid4().hex}"
+    created = await live_client.starter_lists.add_item(
+        favorite_id, PB.ListItem(name=marker), flush=False
+    )
+    item_id = str(created.identifier)
+    try:
+        assert live_client.starter_lists.queue.pending_count == 1
+        before = await _fresh_disposable_starters(live_client, live_mutation_list_id)
+        favorite = before["favorite"]
+        assert favorite is not None
+        assert all(str(item.name) != marker for item in favorite.items)
+
+        await live_client.flush()
+        assert live_client.starter_lists.queue.pending_count == 0
+        after = await _fresh_disposable_starters(live_client, live_mutation_list_id)
+        favorite = after["favorite"]
+        assert favorite is not None
+        assert sum(str(item.name) == marker for item in favorite.items) == 1
+    finally:
+        if live_client.starter_lists.queue.pending_count:
+            await live_client.flush()
+        await live_client.starter_lists.refresh()
+        favorite = live_client.starter_lists.get(favorite_id)
+        if favorite is not None and any(item.identifier == item_id for item in favorite.items):
+            await live_client.starter_lists.remove_item(favorite_id, item_id)
+
+
+@pytest.mark.asyncio
+async def test_live_starter_queue_pause_resume_defers_disposable_favorite_item(
+    live_client, live_mutation_list_id: str
+) -> None:
+    await _ensure_disposable_starters(live_client, live_mutation_list_id)
+    assert live_client.starter_lists is not None
+    favorite_id = favorite_list_id(live_mutation_list_id)
+    marker = f"sdk-pause-resume-{uuid4().hex}"
+    item_id = ""
+    live_client.starter_lists.pause()
+    try:
+        created = await live_client.starter_lists.add_item(
+            favorite_id, PB.ListItem(name=marker), flush=True
+        )
+        item_id = str(created.identifier)
+        assert live_client.starter_lists.queue.paused
+        assert live_client.starter_lists.queue.pending_count == 1
+        before = await _fresh_disposable_starters(live_client, live_mutation_list_id)
+        favorite = before["favorite"]
+        assert favorite is not None
+        assert all(str(item.name) != marker for item in favorite.items)
+
+        await live_client.starter_lists.resume(flush=True)
+        assert not live_client.starter_lists.queue.paused
+        assert live_client.starter_lists.queue.pending_count == 0
+        after = await _fresh_disposable_starters(live_client, live_mutation_list_id)
+        favorite = after["favorite"]
+        assert favorite is not None
+        assert sum(str(item.name) == marker for item in favorite.items) == 1
+    finally:
+        while live_client.starter_lists.queue.paused:
+            await live_client.starter_lists.resume(flush=True)
+        if live_client.starter_lists.queue.pending_count:
+            await live_client.starter_lists.flush()
+        await live_client.starter_lists.refresh()
+        favorite = live_client.starter_lists.get(favorite_id)
+        if favorite is not None:
+            ids = [
+                str(item.identifier)
+                for item in favorite.items
+                if str(item.name) == marker or (item_id and str(item.identifier) == item_id)
+            ]
+            if ids:
+                await live_client.starter_lists.bulk_remove_items(favorite_id, ids)
+
+
+@pytest.mark.asyncio
+async def test_live_journal_restore_replays_disposable_favorite_item(
+    live_client, live_mutation_list_id: str, tmp_path
+) -> None:
+    await _ensure_disposable_starters(live_client, live_mutation_list_id)
+    tokens = live_client.tokens
+    assert tokens is not None
+    favorite_id = favorite_list_id(live_mutation_list_id)
+    marker = f"sdk-journal-replay-{uuid4().hex}"
+    cache_dir = tmp_path / "live-journal-client"
+
+    writer = AnyListClient(
+        base_url=live_client.transport.base_url,
+        tokens=tokens,
+        cache_dir=cache_dir,
+    )
+    writer_tokens = tokens
+    try:
+        await writer.load(realtime=False, load_tag_data=False, restore_pending=False)
+        assert writer.starter_lists is not None
+        await writer.starter_lists.add_item(
+            favorite_id, PB.ListItem(name=marker), flush=False
+        )
+        assert writer.starter_lists.queue.pending_count == 1
+        assert list((cache_dir / "operations").glob("*.json"))
+        writer_tokens = writer.tokens or tokens
+    finally:
+        # Simulate an abrupt process/network loss. ``AnyListClient.close()`` is intentionally
+        # graceful and flushes pending operations first, so use the transport close directly
+        # here to leave the archived queue intact for the next client instance.
+        await writer.realtime.stop()
+        await writer.transport.close()
+
+    before = AnyListClient(base_url=live_client.transport.base_url, tokens=writer_tokens)
+    try:
+        await before.load(realtime=False, load_tag_data=False, restore_pending=False)
+        assert before.starter_lists is not None
+        favorite = before.starter_lists.get(favorite_id)
+        assert favorite is not None
+        assert all(str(item.name) != marker for item in favorite.items)
+    finally:
+        await before.close()
+
+    restorer = AnyListClient(
+        base_url=live_client.transport.base_url,
+        tokens=writer_tokens,
+        cache_dir=cache_dir,
+    )
+    try:
+        await restorer.load(realtime=False, load_tag_data=False, restore_pending=True)
+        assert restorer.starter_lists is not None
+        assert restorer.starter_lists.queue.pending_count == 0
+        assert not list((cache_dir / "operations").glob("*.json"))
+
+        verify_tokens = restorer.tokens or writer_tokens
+        verifier = AnyListClient(
+            base_url=live_client.transport.base_url, tokens=verify_tokens
+        )
+        try:
+            await verifier.load(realtime=False, load_tag_data=False, restore_pending=False)
+            assert verifier.starter_lists is not None
+            favorite = verifier.starter_lists.get(favorite_id)
+            assert favorite is not None
+            matches = [item for item in favorite.items if str(item.name) == marker]
+            assert len(matches) == 1
+        finally:
+            await verifier.close()
+
+        await restorer.starter_lists.refresh()
+        favorite = restorer.starter_lists.get(favorite_id)
+        if favorite is not None:
+            ids = [
+                str(item.identifier)
+                for item in favorite.items
+                if str(item.name) == marker
+            ]
+            if ids:
+                await restorer.starter_lists.bulk_remove_items(favorite_id, ids)
+    finally:
+        await restorer.close()
+
+
+@pytest.mark.asyncio
 async def test_live_bulk_remove_records_disposable_recent_items(
     live_client, live_mutation_list_id: str
 ) -> None:
