@@ -874,6 +874,82 @@ async def test_live_journal_restore_replays_disposable_favorite_item(
 
 
 @pytest.mark.asyncio
+async def test_live_shopping_service_restore_replays_deferred_legacy_rename(
+    live_client, live_mutation_list_id: str, tmp_path
+) -> None:
+    await _load_and_require_disposable(live_client, live_mutation_list_id)
+    assert live_client.lists is not None
+    tokens = live_client.tokens
+    assert tokens is not None
+
+    created = await live_client.lists.add_item(
+        live_mutation_list_id,
+        f"sdk-shopping-restore-{uuid4().hex}",
+    )
+    item_id = str(created.identifier)
+    restored_name = f"sdk-shopping-restored-{uuid4().hex}"
+    cache_dir = tmp_path / "shopping-restore-client"
+
+    writer = AnyListClient(
+        base_url=live_client.transport.base_url,
+        tokens=tokens,
+        cache_dir=cache_dir,
+    )
+    writer_tokens = tokens
+    try:
+        await writer.load(realtime=False, load_tag_data=False, restore_pending=False)
+        assert writer.lists is not None
+        await writer.lists.raw_legacy_operation(
+            "set-list-item-name",
+            listId=live_mutation_list_id,
+            listItemId=item_id,
+            updatedValue=restored_name,
+            flush=False,
+        )
+        assert writer.lists.legacy_queue.pending_count == 1
+        writer_tokens = writer.tokens or tokens
+    finally:
+        # Preserve the pending archive exactly as an abrupt process/network loss would.
+        await writer.realtime.stop()
+        await writer.transport.close()
+
+    before = AnyListClient(base_url=live_client.transport.base_url, tokens=writer_tokens)
+    try:
+        await before.load(realtime=False, load_tag_data=False, restore_pending=False)
+        assert before.lists is not None
+        item = before.lists.item(live_mutation_list_id, item_id)
+        assert item is not None and item.name != restored_name
+    finally:
+        await before.close()
+
+    restorer = AnyListClient(
+        base_url=live_client.transport.base_url,
+        tokens=writer_tokens,
+        cache_dir=cache_dir,
+    )
+    try:
+        await restorer.load(realtime=False, load_tag_data=False, restore_pending=False)
+        assert restorer.lists is not None
+        assert await restorer.lists.restore() == 1
+        assert restorer.lists.legacy_queue.pending_count == 1
+        await restorer.lists.flush()
+        assert restorer.lists.legacy_queue.pending_count == 0
+
+        fresh = await _fresh_server_list(restorer, live_mutation_list_id)
+        item = (
+            next((value for value in fresh.items if value.identifier == item_id), None)
+            if fresh is not None
+            else None
+        )
+        assert item is not None and item.name == restored_name
+    finally:
+        await restorer.close()
+
+    await live_client.lists.refresh()
+    await _remove_without_recents(live_client, live_mutation_list_id, [item_id])
+
+
+@pytest.mark.asyncio
 async def test_live_realtime_invalidation_refreshes_disposable_list_from_second_client(
     live_client, live_mutation_list_id: str
 ) -> None:
@@ -1321,6 +1397,76 @@ async def test_live_add_remove_item_round_trip(live_client, live_mutation_list_i
     fresh = await _fresh_server_list(live_client, live_mutation_list_id)
     assert fresh is not None
     assert all(item.identifier != item_id for item in fresh.items)
+
+
+@pytest.mark.asyncio
+async def test_live_direct_shopping_queue_wrappers_round_trip(
+    live_client, live_mutation_list_id: str
+) -> None:
+    await _load_and_require_disposable(live_client, live_mutation_list_id)
+    assert live_client.lists is not None
+    created = await live_client.lists.add_item(
+        live_mutation_list_id,
+        f"sdk-direct-queue-{uuid4().hex}",
+    )
+    item_id = str(created.identifier)
+    names = [
+        f"sdk-operation-{uuid4().hex}",
+        f"sdk-raw-legacy-{uuid4().hex}",
+        f"sdk-queue-add-{uuid4().hex}",
+    ]
+    try:
+        await live_client.lists.operation(
+            "set-list-item-name",
+            listId=live_mutation_list_id,
+            listItemId=item_id,
+            updatedValue=names[0],
+            flush=False,
+        )
+        assert live_client.lists.legacy_queue.pending_count == 1
+        await live_client.lists.flush()
+        first = await _fresh_server_list(live_client, live_mutation_list_id)
+        first_item = (
+            next((item for item in first.items if item.identifier == item_id), None)
+            if first is not None
+            else None
+        )
+        assert first_item is not None and first_item.name == names[0]
+
+        await live_client.lists.raw_legacy_operation(
+            "set-list-item-name",
+            listId=live_mutation_list_id,
+            listItemId=item_id,
+            updatedValue=names[1],
+            flush=False,
+        )
+        assert live_client.lists.legacy_queue.pending_count == 1
+        await live_client.lists.flush()
+        second = await _fresh_server_list(live_client, live_mutation_list_id)
+        second_item = (
+            next((item for item in second.items if item.identifier == item_id), None)
+            if second is not None
+            else None
+        )
+        assert second_item is not None and second_item.name == names[1]
+
+        await live_client.lists.legacy_queue.add(
+            "set-list-item-name",
+            listId=live_mutation_list_id,
+            listItemId=item_id,
+            updatedValue=names[2],
+            flush=True,
+        )
+        third = await _fresh_server_list(live_client, live_mutation_list_id)
+        third_item = (
+            next((item for item in third.items if item.identifier == item_id), None)
+            if third is not None
+            else None
+        )
+        assert third_item is not None and third_item.name == names[2]
+    finally:
+        await live_client.lists.refresh()
+        await _remove_without_recents(live_client, live_mutation_list_id, [item_id])
 
 
 @pytest.mark.asyncio

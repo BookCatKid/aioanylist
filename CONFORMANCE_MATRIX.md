@@ -15,9 +15,9 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 
 ## Current checkpoint
 
-- Offline suite: **475 passing** at the latest local gate.
-- Current read-only live suite: **10/10 passing** with the corrected multipart transport, including live autocomplete/categorization against official English/German tag resources.
-- Guarded disposable-list mutation suite: **39 passed, 1 safely skipped without writing** in the latest complete live run. Coverage now includes the disposable shopping list, its deterministic Recent/Favorite starter lists, starter-list settings, temporary disposable-linked starter lists, exact starter-list ordering restoration, a fully restored disposable folder-tree round trip, explicit client-wide flush, queue pause/resume, durable operation replay after simulated abrupt loss, real cross-client WebSocket invalidation delivery, and automatic reconnect catch-up after a forced transport loss.
+- Offline suite: **476 passing** at the latest local gate.
+- Current read-only live suite: **12/12 passing** with the corrected multipart transport, including live autocomplete/categorization against official English/German tag resources plus live sync-hook, raw-API, service-view, and transport-close coverage.
+- Guarded disposable-list mutation suite: **41 passed, 1 safely skipped without writing** in the latest complete live run. Coverage now includes the disposable shopping list, its deterministic Recent/Favorite starter lists, starter-list settings, temporary disposable-linked starter lists, exact starter-list ordering restoration, a fully restored disposable folder-tree round trip, explicit client-wide flush, queue pause/resume, durable operation replay after simulated abrupt loss, real cross-client WebSocket invalidation delivery, automatic reconnect catch-up after a forced transport loss, direct shopping queue wrappers, and shopping-service journal restore/replay.
 - The reusable server-side disposable list **`AnyList SDK Conformance Test`** exists and is retained for future verification. Mutation guards require both its reserved ID and exact name before any write.
 - No normal shopping list was mutated. Temporary items/stores/filters/categories/rules/provenance created by live tests were removed again; removal paths suppress Recent Items where required.
 - The protobuf multipart correction is now **live write verified**: AnyList requires binary protobuf fields as ordinary multipart form fields with no filename and no per-part Content-Type.
@@ -44,7 +44,7 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 | Functionality | Status | Evidence / next check |
 |---|---|---|
 | `AnyListTransport.session()` | 🧪 OFFLINE VERIFIED |  |
-| `AnyListTransport.close()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED |  |
+| `AnyListTransport.close()` | ✅ LIVE VERIFIED | Live read-only clients were closed and their owned aiohttp sessions were verified closed; a subsequent lazy session reopen/close also succeeded. |
 | `AnyListTransport.sign_in()` | ✅ LIVE VERIFIED | Succeeded repeatedly with current multipart implementation; AnyList later began returning HTTP 503 after repeated test logins. |
 | `AnyListTransport.refresh_access_token()` | ✅ LIVE VERIFIED |  |
 | `AnyListTransport.logout()` | ✅ LOCAL VERIFIED |  |
@@ -55,8 +55,8 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 
 | Functionality | Status | Evidence / next check |
 |---|---|---|
-| `SyncCoordinator.set_field_guard()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED |  |
-| `SyncCoordinator.add_listener()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED |  |
+| `SyncCoordinator.set_field_guard()` | ✅ LIVE VERIFIED | A real full sync was guarded for `shoppingListsResponse`; the busy callback fired and the guarded live state was preserved. |
+| `SyncCoordinator.add_listener()` | ✅ LIVE VERIFIED | A live full sync invoked the registered domain listener with the applied domain set. |
 | `SyncCoordinator.refresh()` | ✅ LIVE VERIFIED | Called against the real endpoint and decoded/applied successfully. |
 
 ## Realtime
@@ -101,7 +101,7 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 | `OperationQueue.resume()` | ✅ LIVE VERIFIED | `resume(flush=True)` flushed the retained Favorite mutation and fresh readback confirmed persistence. |
 | `OperationQueue.new_operation()` | ✅ LIVE VERIFIED | Exercised by live domain mutations, including the deferred Favorite queue/replay tests. |
 | `OperationQueue.enqueue()` | ✅ LIVE VERIFIED | Deferred live Favorite mutation remained locally pending until explicit client flush. |
-| `OperationQueue.add()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Domain live tests exercise `new_operation()` + `enqueue()` through service wrappers; the convenience `add()` method itself is not called by the live harness. |
+| `OperationQueue.add()` | ✅ LIVE VERIFIED | Directly queued the official `set-list-item-name` handler on the disposable shopping list and fresh readback confirmed the mutation. |
 | `OperationQueue.restore()` | ✅ LIVE VERIFIED | A journaled Favorite operation survived simulated abrupt loss, restored into a fresh queue, flushed, and was confirmed by a new server read. |
 | `OperationQueue.flush()` | ✅ LIVE VERIFIED | Explicit client/service flush, pause/resume flush, and restored-operation replay all succeeded against the real edit endpoint. |
 
@@ -120,12 +120,12 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 
 | Functionality | Status | Evidence / next check |
 |---|---|---|
-| `ShoppingListsService.operation()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.all()` | 🧪 OFFLINE VERIFIED |  |
+| `ShoppingListsService.operation()` | ✅ LIVE VERIFIED | Direct legacy-queue rename of a temporary disposable item was deferred, explicitly flushed, and confirmed from a fresh server read. |
+| `ShoppingListsService.all()` | ✅ LIVE VERIFIED | Compared directly with the synchronized real shopping-list state. |
 | `ShoppingListsService.get()` | ✅ LIVE VERIFIED | Used by the guarded disposable-list tests and fresh-session server readback. |
 | `ShoppingListsService.item()` | ✅ LIVE VERIFIED | Used repeatedly for live temporary-item verification and cleanup. |
-| `ShoppingListsService.has_pending_new_list()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.remove_list_local()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
+| `ShoppingListsService.has_pending_new_list()` | ✅ LOCAL VERIFIED | Explicit regression verifies false → true while a `new-shopping-list` operation is pending on the legacy queue → false after removal. |
+| `ShoppingListsService.remove_list_local()` | ✅ LOCAL VERIFIED | Explicit regression verifies removal from shopping state, duplicate ordered IDs, and all list-local indexes without any server mutation. |
 | `ShoppingListsService.refresh()` | ✅ LIVE VERIFIED | Called against the real endpoint and decoded/applied successfully. |
 | `ShoppingListsService.create()` | ✅ LIVE VERIFIED | Created the reserved disposable shopping list with starter-list side effects disabled; a fresh authenticated state confirmed server persistence. |
 | `ShoppingListsService.rename()` | ✅ LIVE VERIFIED | Temporary rename persisted on a fresh read and was restored to the exact guard name. |
@@ -195,29 +195,29 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 | `ShoppingListsService.sync_event_list_update()` | ✅ LIVE VERIFIED | Free-form event-list provenance update persisted on the disposable list. |
 | `ShoppingListsService.remove_event_references()` | ✅ LIVE VERIFIED | Event provenance cleanup persisted on fresh read. |
 | `ShoppingListsService.remove_recipe_references()` | ✅ LIVE VERIFIED | Recipe provenance cleanup persisted on fresh read. |
-| `ShoppingListsService.raw_legacy_operation()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.flush()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
-| `ShoppingListsService.restore()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
+| `ShoppingListsService.raw_legacy_operation()` | ✅ LIVE VERIFIED | Direct legacy handler enqueue renamed a temporary disposable item and fresh readback confirmed persistence after explicit flush. |
+| `ShoppingListsService.flush()` | ✅ LIVE VERIFIED | Explicitly flushed deferred direct shopping operations on the disposable list and fresh reads confirmed the server state. |
+| `ShoppingListsService.restore()` | ✅ LIVE VERIFIED | A journaled deferred legacy rename survived simulated abrupt loss, restored through the shopping service wrapper, flushed, and was confirmed by fresh server readback. |
 
 ## Per-list settings
 
 | Functionality | Status | Evidence / next check |
 |---|---|---|
-| `ListSettingsService.get()` | 🧪 OFFLINE VERIFIED |  |
-| `ListSettingsService.ensure()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED |  |
+| `ListSettingsService.get()` | ✅ LIVE VERIFIED | Real synchronized list settings were read back through the service view and matched the state objects by identity. |
+| `ListSettingsService.ensure()` | ✅ LIVE VERIFIED | Exercised against synchronized real list settings and through disposable Favorite starter-settings creation; returned/reused the official deterministic settings object. |
 | `ListSettingsService.initialize_new_list()` | ✅ LIVE VERIFIED | Exercised by creation of the retained disposable list with fresh-session persistence. |
 | `ListSettingsService.refresh()` | ✅ LIVE VERIFIED | Called against the real endpoint and decoded/applied successfully. |
 | `ListSettingsService.set()` | ✅ LIVE VERIFIED | Multiple per-list settings were toggled, verified on fresh reads, then restored exactly. |
 | `ListSettingsService.clear_store_filter_id()` | ✅ LIVE VERIFIED | Temporary selected filter was cleared and fresh read confirmed the effective empty value. The live server normalizes the optional field back to present-empty instead of absent. |
 | `ListSettingsService.set_migrated_list_category_group_id()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Wire payload exactly matches `app.js`, but the live server ignores standalone calls outside AnyList's full user-category migration flow. A valid live test requires global category migration state, beyond disposable-list-only permission. |
-| `ListSettingsService.remove()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED |  |
+| `ListSettingsService.remove()` | ✅ LIVE VERIFIED | Disposable Favorite starter-list settings were created, removed through the shared ListSettingsService implementation, and fresh readback confirmed absence. |
 
 ## Mobile/global settings
 
 | Functionality | Status | Evidence / next check |
 |---|---|---|
 | `MobileSettingsService.refresh()` | ✅ LIVE VERIFIED | Called against the real endpoint and decoded/applied successfully. |
-| `MobileSettingsService.get()` | 🧪 OFFLINE VERIFIED |  |
+| `MobileSettingsService.get()` | ✅ LIVE VERIFIED | Returned the real synchronized mobile-settings object from live state. |
 | `MobileSettingsService.set()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
 | `MobileSettingsService.save_recipe_cooking_states()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
 | `MobileSettingsService.remove_recipe_cooking_states()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
@@ -226,8 +226,8 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 
 | Functionality | Status | Evidence / next check |
 |---|---|---|
-| `UserCategoriesService.all()` | 🧪 OFFLINE VERIFIED |  |
-| `UserCategoriesService.groupings()` | 🧪 OFFLINE VERIFIED |  |
+| `UserCategoriesService.all()` | ✅ LIVE VERIFIED | Live service view matched the synchronized user-category state exactly. |
+| `UserCategoriesService.groupings()` | ✅ LIVE VERIFIED | Live service view matched the synchronized category-grouping state exactly. |
 | `UserCategoriesService.refresh()` | ✅ LIVE VERIFIED | Called against the real endpoint and decoded/applied successfully. |
 | `UserCategoriesService.add_category()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
 | `UserCategoriesService.remove_category()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
@@ -255,8 +255,8 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 | Functionality | Status | Evidence / next check |
 |---|---|---|
 | `FoldersService.operation()` | ✅ LIVE VERIFIED | Exercised by every disposable folder mutation in the guarded live round trip. |
-| `FoldersService.all()` | 🧪 OFFLINE VERIFIED |  |
-| `FoldersService.get()` | 🧪 OFFLINE VERIFIED |  |
+| `FoldersService.all()` | ✅ LIVE VERIFIED | Live folder service view matched the synchronized folder tree. |
+| `FoldersService.get()` | ✅ LIVE VERIFIED | Every synchronized folder ID resolved to the same live state object through the service getter. |
 | `FoldersService.has_pending_delete_items()` | 🧪 OFFLINE VERIFIED | Queue-introspection helper; folder delete operations are live verified, but this helper itself is not a distinct server behavior. |
 | `FoldersService.refresh()` | ✅ LIVE VERIFIED | Called against the real endpoint and decoded/applied successfully. |
 | `FoldersService.create()` | ✅ LIVE VERIFIED | Created a temporary parent folder and nested child containing only disposable resources; fresh reads confirmed both. |
@@ -274,14 +274,14 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 
 | Functionality | Status | Evidence / next check |
 |---|---|---|
-| `StarterListsService.all()` | 🧪 OFFLINE VERIFIED |  |
-| `StarterListsService.recent()` | 🧪 OFFLINE VERIFIED |  |
-| `StarterListsService.favorites()` | 🧪 OFFLINE VERIFIED |  |
-| `StarterListsService.favorite_for_shopping_list()` | 🧪 OFFLINE VERIFIED |  |
-| `StarterListsService.recent_for_shopping_list()` | 🧪 OFFLINE VERIFIED |  |
-| `StarterListsService.aggregate_favorites()` | 🧪 OFFLINE VERIFIED |  |
-| `StarterListsService.autocomplete_items()` | 🧪 OFFLINE VERIFIED |  |
-| `StarterListsService.ordered_user_lists()` | 🧪 OFFLINE VERIFIED |  |
+| `StarterListsService.all()` | ✅ LIVE VERIFIED | Live service view matched every synchronized starter list. |
+| `StarterListsService.recent()` | ✅ LIVE VERIFIED | Live service view matched the synchronized Recent Items map. |
+| `StarterListsService.favorites()` | ✅ LIVE VERIFIED | Live service view matched the synchronized Favorite Items map. |
+| `StarterListsService.favorite_for_shopping_list()` | ✅ LIVE VERIFIED | Every synchronized Favorite list resolved through its shopping-list ID. |
+| `StarterListsService.recent_for_shopping_list()` | ✅ LIVE VERIFIED | Every synchronized Recent list resolved through its shopping-list ID. |
+| `StarterListsService.aggregate_favorites()` | ✅ LIVE VERIFIED | Aggregated live favorites into the expected FavoriteItemsType starter-list view. |
+| `StarterListsService.autocomplete_items()` | ✅ LIVE VERIFIED | Returned the synchronized live starter-list items used for autocomplete. |
+| `StarterListsService.ordered_user_lists()` | ✅ LIVE VERIFIED | Live ordered view contained exactly the synchronized starter-list IDs. |
 | `StarterListsService.get()` | ✅ LIVE VERIFIED | Used throughout fresh-session verification of the disposable Recent/Favorite and temporary custom starter lists. |
 | `StarterListsService.refresh()` | ✅ LIVE VERIFIED | Called against the real endpoint and decoded/applied successfully. |
 | `StarterListsService.refresh_order()` | ✅ LIVE VERIFIED | Fresh clients read the ordered-ID endpoint repeatedly during temporary custom starter-list ordering tests. |
@@ -324,11 +324,11 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 
 | Functionality | Status | Evidence / next check |
 |---|---|---|
-| `RecipesService.all()` | 🧪 OFFLINE VERIFIED |  |
-| `RecipesService.get()` | 🧪 OFFLINE VERIFIED |  |
-| `RecipesService.collections()` | 🧪 OFFLINE VERIFIED |  |
-| `RecipesService.source_collections()` | 🧪 OFFLINE VERIFIED |  |
-| `RecipesService.not_in_collection()` | 🧪 OFFLINE VERIFIED |  |
+| `RecipesService.all()` | ✅ LIVE VERIFIED | Live recipe service view matched synchronized recipes. |
+| `RecipesService.get()` | ✅ LIVE VERIFIED | Every synchronized live recipe resolved through the service getter. |
+| `RecipesService.collections()` | ✅ LIVE VERIFIED | Live collection view matched synchronized recipe collections. |
+| `RecipesService.source_collections()` | ✅ LIVE VERIFIED | Executed against real synchronized recipe/source state without mutation. |
+| `RecipesService.not_in_collection()` | ✅ LIVE VERIFIED | Live helper returned the official deterministic not-in-collection smart collection ID. |
 | `RecipesService.sorted()` | 🧪 OFFLINE VERIFIED |  |
 | `RecipesService.refresh()` | ✅ LIVE VERIFIED | Called against the real endpoint and decoded/applied successfully. |
 | `RecipesService.operation()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
@@ -360,10 +360,10 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 | Functionality | Status | Evidence / next check |
 |---|---|---|
 | `MealPlanService.operation()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.events()` | 🧪 OFFLINE VERIFIED |  |
-| `MealPlanService.labels()` | 🧪 OFFLINE VERIFIED |  |
-| `MealPlanService.templates()` | 🧪 OFFLINE VERIFIED |  |
-| `MealPlanService.template_groups()` | 🧪 OFFLINE VERIFIED |  |
+| `MealPlanService.events()` | ✅ LIVE VERIFIED | Live service view matched synchronized meal-plan events. |
+| `MealPlanService.labels()` | ✅ LIVE VERIFIED | Live service view matched synchronized meal-plan labels. |
+| `MealPlanService.templates()` | ✅ LIVE VERIFIED | Live service view matched synchronized meal-plan templates. |
+| `MealPlanService.template_groups()` | ✅ LIVE VERIFIED | Live service view matched synchronized meal-plan template groups. |
 | `MealPlanService.refresh()` | ✅ LIVE VERIFIED | Called against the real endpoint and decoded/applied successfully. |
 | `MealPlanService.save_event()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
 | `MealPlanService.delete_event()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
@@ -448,8 +448,8 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 
 | Functionality | Status | Evidence / next check |
 |---|---|---|
-| `RawAPI.request()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED |  |
-| `RawAPI.post_proto()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED |  |
+| `RawAPI.request()` | ✅ LIVE VERIFIED | Read `/data/account/info` through the raw wrapper and decoded the real `PBAccountInfoResponse`. |
+| `RawAPI.post_proto()` | ✅ LIVE VERIFIED | Called the real aggregate `/data/user-data/get` protobuf endpoint through the raw wrapper and decoded `PBUserDataResponse`. |
 
 ## Derived recipe / meal-plan / pricing helpers
 

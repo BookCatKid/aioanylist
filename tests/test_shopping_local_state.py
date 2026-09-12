@@ -1151,6 +1151,23 @@ async def test_remove_checked_propagates_requested_flush_to_recent_promotion(fak
 
 
 @pytest.mark.asyncio
+async def test_has_pending_new_list_tracks_legacy_queue(fake_transport) -> None:
+    svc = service(fake_transport)
+    assert svc.has_pending_new_list() is False
+
+    operation = svc.legacy_queue.new_operation(
+        "new-shopping-list",
+        listId="list",
+        list=PB.ShoppingList(identifier="list"),
+    )
+    await svc.legacy_queue.enqueue(operation, flush=False)
+    assert svc.has_pending_new_list() is True
+
+    svc.legacy_queue._pending.clear()
+    assert svc.has_pending_new_list() is False
+
+
+@pytest.mark.asyncio
 async def test_unshare_unknown_email_is_official_noop(fake_transport) -> None:
     state = AnyListState(user_id="user")
     state.shopping_lists["list"] = PB.ShoppingList(identifier="list")

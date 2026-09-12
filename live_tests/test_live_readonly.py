@@ -8,9 +8,12 @@ from typing import Any
 import pytest
 from google.protobuf.message import Message
 
+from anylist_sdk import AnyListClient
 from anylist_sdk.autocomplete import AutocompleteEngine
 from anylist_sdk.categorization import Categorizer
+from anylist_sdk.proto import PB, decode
 from anylist_sdk.tag_data import TagDataManager
+from anylist_sdk.types import Domain
 
 
 pytestmark = pytest.mark.live
@@ -216,6 +219,9 @@ async def test_live_official_tag_data_languages_and_memory_cache(live_client: An
 @pytest.mark.asyncio
 async def test_live_autocomplete_and_categorization_use_official_tag_data(live_client: Any) -> None:
     german_manager = TagDataManager(live_client.transport, locale="de-DE")
+    assert german_manager.language == "de"
+    assert TagDataManager.path_for_language("en") == "/static/webapp/data/tag_data.json"
+    assert TagDataManager.path_for_language("de") == "/static/webapp/data/tag_data_de.json"
     german, english = await german_manager.active_and_english()
 
     german_pair = next(
@@ -265,6 +271,164 @@ async def test_live_autocomplete_and_categorization_use_official_tag_data(live_c
     assert any(
         suggestion.source == "generic" and suggestion.text == expected_text
         for suggestion in suggestions
+    )
+
+
+@pytest.mark.asyncio
+async def test_live_client_transport_sync_hooks_and_raw_reads(live_client: Any) -> None:
+    tokens = live_client.tokens
+    assert tokens is not None
+    client = AnyListClient(base_url=live_client.transport.base_url, tokens=tokens)
+    initial_session = client.transport.session
+    sentinel_id = "sdk-local-sync-guard-sentinel"
+    busy: list[bool] = []
+    notified: list[set[Domain]] = []
+
+    try:
+        await client.load(realtime=False, load_tag_data=False, restore_pending=False)
+        assert client.tokens is not None
+        assert client.tokens.user_id == tokens.user_id
+        assert client.user_id == tokens.user_id
+
+        client.sync.add_listener(lambda domains: notified.append(set(domains)))
+        client.sync.set_field_guard(
+            "shoppingListsResponse",
+            lambda: False,
+            on_busy=lambda: busy.append(True),
+        )
+        client.state.shopping_lists[sentinel_id] = PB.ShoppingList(
+            identifier=sentinel_id,
+            name="SDK local sync sentinel",
+        )
+
+        response = await client.sync.refresh(full=True)
+        assert response is not None
+        assert response.HasField("shoppingListsResponse")
+        assert busy == [True]
+        assert sentinel_id in client.state.shopping_lists
+        assert notified
+        assert Domain.SHOPPING_LISTS not in notified[-1]
+
+        assert client.raw is not None
+        account_raw = await client.raw.request("GET", "/data/account/info")
+        account = decode("PBAccountInfoResponse", account_raw)
+        assert isinstance(account, PB.PBAccountInfoResponse)
+
+        aggregate = await client.raw.post_proto(
+            "/data/user-data/get",
+            fields={"client_info": client.state.user_data_client_info()},
+            response_type="PBUserDataResponse",
+        )
+        assert isinstance(aggregate, PB.PBUserDataResponse)
+    finally:
+        await client.close()
+
+    assert initial_session.closed
+    reopened = client.transport.session
+    try:
+        assert reopened is not initial_session
+        assert not reopened.closed
+    finally:
+        await client.transport.close()
+    assert reopened.closed
+
+
+@pytest.mark.asyncio
+async def test_live_service_views_match_synchronized_state(live_client: Any) -> None:
+    state = await live_client.load(
+        realtime=False,
+        load_tag_data=False,
+        restore_pending=False,
+    )
+
+    assert live_client.lists is not None
+    assert {str(value.identifier) for value in live_client.lists.all()} == set(
+        state.shopping_lists
+    )
+    for identifier, value in state.shopping_lists.items():
+        assert live_client.lists.get(identifier) is value
+
+    assert live_client.list_settings is not None
+    for identifier, value in state.list_settings.items():
+        assert live_client.list_settings.get(identifier) is value
+        assert live_client.list_settings.ensure(identifier) is value
+
+    assert live_client.mobile_settings is not None
+    assert live_client.mobile_settings.get() is state.mobile_app_settings
+
+    assert live_client.photos is not None
+    assert live_client.photos.url("sdk-photo") == "https://photos.anylist.com/sdk-photo.jpg"
+
+    assert live_client.categories is not None
+    assert {str(value.identifier) for value in live_client.categories.all()} == set(
+        state.user_categories
+    )
+    assert {str(value.identifier) for value in live_client.categories.groupings()} == set(
+        state.category_groupings
+    )
+
+    assert live_client.folders is not None
+    assert {str(value.identifier) for value in live_client.folders.all()} == set(
+        state.list_folders
+    )
+    for identifier, value in state.list_folders.items():
+        assert live_client.folders.get(identifier) is value
+
+    assert live_client.starter_lists is not None
+    assert {str(value.identifier) for value in live_client.starter_lists.all()} == set(
+        state.starter_lists
+    )
+    assert {str(value.identifier) for value in live_client.starter_lists.recent()} == set(
+        state.recent_item_lists
+    )
+    assert {str(value.identifier) for value in live_client.starter_lists.favorites()} == set(
+        state.favorite_item_lists
+    )
+    for value in state.favorite_item_lists.values():
+        assert live_client.starter_lists.favorite_for_shopping_list(str(value.listId)) is value
+        assert live_client.starter_lists.autocomplete_items(str(value.identifier)) == list(
+            value.items
+        )
+    for value in state.recent_item_lists.values():
+        assert live_client.starter_lists.recent_for_shopping_list(str(value.listId)) is value
+    aggregate = live_client.starter_lists.aggregate_favorites()
+    assert aggregate.starterListType == PB.StarterList.Type.FavoriteItemsType
+    ordered = live_client.starter_lists.ordered_user_lists()
+    assert state.user_id is not None
+    legacy_favorites_id = hashlib.md5(
+        f"{state.user_id}-favorites".encode()
+    ).hexdigest()
+    assert {str(value.identifier) for value in ordered} == {
+        identifier
+        for identifier in state.starter_lists
+        if identifier != legacy_favorites_id
+    }
+
+    assert live_client.recipes is not None
+    assert {str(value.identifier) for value in live_client.recipes.all()} == set(state.recipes)
+    for identifier, value in state.recipes.items():
+        assert live_client.recipes.get(identifier) is value
+    assert {str(value.identifier) for value in live_client.recipes.collections()} == set(
+        state.recipe_collections
+    )
+    _ = live_client.recipes.source_collections()
+    not_in_collection = live_client.recipes.not_in_collection()
+    assert not_in_collection.identifier == "74267bf441d04dbc9dda96910dd3ba58"
+    sorted_recipes = live_client.recipes.sorted()
+    assert {str(value.identifier) for value in sorted_recipes} == set(state.recipes)
+
+    assert live_client.meal_plan is not None
+    assert {str(value.identifier) for value in live_client.meal_plan.events()} == set(
+        state.meal_plan_events
+    )
+    assert {str(value.identifier) for value in live_client.meal_plan.labels()} == set(
+        state.meal_plan_labels
+    )
+    assert {str(value.identifier) for value in live_client.meal_plan.templates()} == set(
+        state.meal_plan_templates
+    )
+    assert {str(value.identifier) for value in live_client.meal_plan.template_groups()} == set(
+        state.meal_plan_template_groups
     )
 
 
