@@ -17,7 +17,7 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 
 - Offline suite: **473 passing** at the latest local gate.
 - Current read-only live suite: **9/9 passing** with the corrected multipart transport.
-- Guarded disposable-list mutation suite: **19 passed, 1 safely skipped without writing**. The skip is the reversible list-local flags test because the server did not materialize the optional fields required for exact restoration.
+- Guarded disposable-list mutation suite: **22 passed, 1 safely skipped without writing**. The skip is the reversible list-local flags case because the server did not materialize the optional fields required for exact restoration.
 - The reusable server-side disposable list **`AnyList SDK Conformance Test`** exists and is retained for future verification. Mutation guards require both its reserved ID and exact name before any write.
 - No normal shopping list was mutated. Temporary items/stores/filters/categories/rules/provenance created by live tests were removed again; removal paths suppress Recent Items where required.
 - The protobuf multipart correction is now **live write verified**: AnyList requires binary protobuf fields as ordinary multipart form fields with no filename and no per-part Content-Type.
@@ -128,7 +128,7 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 | `ShoppingListsService.refresh()` | ✅ LIVE VERIFIED | Called against the real endpoint and decoded/applied successfully. |
 | `ShoppingListsService.create()` | ✅ LIVE VERIFIED | Created the reserved disposable shopping list with starter-list side effects disabled; a fresh authenticated state confirmed server persistence. |
 | `ShoppingListsService.rename()` | ✅ LIVE VERIFIED | Temporary rename persisted on a fresh read and was restored to the exact guard name. |
-| `ShoppingListsService.set_password()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Candidate for disposable-list live verification once the test list exists; must avoid Recent Items side effects unless explicitly suppressed. |
+| `ShoppingListsService.set_password()` | ✅ LIVE VERIFIED | Temporary password persisted on fresh read and was restored exactly once the server-side optional field was materialized. First-ever set/clear changes protobuf presence from absent to present-empty, matching server behavior. |
 | `ShoppingListsService.add_item()` | ✅ LIVE VERIFIED | Temporary items persisted on fresh server reads and were removed with Recent Items suppressed. |
 | `ShoppingListsService.add_items()` | ✅ LIVE VERIFIED | Bulk-created temporary items persisted and were used for ordering/uncheck tests. |
 | `ShoppingListsService.revive_matching_item()` | ✅ LIVE VERIFIED | Checked temporary item was revived via the safe unchecked path and verified on a fresh read. |
@@ -137,7 +137,7 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 | `ShoppingListsService.rename_item()` | ✅ LIVE VERIFIED | Persisted on a fresh server read. |
 | `ShoppingListsService.set_details()` | ✅ LIVE VERIFIED | Persisted on a fresh server read. |
 | `ShoppingListsService.set_product_upc()` | ✅ LIVE VERIFIED | Persisted on a fresh server read. |
-| `ShoppingListsService.set_photo()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Temporary-item photo-reference test is safe, but the latest attempt was blocked by DNS before authentication; no live write occurred. |
+| `ShoppingListsService.set_photo()` | ✅ LIVE VERIFIED | Temporary item photo-reference set/clear persisted on fresh reads; no photo upload was performed. |
 | `ShoppingListsService.set_quantity()` | ✅ LIVE VERIFIED | Persisted exact protobuf quantity on a fresh read. |
 | `ShoppingListsService.set_package_size()` | ✅ LIVE VERIFIED | Persisted exact protobuf package size on a fresh read. |
 | `ShoppingListsService.set_quantity_override()` | ✅ LIVE VERIFIED | Persisted on a fresh read. |
@@ -207,8 +207,8 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 | `ListSettingsService.initialize_new_list()` | ✅ LIVE VERIFIED | Exercised by creation of the retained disposable list with fresh-session persistence. |
 | `ListSettingsService.refresh()` | ✅ LIVE VERIFIED | Called against the real endpoint and decoded/applied successfully. |
 | `ListSettingsService.set()` | ✅ LIVE VERIFIED | Multiple per-list settings were toggled, verified on fresh reads, then restored exactly. |
-| `ListSettingsService.clear_store_filter_id()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED |  |
-| `ListSettingsService.set_migrated_list_category_group_id()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED |  |
+| `ListSettingsService.clear_store_filter_id()` | ✅ LIVE VERIFIED | Temporary selected filter was cleared and fresh read confirmed the effective empty value. The live server normalizes the optional field back to present-empty instead of absent. |
+| `ListSettingsService.set_migrated_list_category_group_id()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Wire payload exactly matches `app.js`, but the live server ignores standalone calls outside AnyList's full user-category migration flow. A valid live test requires global category migration state, beyond disposable-list-only permission. |
 | `ListSettingsService.remove()` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED |  |
 
 ## Mobile/global settings

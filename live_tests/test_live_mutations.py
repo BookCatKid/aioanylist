@@ -220,6 +220,55 @@ async def test_live_item_text_and_upc_round_trip(live_client, live_mutation_list
 
 
 @pytest.mark.asyncio
+async def test_live_item_photo_reference_round_trip(
+    live_client, live_mutation_list_id: str
+) -> None:
+    await _load_and_require_disposable(live_client, live_mutation_list_id)
+    assert live_client.lists is not None
+    created = await live_client.lists.add_item(
+        live_mutation_list_id, f"sdk-photo-ref-{uuid4().hex}"
+    )
+    item_id = str(created.identifier)
+    photo_id = f"sdk-photo-{uuid4().hex}"
+    try:
+        await live_client.lists.set_photo(live_mutation_list_id, item_id, photo_id)
+        fresh = await _fresh_server_list(live_client, live_mutation_list_id)
+        item = next((x for x in fresh.items if x.identifier == item_id), None) if fresh else None
+        assert item is not None
+        assert list(item.photoIds) == [photo_id]
+
+        await live_client.lists.set_photo(live_mutation_list_id, item_id, None)
+        fresh = await _fresh_server_list(live_client, live_mutation_list_id)
+        item = next((x for x in fresh.items if x.identifier == item_id), None) if fresh else None
+        assert item is not None
+        assert list(item.photoIds) == []
+    finally:
+        await _remove_without_recents(live_client, live_mutation_list_id, [item_id])
+
+
+@pytest.mark.asyncio
+async def test_live_list_password_round_trip_when_field_materialized(
+    live_client, live_mutation_list_id: str
+) -> None:
+    value = await _load_and_require_disposable(live_client, live_mutation_list_id)
+    if not value.HasField("password"):
+        pytest.skip("server has not materialized password; refusing an irreversible presence change")
+    assert live_client.lists is not None
+    original = str(value.password)
+    temporary = f"sdk-{uuid4().hex}"
+    try:
+        await live_client.lists.set_password(live_mutation_list_id, temporary)
+        fresh = await _fresh_server_list(live_client, live_mutation_list_id)
+        assert fresh is not None and fresh.HasField("password")
+        assert fresh.password == temporary
+    finally:
+        await live_client.lists.set_password(live_mutation_list_id, original)
+    restored = await _fresh_server_list(live_client, live_mutation_list_id)
+    assert restored is not None and restored.HasField("password")
+    assert restored.password == original
+
+
+@pytest.mark.asyncio
 async def test_live_item_quantity_package_and_overrides_round_trip(
     live_client, live_mutation_list_id: str
 ) -> None:
@@ -733,6 +782,70 @@ async def test_live_per_list_settings_round_trip(
     assert restored is not None
     for field in required:
         assert getattr(restored, field) == original[field]
+
+
+@pytest.mark.asyncio
+async def test_live_list_settings_filter_clear_round_trip(
+    live_client, live_mutation_list_id: str
+) -> None:
+    await _load_and_require_disposable(live_client, live_mutation_list_id)
+    assert live_client.lists is not None
+    assert live_client.list_settings is not None
+    settings = live_client.state.list_settings.get(live_mutation_list_id)
+    if settings is None:
+        pytest.fail("disposable list has no per-list settings; refusing mutation", pytrace=False)
+
+    original_filter_present = settings.HasField("storeFilterId")
+    original_filter = str(settings.storeFilterId) if original_filter_present else ""
+    filter_id = uuid4().hex
+    store_filter = PB.PBStoreFilter(
+        identifier=filter_id,
+        listId=live_mutation_list_id,
+        name=f"SDK Settings Filter {filter_id[:8]}",
+        includesUnassignedItems=True,
+    )
+    try:
+        await live_client.lists.save_store_filter(
+            live_mutation_list_id, store_filter, is_new=True
+        )
+        await live_client.list_settings.set(
+            live_mutation_list_id, "storeFilterId", filter_id
+        )
+        snapshot = await _fresh_list_scope(live_client, live_mutation_list_id)
+        changed = snapshot["settings"]
+        assert changed is not None and changed.HasField("storeFilterId")
+        assert changed.storeFilterId == filter_id
+
+        await live_client.list_settings.clear_store_filter_id(live_mutation_list_id)
+        snapshot = await _fresh_list_scope(live_client, live_mutation_list_id)
+        cleared = snapshot["settings"]
+        assert cleared is not None
+        # The official client sends an absent optional field for the clear operation,
+        # but the live server may normalize it back to a present empty string.
+        assert not str(cleared.storeFilterId)
+    finally:
+        current_filter = live_client.state.list_store_filters.get(
+            live_mutation_list_id, {}
+        ).get(filter_id)
+        if current_filter is not None:
+            await live_client.lists.delete_store_filter(
+                live_mutation_list_id, current_filter
+            )
+        if original_filter_present:
+            await live_client.list_settings.set(
+                live_mutation_list_id, "storeFilterId", original_filter
+            )
+        else:
+            await live_client.list_settings.clear_store_filter_id(live_mutation_list_id)
+
+    snapshot = await _fresh_list_scope(live_client, live_mutation_list_id)
+    restored = snapshot["settings"]
+    assert restored is not None
+    if original_filter_present:
+        assert restored.HasField("storeFilterId")
+        assert restored.storeFilterId == original_filter
+    else:
+        assert not str(restored.storeFilterId)
 
 
 @pytest.mark.asyncio
