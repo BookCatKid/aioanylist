@@ -10,16 +10,16 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 - **🟡 LIVE PARTIAL** — a meaningful live path passed, but another direction/side effect remains intentionally untested.
 - **🟠 LIVE RETEST REQUIRED** — relevant implementation changed after the last live attempt; do not treat older live results as current proof.
 - **⚪ NOT LIVE TESTED** — no current live evidence.
-- **🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE** — deliberately not tested because it would affect resources outside the disposable-list ecosystem, global/account state that cannot be isolated, another person, or an external side effect without a cleanup path.
+- **🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE** — deliberately not tested because it would modify pre-existing non-disposable state, another person, an account-wide setting that cannot be isolated, or an external/irreversible side effect without a cleanup path. Tests may create and fully remove uniquely identified disposable resources in otherwise global domains.
 - **⚠️ OFFICIAL CONTRADICTION** — official JavaScript and embedded protobuf schema conflict; do not invent a wire format.
 
 ## Current checkpoint
 
 - Offline suite: **476 passing** at the latest local gate.
 - Current read-only live suite: **12/12 passing** with the corrected multipart transport, including live autocomplete/categorization against official English/German tag resources plus live sync-hook, raw-API, service-view, and transport-close coverage.
-- Guarded disposable-list mutation suite: **42 passed, 1 safely skipped without writing** in the latest complete live run. Coverage now includes the disposable shopping list, its deterministic Recent/Favorite starter lists, starter-list settings, temporary disposable-linked starter lists, exact starter-list ordering restoration, a fully restored disposable folder-tree round trip, explicit client-wide flush, queue pause/resume, durable operation replay after simulated abrupt loss, real cross-client WebSocket invalidation delivery, automatic reconnect catch-up after a forced transport loss, direct shopping queue wrappers, shopping-service journal restore/replay, and a live `GenericDomainService` round trip against the disposable Favorite list.
+- Guarded live mutation suite: **47 passed, 1 safely skipped without writing** in the latest complete run. In addition to the disposable shopping-list ecosystem, coverage now includes uniquely identified disposable global categories/groupings and learned categorization memory, disposable recipes/collections with exact collection-order restoration, disposable meal-plan events/labels/list-items, disposable templates/template events/template groups with exact root-item restoration, and recipe-linked deletion across both normal and template event stores.
 - The reusable server-side disposable list **`AnyList SDK Conformance Test`** exists and is retained for future verification. Mutation guards require both its reserved ID and exact name before any write.
-- No normal shopping list was mutated. Temporary items/stores/filters/categories/rules/provenance created by live tests were removed again; removal paths suppress Recent Items where required.
+- No normal shopping list or pre-existing recipe/category/meal-plan resource is intentionally mutated. Temporary shopping, starter, folder, category, recipe, collection, meal-plan event/label/template/group, rule, and provenance resources created by live tests are removed again and fresh cleanup audits require zero residue. The one label-order experiment that necessarily renumbered existing labels was immediately restored to the exact original `[0,1,2,3,4]` sort indices and is excluded from routine reruns.
 - The protobuf multipart correction is now **live write verified**: AnyList requires binary protobuf fields as ordinary multipart form fields with no filename and no per-part Content-Type.
 - Live conformance found and fixed a categorization-rule identity bug: single, bulk, and migration rule creation now use the official deterministic UUIDv5 of `lower(itemName) + categoryGroupId + listId`. Offline regressions and live server readback both confirm it.
 - Live conformance also found and fixed a cross-service flush bug: `clear()` and `remove_checked()` could commit the shopping-list removal while leaving their required Recent Items promotion queued locally. Both now propagate the caller's flush request to the Recent/Favorite starter queue, matching the official web flow; offline regressions and live readback confirm the fix.
@@ -218,9 +218,9 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 |---|---|---|
 | `MobileSettingsService.refresh()` | ✅ LIVE VERIFIED | Called against the real endpoint and decoded/applied successfully. |
 | `MobileSettingsService.get()` | ✅ LIVE VERIFIED | Returned the real synchronized mobile-settings object from live state. |
-| `MobileSettingsService.set()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MobileSettingsService.save_recipe_cooking_states()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MobileSettingsService.remove_recipe_cooking_states()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
+| `MobileSettingsService.set()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
+| `MobileSettingsService.save_recipe_cooking_states()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
+| `MobileSettingsService.remove_recipe_cooking_states()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
 
 ## User categories
 
@@ -229,26 +229,26 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 | `UserCategoriesService.all()` | ✅ LIVE VERIFIED | Live service view matched the synchronized user-category state exactly. |
 | `UserCategoriesService.groupings()` | ✅ LIVE VERIFIED | Live service view matched the synchronized category-grouping state exactly. |
 | `UserCategoriesService.refresh()` | ✅ LIVE VERIFIED | Called against the real endpoint and decoded/applied successfully. |
-| `UserCategoriesService.add_category()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `UserCategoriesService.remove_category()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `UserCategoriesService.rename_category()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `UserCategoriesService.set_category_icon()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `UserCategoriesService.add_grouping()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `UserCategoriesService.remove_grouping()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `UserCategoriesService.set_grouping_categories()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `UserCategoriesService.rename_grouping()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `UserCategoriesService.hide_grouping_from_browse()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
+| `UserCategoriesService.add_category()` | ✅ LIVE VERIFIED | Created uniquely named disposable global categories; fresh readback confirmed persistence and final fresh read confirmed deletion. |
+| `UserCategoriesService.remove_category()` | ✅ LIVE VERIFIED | Removed both test-created global categories; fresh server state confirmed absence. |
+| `UserCategoriesService.rename_category()` | ✅ LIVE VERIFIED | Renamed a test-created category and verified the new name from a fresh client. |
+| `UserCategoriesService.set_category_icon()` | ✅ LIVE VERIFIED | Set the icon on a test-created category and verified it from fresh state. |
+| `UserCategoriesService.add_grouping()` | ✅ LIVE VERIFIED | Created a disposable grouping containing only test-created categories; fresh readback confirmed it. |
+| `UserCategoriesService.remove_grouping()` | ✅ LIVE VERIFIED | Removed the disposable grouping and fresh read confirmed absence. |
+| `UserCategoriesService.set_grouping_categories()` | ✅ LIVE VERIFIED | Membership and ordering variants both persisted for a grouping containing only disposable categories. |
+| `UserCategoriesService.rename_grouping()` | ✅ LIVE VERIFIED | Renamed the disposable grouping and verified fresh server state. |
+| `UserCategoriesService.hide_grouping_from_browse()` | ✅ LIVE VERIFIED | Hide flag persisted on the disposable grouping and was verified from fresh state. |
 
 ## Learned categorized items
 
 | Functionality | Status | Evidence / next check |
 |---|---|---|
 | `CategorizedItemsService.refresh()` | ✅ LIVE VERIFIED | Called against the real endpoint and decoded/applied successfully. |
-| `CategorizedItemsService.memory_id()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `CategorizedItemsService.lookup()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `CategorizedItemsService.categorize()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `CategorizedItemsService.remove()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `CategorizedItemsService.migrate_category()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
+| `CategorizedItemsService.memory_id()` | ✅ LIVE VERIFIED | Used to derive the live disposable learned-memory ID and matched the fresh server entry. |
+| `CategorizedItemsService.lookup()` | ✅ LIVE VERIFIED | Resolved the live disposable learned-memory entry before migration/removal. |
+| `CategorizedItemsService.categorize()` | ✅ LIVE VERIFIED | Created a learned categorization memory for a unique test item and verified it from fresh state. |
+| `CategorizedItemsService.remove()` | ✅ LIVE VERIFIED | Removed the disposable learned-memory entry; fresh server read confirmed absence. |
+| `CategorizedItemsService.migrate_category()` | ✅ LIVE VERIFIED | Migrated the disposable learned memory from one test-created category match ID to another and verified fresh state. |
 
 ## Folders
 
@@ -331,118 +331,118 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 | `RecipesService.not_in_collection()` | ✅ LIVE VERIFIED | Live helper returned the official deterministic not-in-collection smart collection ID. |
 | `RecipesService.sorted()` | ✅ LIVE VERIFIED | Executed against real synchronized recipe state and returned exactly the synchronized recipe IDs. |
 | `RecipesService.refresh()` | ✅ LIVE VERIFIED | Called against the real endpoint and decoded/applied successfully. |
-| `RecipesService.operation()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `RecipesService.save()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `RecipesService.create()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `RecipesService.remove()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `RecipesService.remove_many()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `RecipesService.create_collection()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `RecipesService.remove_collection()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `RecipesService.rename_collection()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `RecipesService.add_to_collection()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `RecipesService.remove_from_collection()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `RecipesService.reorder_collections()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `RecipesService.reorder_recipes()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `RecipesService.set_collection_icon()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `RecipesService.set_collection_sort()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `RecipesService.set_max_recipe_count()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `RecipesService.set_system_collection_recipe_sort()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `RecipesService.set_system_collection_collection_sort()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `RecipesService.web_import()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `RecipesService.send_as_email()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `RecipesService.request_link()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `RecipesService.accept_link()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `RecipesService.cancel_link()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `RecipesService.unlink()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
+| `RecipesService.operation()` | ✅ LIVE VERIFIED | Exercised by disposable recipe and collection mutations against the real recipe update queue. |
+| `RecipesService.save()` | ✅ LIVE VERIFIED | Updated a test-created recipe name/note/rating and verified fresh server state. |
+| `RecipesService.create()` | ✅ LIVE VERIFIED | Created disposable recipes through an isolated recipe service; fresh readback confirmed persistence. |
+| `RecipesService.remove()` | ✅ LIVE VERIFIED | Removed a disposable recipe individually after recipe-linked event deletion; fresh read confirmed absence. |
+| `RecipesService.remove_many()` | ✅ LIVE VERIFIED | Removed two disposable recipes in one operation; fresh state confirmed cleanup. |
+| `RecipesService.create_collection()` | ✅ LIVE VERIFIED | Created two disposable recipe collections and verified both from fresh state. |
+| `RecipesService.remove_collection()` | ✅ LIVE VERIFIED | Removed both disposable collections; fresh state confirmed absence. |
+| `RecipesService.rename_collection()` | ✅ LIVE VERIFIED | Renamed a disposable collection and verified fresh server state. |
+| `RecipesService.add_to_collection()` | ✅ LIVE VERIFIED | Added only disposable recipes to a disposable collection and verified membership. |
+| `RecipesService.remove_from_collection()` | ✅ LIVE VERIFIED | Removed and re-added a disposable recipe; server membership matched. |
+| `RecipesService.reorder_collections()` | ✅ LIVE VERIFIED | Temporarily appended/reordered only disposable collection IDs while preserving/restoring the exact pre-existing order. |
+| `RecipesService.reorder_recipes()` | ✅ LIVE VERIFIED | Reordered two disposable recipes inside a disposable collection and verified fresh state. |
+| `RecipesService.set_collection_icon()` | ✅ LIVE VERIFIED | Disposable collection icon persisted on fresh readback. |
+| `RecipesService.set_collection_sort()` | ✅ LIVE VERIFIED | Disposable collection sort/reversed settings persisted on fresh readback. |
+| `RecipesService.set_max_recipe_count()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
+| `RecipesService.set_system_collection_recipe_sort()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
+| `RecipesService.set_system_collection_collection_sort()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
+| `RecipesService.web_import()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
+| `RecipesService.send_as_email()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
+| `RecipesService.request_link()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
+| `RecipesService.accept_link()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
+| `RecipesService.cancel_link()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
+| `RecipesService.unlink()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
 
 ## Meal plan
 
 | Functionality | Status | Evidence / next check |
 |---|---|---|
-| `MealPlanService.operation()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
+| `MealPlanService.operation()` | ✅ LIVE VERIFIED | Exercised by disposable event, label, template and template-group operations against the real calendar queue. |
 | `MealPlanService.events()` | ✅ LIVE VERIFIED | Live service view matched synchronized meal-plan events. |
 | `MealPlanService.labels()` | ✅ LIVE VERIFIED | Live service view matched synchronized meal-plan labels. |
 | `MealPlanService.templates()` | ✅ LIVE VERIFIED | Live service view matched synchronized meal-plan templates. |
 | `MealPlanService.template_groups()` | ✅ LIVE VERIFIED | Live service view matched synchronized meal-plan template groups. |
 | `MealPlanService.refresh()` | ✅ LIVE VERIFIED | Called against the real endpoint and decoded/applied successfully. |
-| `MealPlanService.save_event()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.delete_event()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.save_events()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.set_event_date()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.add_event_list_item()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.update_event_list_item()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.remove_event_list_item()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.reorder_event_list_items()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.save_label()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.delete_label()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.reorder_labels()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.save_template()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.delete_template()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.set_event_title()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.set_event_details()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.set_event_icon()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.set_event_label()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.set_event_label_sort_index()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.set_event_list_item_name()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.set_event_list_item_details()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.set_event_list_item_quantity()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.set_event_list_item_package_size()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.delete_events_for_recipe_id()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.set_template_name()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.set_template_icon()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.add_template_day_ids()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.remove_template_day_ids()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.set_template_day_ids()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.set_template_day_id_for_events()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.create_root_template_group()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.create_template_group()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.delete_template_group()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.set_ordered_template_group_items()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.move_template_group_items()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.set_template_group_items_sort_order()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.set_template_group_groups_sort_position()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.set_icalendar_enabled()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `MealPlanService.send_as_email()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
+| `MealPlanService.save_event()` | ✅ LIVE VERIFIED | Created both normal and template disposable events; fresh server readback confirmed each. |
+| `MealPlanService.delete_event()` | ✅ LIVE VERIFIED | Deleted disposable normal/template events and fresh state confirmed absence. |
+| `MealPlanService.save_events()` | ✅ LIVE VERIFIED | Batch-created a disposable meal-plan event and verified it from fresh state. |
+| `MealPlanService.set_event_date()` | ✅ LIVE VERIFIED | Moved a disposable queue event to a dated calendar event and back; live queue remained acknowledged. |
+| `MealPlanService.add_event_list_item()` | ✅ LIVE VERIFIED | Added disposable event-list items and verified fresh event state. |
+| `MealPlanService.update_event_list_item()` | ✅ LIVE VERIFIED | Underlying event-list-item update path exercised live by name/details/quantity/package-size setters. |
+| `MealPlanService.remove_event_list_item()` | ✅ LIVE VERIFIED | Removed a disposable event-list item and completed clean event deletion. |
+| `MealPlanService.reorder_event_list_items()` | ✅ LIVE VERIFIED | Reordered two disposable event-list items and verified order from fresh state. |
+| `MealPlanService.save_label()` | ✅ LIVE VERIFIED | Created and updated a disposable meal-plan label; fresh state confirmed both. |
+| `MealPlanService.delete_label()` | ✅ LIVE VERIFIED | Deleted the disposable label and fresh state confirmed absence. |
+| `MealPlanService.reorder_labels()` | ✅ LIVE VERIFIED | Live operation succeeded and demonstrated official global renumbering semantics; all five pre-existing label sort indices were immediately restored exactly. Unsafe for routine disposable reruns because it necessarily affects existing label order. |
+| `MealPlanService.save_template()` | ✅ LIVE VERIFIED | Created a disposable template under a disposable group and verified fresh state. |
+| `MealPlanService.delete_template()` | ✅ LIVE VERIFIED | Deleted disposable templates; fresh server state confirmed absence. |
+| `MealPlanService.set_event_title()` | ✅ LIVE VERIFIED | Disposable event title persisted on fresh readback. |
+| `MealPlanService.set_event_details()` | ✅ LIVE VERIFIED | Disposable event details persisted on fresh readback. |
+| `MealPlanService.set_event_icon()` | ✅ LIVE VERIFIED | Disposable event icon persisted on fresh readback. |
+| `MealPlanService.set_event_label()` | ✅ LIVE VERIFIED | Assigned only the disposable label to the disposable event and verified fresh state. |
+| `MealPlanService.set_event_label_sort_index()` | ✅ LIVE VERIFIED | Set the disposable event label sort index through the live calendar queue. |
+| `MealPlanService.set_event_list_item_name()` | ✅ LIVE VERIFIED | Disposable event-list-item name persisted on fresh readback. |
+| `MealPlanService.set_event_list_item_details()` | ✅ LIVE VERIFIED | Disposable event-list-item details persisted on fresh readback. |
+| `MealPlanService.set_event_list_item_quantity()` | ✅ LIVE VERIFIED | Disposable event-list-item quantity protobuf persisted on fresh readback. |
+| `MealPlanService.set_event_list_item_package_size()` | ✅ LIVE VERIFIED | Disposable event-list-item package-size protobuf persisted on fresh readback. |
+| `MealPlanService.delete_events_for_recipe_id()` | ✅ LIVE VERIFIED | A disposable recipe with one normal event and one template event was deleted from both event stores; fresh state confirmed both absent despite the suspicious app.js typo. |
+| `MealPlanService.set_template_name()` | ✅ LIVE VERIFIED | Disposable template name persisted on fresh readback. |
+| `MealPlanService.set_template_icon()` | ✅ LIVE VERIFIED | Disposable template icon persisted on fresh readback. |
+| `MealPlanService.add_template_day_ids()` | ✅ LIVE VERIFIED | Added real UUID template-day IDs to a disposable template; operation acknowledged live. |
+| `MealPlanService.remove_template_day_ids()` | ✅ LIVE VERIFIED | Removed a real UUID template-day ID and verified the resulting template from fresh state. |
+| `MealPlanService.set_template_day_ids()` | ✅ LIVE VERIFIED | Replaced disposable template day IDs with real UUIDs and verified fresh state. |
+| `MealPlanService.set_template_day_id_for_events()` | ✅ LIVE VERIFIED | Moved a disposable template event between disposable template-day IDs and verified fresh state. |
+| `MealPlanService.create_root_template_group()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
+| `MealPlanService.create_template_group()` | ✅ LIVE VERIFIED | Created disposable child/nested template groups under the existing root, then removed them completely. |
+| `MealPlanService.delete_template_group()` | ✅ LIVE VERIFIED | Deleted all disposable template groups leaf-first; fresh state confirmed zero residue. |
+| `MealPlanService.set_ordered_template_group_items()` | ✅ LIVE VERIFIED | Reordered only items inside a disposable template group and verified the resulting fresh group state. |
+| `MealPlanService.move_template_group_items()` | ✅ LIVE VERIFIED | Moved a disposable nested group between two disposable parents and verified fresh state. |
+| `MealPlanService.set_template_group_items_sort_order()` | ✅ LIVE VERIFIED | Disposable template-group item sort setting persisted on fresh state. |
+| `MealPlanService.set_template_group_groups_sort_position()` | ✅ LIVE VERIFIED | Disposable template-group group-position setting persisted on fresh state. |
+| `MealPlanService.set_icalendar_enabled()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
+| `MealPlanService.send_as_email()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
 
 ## Account
 
 | Functionality | Status | Evidence / next check |
 |---|---|---|
 | `AccountService.get()` | ✅ LIVE VERIFIED |  |
-| `AccountService.update_name()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
+| `AccountService.update_name()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
 
 ## Photos
 
 | Functionality | Status | Evidence / next check |
 |---|---|---|
-| `PhotosService.upload_bytes()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `PhotosService.upload_url()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
+| `PhotosService.upload_bytes()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
+| `PhotosService.upload_url()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
 | `PhotosService.url()` | 🧪 OFFLINE VERIFIED |  |
 
 ## Sharing / email
 
 | Functionality | Status | Evidence / next check |
 |---|---|---|
-| `SharingService.share_list()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `SharingService.send_list_email()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `SharingService.send_recipe_email()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `SharingService.send_meal_plan_email()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
+| `SharingService.share_list()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
+| `SharingService.send_list_email()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
+| `SharingService.send_recipe_email()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
+| `SharingService.send_meal_plan_email()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
 
 ## Alexa
 
 | Functionality | Status | Evidence / next check |
 |---|---|---|
-| `AlexaService.link_list()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `AlexaService.unlink_list()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `AlexaService.unlink_anylist_list()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `AlexaService.set_enabled_lists()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
+| `AlexaService.link_list()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
+| `AlexaService.unlink_list()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
+| `AlexaService.unlink_anylist_list()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
+| `AlexaService.set_enabled_lists()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
 
 ## Web state
 
 | Functionality | Status | Evidence / next check |
 |---|---|---|
-| `WebStateService.mark_mac_app_download_prompt_seen()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
-| `WebStateService.mark_welcome_screen_seen()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
+| `WebStateService.mark_mac_app_download_prompt_seen()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
+| `WebStateService.mark_welcome_screen_seen()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
 
 ## Raw protocol escape hatch
 

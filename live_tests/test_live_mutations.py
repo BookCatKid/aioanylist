@@ -13,9 +13,10 @@ from anylist_sdk.derived import (
 )
 from anylist_sdk.proto import PB, ListItem, ShoppingList
 from anylist_sdk.services.generic import GenericDomainService
+from anylist_sdk.services.meal_plan import MealPlanService
+from anylist_sdk.services.recipes import RecipesService
 from anylist_sdk.services.shopping import category_rule_identifier
 from anylist_sdk.services.starter import favorite_list_id, recent_list_id
-
 
 DISPOSABLE_LIST_NAME = "AnyList SDK Conformance Test"
 
@@ -183,6 +184,197 @@ async def _fresh_folder_state(live_client) -> tuple[str, dict[str, object]]:
         return root_id, copied
     finally:
         await fresh.close()
+
+
+async def _fresh_global_category_state(live_client) -> dict[str, dict[str, object]]:
+    """Read disposable-safe global category/categorization domains through fresh state."""
+    tokens = live_client.tokens
+    assert tokens is not None
+    fresh = AnyListClient(base_url=live_client.transport.base_url, tokens=tokens)
+
+    def copied(value):
+        out = value.__class__()
+        out.CopyFrom(value)
+        return out
+
+    try:
+        await fresh.load(realtime=False, load_tag_data=False, restore_pending=False)
+        return {
+            "categories": {
+                key: copied(value) for key, value in fresh.state.user_categories.items()
+            },
+            "groupings": {
+                key: copied(value) for key, value in fresh.state.category_groupings.items()
+            },
+            "categorized_items": {
+                key: copied(value) for key, value in fresh.state.categorized_items.items()
+            },
+        }
+    finally:
+        await fresh.close()
+
+
+async def _fresh_recipe_state(live_client) -> dict[str, object]:
+    tokens = live_client.tokens
+    assert tokens is not None
+    fresh = AnyListClient(base_url=live_client.transport.base_url, tokens=tokens)
+
+    def copied(value):
+        out = value.__class__()
+        out.CopyFrom(value)
+        return out
+
+    try:
+        await fresh.load(realtime=False, load_tag_data=False, restore_pending=False)
+        return {
+            "recipes": {key: copied(value) for key, value in fresh.state.recipes.items()},
+            "collections": {
+                key: copied(value) for key, value in fresh.state.recipe_collections.items()
+            },
+            "collection_ids": list(fresh.state.recipe_collection_ids),
+        }
+    finally:
+        await fresh.close()
+
+
+async def _fresh_meal_plan_state(live_client) -> dict[str, object]:
+    tokens = live_client.tokens
+    assert tokens is not None
+    fresh = AnyListClient(base_url=live_client.transport.base_url, tokens=tokens)
+
+    def copied(value):
+        out = value.__class__()
+        out.CopyFrom(value)
+        return out
+
+    try:
+        await fresh.load(realtime=False, load_tag_data=False, restore_pending=False)
+        return {
+            "calendar_id": fresh.state.meal_plan_calendar_id,
+            "events": {key: copied(value) for key, value in fresh.state.meal_plan_events.items()},
+            "template_events": {
+                key: copied(value) for key, value in fresh.state.meal_plan_template_events.items()
+            },
+            "labels": {key: copied(value) for key, value in fresh.state.meal_plan_labels.items()},
+            "templates": {
+                key: copied(value) for key, value in fresh.state.meal_plan_templates.items()
+            },
+            "groups": {
+                key: copied(value) for key, value in fresh.state.meal_plan_template_groups.items()
+            },
+        }
+    finally:
+        await fresh.close()
+
+
+async def _cleanup_meal_plan_template_marker(
+    live_client, service: MealPlanService, marker: str
+) -> set[str]:
+    """Delete only template resources carrying this test marker, leaf-first."""
+    deleted_ids: set[str] = set()
+
+    await service.refresh()
+    for event_id, event in list(service.state.meal_plan_template_events.items()):
+        if marker in str(getattr(event, "title", "") or ""):
+            deleted_ids.add(str(event_id))
+            await service.delete_event(str(event_id))
+            await service.refresh()
+
+    await service.refresh()
+    for template_id, template in list(service.state.meal_plan_templates.items()):
+        if marker not in str(getattr(template, "name", "") or ""):
+            continue
+        deleted_ids.add(str(template_id))
+        await service.delete_template(str(template_id))
+        await service.refresh()
+
+    while True:
+        await service.refresh()
+        groups = {
+            str(group_id): group
+            for group_id, group in service.state.meal_plan_template_groups.items()
+            if marker in str(getattr(group, "name", "") or "")
+        }
+        if not groups:
+            break
+
+        parent_by_child: dict[str, str] = {}
+        for parent_id, parent in service.state.meal_plan_template_groups.items():
+            for item in parent.items:
+                if int(item.itemType) == int(PB.PBMealPlanTemplateGroupItem.Type.Group):
+                    parent_by_child[str(item.identifier)] = str(parent_id)
+
+        leaf_id = next(
+            (
+                group_id
+                for group_id, group in groups.items()
+                if not any(
+                    int(item.itemType) == int(PB.PBMealPlanTemplateGroupItem.Type.Group)
+                    and str(item.identifier) in groups
+                    for item in group.items
+                )
+            ),
+            None,
+        )
+        if leaf_id is None:
+            raise AssertionError("disposable template-group graph unexpectedly contains a cycle")
+        parent_id = parent_by_child.get(leaf_id)
+        if not parent_id:
+            raise AssertionError("disposable template group is missing its parent")
+        deleted_ids.add(leaf_id)
+        await service.delete_template_group(leaf_id, parent_id)
+
+    await service.refresh()
+    for parent_id, parent in list(service.state.meal_plan_template_groups.items()):
+        if not any(str(item.identifier) in deleted_ids for item in parent.items):
+            continue
+        kept = [
+            PB.PBMealPlanTemplateGroupItem(
+                identifier=str(item.identifier), itemType=int(item.itemType)
+            )
+            for item in parent.items
+            if str(item.identifier) not in deleted_ids
+        ]
+        await service.set_ordered_template_group_items(str(parent_id), kept)
+
+    await service.refresh()
+    assert not any(
+        marker in str(getattr(value, "name", "") or "")
+        for value in service.state.meal_plan_templates.values()
+    )
+    assert not any(
+        marker in str(getattr(value, "name", "") or "")
+        for value in service.state.meal_plan_template_groups.values()
+    )
+    assert not any(
+        marker in str(getattr(value, "title", "") or "")
+        for value in service.state.meal_plan_template_events.values()
+    )
+    assert not any(
+        str(item.identifier) in deleted_ids
+        for group in service.state.meal_plan_template_groups.values()
+        for item in group.items
+    )
+
+    fresh = await _fresh_meal_plan_state(live_client)
+    assert not any(
+        marker in str(getattr(value, "name", "") or "")
+        for value in fresh["templates"].values()
+    )
+    assert not any(
+        marker in str(getattr(value, "name", "") or "")
+        for value in fresh["groups"].values()
+    )
+    assert not any(
+        marker in str(getattr(value, "title", "") or "")
+        for value in fresh["template_events"].values()
+    )
+    assert not any(
+        str(item.identifier) in deleted_ids
+        for group in fresh["groups"].values()
+        for item in group.items
+    )
+    return deleted_ids
 
 
 async def _ensure_disposable_starters(live_client, shopping_list_id: str) -> None:
@@ -1533,6 +1725,575 @@ async def test_live_generic_domain_service_round_trip_on_disposable_starter(
     restored_starter = restored["favorite"]
     assert restored_starter is not None
     assert str(restored_starter.name) == original_name
+
+
+@pytest.mark.asyncio
+async def test_live_disposable_global_categories_and_categorized_memory_round_trip(
+    live_client, live_mutation_list_id: str
+) -> None:
+    """Exercise only globally disposable objects created by this test, then remove them."""
+    await live_client.load(realtime=False, load_tag_data=False, restore_pending=False)
+    assert live_client.categories is not None
+    assert live_client.categorized_items is not None
+
+    marker = uuid4().hex
+    category_a_name = f"SDK Disposable Category A {marker}"
+    category_b_name = f"SDK Disposable Category B {marker}"
+    renamed_a_name = f"SDK Disposable Category A Renamed {marker}"
+    grouping_name = f"SDK Disposable Group {marker}"
+    renamed_grouping_name = f"SDK Disposable Group Renamed {marker}"
+    learned_name = f"sdk-disposable-memory-{marker}"
+
+    category_a_id = category_b_id = grouping_id = ""
+    memory_id = ""
+    try:
+        category_a = await live_client.categories.add_category(category_a_name)
+        category_a_id = str(category_a.identifier)
+        category_b = await live_client.categories.add_category(category_b_name)
+        category_b_id = str(category_b.identifier)
+
+        await live_client.categories.rename_category(category_a_id, renamed_a_name)
+        await live_client.categories.set_category_icon(category_a_id, "produce")
+
+        grouping = await live_client.categories.add_grouping(
+            grouping_name, [category_a_id, category_b_id]
+        )
+        grouping_id = str(grouping.identifier)
+        await live_client.categories.set_grouping_categories(
+            grouping_id, [category_b_id, category_a_id], ordering_only=True
+        )
+        await live_client.categories.set_grouping_categories(
+            grouping_id, [category_a_id, category_b_id]
+        )
+        await live_client.categories.rename_grouping(grouping_id, renamed_grouping_name)
+        await live_client.categories.hide_grouping_from_browse(grouping_id)
+
+        fresh = await _fresh_global_category_state(live_client)
+        fresh_a = fresh["categories"].get(category_a_id)
+        fresh_b = fresh["categories"].get(category_b_id)
+        fresh_group = fresh["groupings"].get(grouping_id)
+        assert fresh_a is not None and fresh_b is not None and fresh_group is not None
+        assert str(fresh_a.name) == renamed_a_name
+        assert str(fresh_a.icon) == "produce"
+        assert str(fresh_b.name) == category_b_name
+        assert str(fresh_group.name) == renamed_grouping_name
+        assert list(fresh_group.categoryIds) == [category_a_id, category_b_id]
+        assert bool(fresh_group.shouldHideFromBrowseListCategoryGroupsScreen)
+
+        learned = PB.ListItem(
+            listId=live_mutation_list_id,
+            name=learned_name,
+            categoryMatchId=str(fresh_a.categoryMatchId),
+            category="other",
+        )
+        await live_client.categorized_items.categorize(learned)
+        memory_id = live_client.categorized_items.memory_id(learned_name, live_mutation_list_id)
+
+        fresh = await _fresh_global_category_state(live_client)
+        remembered = fresh["categorized_items"].get(memory_id)
+        assert remembered is not None
+        assert str(remembered.name) == learned_name.lower()
+        assert str(remembered.categoryMatchId) == str(fresh_a.categoryMatchId)
+
+        assert live_client.categorized_items.lookup(learned_name, live_mutation_list_id) is not None
+        changed = await live_client.categorized_items.migrate_category(
+            str(fresh_a.categoryMatchId), str(fresh_b.categoryMatchId)
+        )
+        assert changed >= 1
+
+        fresh = await _fresh_global_category_state(live_client)
+        remembered = fresh["categorized_items"].get(memory_id)
+        assert remembered is not None
+        assert str(remembered.categoryMatchId) == str(fresh_b.categoryMatchId)
+
+        await live_client.categorized_items.refresh()
+        current = live_client.state.categorized_items.get(memory_id)
+        assert current is not None
+        await live_client.categorized_items.remove(current)
+        fresh = await _fresh_global_category_state(live_client)
+        assert memory_id not in fresh["categorized_items"]
+    finally:
+        await live_client.categorized_items.refresh()
+        if memory_id and memory_id in live_client.state.categorized_items:
+            await live_client.categorized_items.remove(
+                live_client.state.categorized_items[memory_id]
+            )
+
+        await live_client.categories.refresh()
+        if grouping_id and grouping_id in live_client.state.category_groupings:
+            await live_client.categories.remove_grouping(grouping_id)
+        await live_client.categories.refresh()
+        for category_id in (category_a_id, category_b_id):
+            if category_id and category_id in live_client.state.user_categories:
+                await live_client.categories.remove_category(category_id)
+
+    fresh = await _fresh_global_category_state(live_client)
+    assert category_a_id not in fresh["categories"]
+    assert category_b_id not in fresh["categories"]
+    assert grouping_id not in fresh["groupings"]
+    if memory_id:
+        assert memory_id not in fresh["categorized_items"]
+    assert not any(
+        marker in str(value.name)
+        for value in (*fresh["categories"].values(), *fresh["groupings"].values())
+    )
+
+
+@pytest.mark.asyncio
+async def test_live_disposable_recipes_and_collections_round_trip(live_client) -> None:
+    await live_client.load(realtime=False, load_tag_data=False, restore_pending=False)
+    user_id = live_client.user_id
+    assert user_id is not None
+
+    service = RecipesService(live_client.transport, live_client.state, user_id=user_id)
+    marker = uuid4().hex
+    recipe_a_name = f"SDK Disposable Recipe A {marker}"
+    recipe_b_name = f"SDK Disposable Recipe B {marker}"
+    recipe_a_updated_name = f"SDK Disposable Recipe A Updated {marker}"
+    collection_a_name = f"SDK Disposable Collection A {marker}"
+    collection_b_name = f"SDK Disposable Collection B {marker}"
+    collection_a_renamed = f"SDK Disposable Collection A Renamed {marker}"
+
+    before = await _fresh_recipe_state(live_client)
+    original_collection_order = list(before["collection_ids"])
+    recipe_a_id = recipe_b_id = collection_a_id = collection_b_id = ""
+
+    try:
+        recipe_a = await service.create(
+            recipe_a_name,
+            ingredients=[PB.PBIngredient(name="SDK Ingredient", rawIngredient="1 cup SDK Ingredient")],
+            preparation_steps=["SDK step one", "SDK step two"],
+            servings="2",
+            source_name="SDK Test",
+            source_url="https://example.com/sdk-test",
+        )
+        recipe_a_id = str(recipe_a.identifier)
+        recipe_b = await service.create(recipe_b_name)
+        recipe_b_id = str(recipe_b.identifier)
+
+        updated_a = PB.PBRecipe()
+        updated_a.CopyFrom(recipe_a)
+        updated_a.name = recipe_a_updated_name
+        updated_a.note = "SDK disposable note"
+        updated_a.rating = 4
+        await service.save(updated_a)
+
+        collection_a = await service.create_collection(collection_a_name)
+        collection_a_id = str(collection_a.identifier)
+        collection_b = await service.create_collection(collection_b_name)
+        collection_b_id = str(collection_b.identifier)
+
+        await service.rename_collection(collection_a_id, collection_a_renamed)
+        await service.add_to_collection(collection_a_id, [recipe_a_id, recipe_b_id])
+        await service.reorder_recipes(collection_a_id, [recipe_b_id, recipe_a_id])
+        await service.set_collection_icon(collection_a_id, "produce")
+        await service.set_collection_sort(collection_a_id, 1, reversed=True)
+
+        await service.remove_from_collection(collection_a_id, [recipe_a_id])
+        await service.add_to_collection(collection_a_id, [recipe_a_id])
+        await service.reorder_recipes(collection_a_id, [recipe_a_id, recipe_b_id])
+
+        temporary_order = original_collection_order + [collection_b_id, collection_a_id]
+        await service.reorder_collections(temporary_order)
+
+        fresh = await _fresh_recipe_state(live_client)
+        fresh_a = fresh["recipes"].get(recipe_a_id)
+        fresh_b = fresh["recipes"].get(recipe_b_id)
+        fresh_collection_a = fresh["collections"].get(collection_a_id)
+        fresh_collection_b = fresh["collections"].get(collection_b_id)
+        assert fresh_a is not None and fresh_b is not None
+        assert fresh_collection_a is not None and fresh_collection_b is not None
+        assert str(fresh_a.name) == recipe_a_updated_name
+        assert str(fresh_a.note) == "SDK disposable note"
+        assert int(fresh_a.rating) == 4
+        assert str(fresh_b.name) == recipe_b_name
+        assert str(fresh_collection_a.name) == collection_a_renamed
+        assert list(fresh_collection_a.recipeIds) == [recipe_a_id, recipe_b_id]
+        assert str(fresh_collection_a.collectionSettings.icon.iconName) == "produce"
+        assert int(fresh_collection_a.collectionSettings.recipesSortOrder) == 1
+        assert fresh["collection_ids"] == temporary_order
+
+        await service.reorder_collections(
+            original_collection_order + [collection_a_id, collection_b_id]
+        )
+        await service.remove_many([recipe_a_id, recipe_b_id])
+        recipe_a_id = recipe_b_id = ""
+        await service.remove_collection(collection_a_id)
+        collection_a_id = ""
+        await service.remove_collection(collection_b_id)
+        collection_b_id = ""
+    finally:
+        await service.refresh()
+        for recipe_id in (recipe_a_id, recipe_b_id):
+            if recipe_id and recipe_id in live_client.state.recipes:
+                await service.remove(recipe_id)
+
+        await service.refresh()
+        for collection_id in (collection_a_id, collection_b_id):
+            if collection_id and collection_id in live_client.state.recipe_collections:
+                await service.remove_collection(collection_id)
+
+        await service.refresh()
+        current_order = list(live_client.state.recipe_collection_ids)
+        if current_order != original_collection_order:
+            await service.reorder_collections(original_collection_order)
+
+    fresh = await _fresh_recipe_state(live_client)
+    assert fresh["collection_ids"] == original_collection_order
+    assert not any(marker in str(recipe.name) for recipe in fresh["recipes"].values())
+    assert not any(marker in str(collection.name) for collection in fresh["collections"].values())
+
+
+@pytest.mark.asyncio
+async def test_live_disposable_meal_plan_events_labels_and_items_round_trip(live_client) -> None:
+    await live_client.load(realtime=False, load_tag_data=False, restore_pending=False)
+    user_id = live_client.user_id
+    assert user_id is not None
+    assert live_client.state.meal_plan_calendar_id
+
+    service = MealPlanService(live_client.transport, live_client.state, user_id=user_id)
+    marker = uuid4().hex
+    label_id = event_a_id = event_b_id = item_a_id = item_b_id = ""
+
+    try:
+        label = await service.save_label(
+            PB.PBCalendarLabel(name=f"SDK Disposable Label {marker}", hexColor="#123456")
+        )
+        label_id = str(label.identifier)
+        updated_label = PB.PBCalendarLabel()
+        updated_label.CopyFrom(label)
+        updated_label.name = f"SDK Disposable Label Updated {marker}"
+        updated_label.hexColor = "#654321"
+        await service.save_label(updated_label, is_new=False)
+        event_a = await service.save_event(
+            PB.PBCalendarEvent(
+                eventType=PB.PBCalendarEventType.MealPlanQueueEvent,
+                title=f"SDK Disposable Event A {marker}",
+            )
+        )
+        event_a_id = str(event_a.identifier)
+        await service.set_event_title(event_a_id, f"SDK Disposable Event A Updated {marker}")
+        await service.set_event_details(event_a_id, "SDK disposable event details")
+        await service.set_event_icon(event_a_id, "produce")
+        await service.set_event_label(event_a_id, label_id)
+        await service.set_event_label_sort_index(event_a_id, 7)
+
+        item_a = await service.add_event_list_item(
+            event_a_id, PB.PBCalendarEventListItem(name="SDK Item A")
+        )
+        item_a_id = str(item_a.identifier)
+        item_b = await service.add_event_list_item(
+            event_a_id, PB.PBCalendarEventListItem(name="SDK Item B")
+        )
+        item_b_id = str(item_b.identifier)
+        await service.set_event_list_item_name(event_a_id, item_a_id, "SDK Item A Renamed")
+        await service.set_event_list_item_details(event_a_id, item_a_id, "SDK item details")
+        await service.set_event_list_item_quantity(
+            event_a_id,
+            item_a_id,
+            PB.PBItemQuantity(amount="2", unit="count", rawQuantity="2"),
+        )
+        await service.set_event_list_item_package_size(
+            event_a_id,
+            item_a_id,
+            PB.PBItemPackageSize(size="3", unit="count", rawPackageSize="3"),
+        )
+        await service.reorder_event_list_items(event_a_id, [item_b_id, item_a_id])
+
+        await service.set_event_date([event_a_id], "2026-09-20")
+        await service.set_event_date([event_a_id], None)
+
+        event_b = PB.PBCalendarEvent(
+            eventType=PB.PBCalendarEventType.MealPlanQueueEvent,
+            title=f"SDK Disposable Event B {marker}",
+        )
+        await service.save_events([event_b])
+        event_b_id = next(
+            event_id
+            for event_id, value in live_client.state.meal_plan_events.items()
+            if str(value.title) == f"SDK Disposable Event B {marker}"
+        )
+
+        fresh = await _fresh_meal_plan_state(live_client)
+        fresh_event_a = fresh["events"].get(event_a_id)
+        fresh_event_b = fresh["events"].get(event_b_id)
+        fresh_label = fresh["labels"].get(label_id)
+        assert fresh_event_a is not None and fresh_event_b is not None and fresh_label is not None
+        assert str(fresh_label.name) == f"SDK Disposable Label Updated {marker}"
+        assert str(fresh_event_a.title) == f"SDK Disposable Event A Updated {marker}"
+        assert str(fresh_event_a.details) == "SDK disposable event details"
+        assert str(fresh_event_a.icon.iconName) == "produce"
+        assert str(fresh_event_a.labelId) == label_id
+        assert [str(item.identifier) for item in fresh_event_a.eventListItems] == [
+            item_b_id,
+            item_a_id,
+        ]
+        fresh_item_a = next(item for item in fresh_event_a.eventListItems if item.identifier == item_a_id)
+        assert str(fresh_item_a.name) == "SDK Item A Renamed"
+        assert str(fresh_item_a.details) == "SDK item details"
+        assert float(fresh_item_a.quantityPb.amount) == 2
+        assert float(fresh_item_a.packageSizePb.size) == 3
+
+        await service.remove_event_list_item(event_a_id, item_b_id)
+        item_b_id = ""
+        await service.delete_event(event_b_id)
+        event_b_id = ""
+        await service.delete_event(event_a_id)
+        event_a_id = ""
+        await service.delete_label(label_id)
+        label_id = ""
+    finally:
+        await service.refresh()
+        for event_id in (event_a_id, event_b_id):
+            if event_id and (
+                event_id in live_client.state.meal_plan_events
+                or event_id in live_client.state.meal_plan_template_events
+            ):
+                await service.delete_event(event_id)
+        await service.refresh()
+        if label_id and label_id in live_client.state.meal_plan_labels:
+            await service.delete_label(label_id)
+
+    fresh = await _fresh_meal_plan_state(live_client)
+    assert not any(marker in str(event.title) for event in fresh["events"].values())
+    assert not any(marker in str(label.name) for label in fresh["labels"].values())
+
+
+@pytest.mark.asyncio
+async def test_live_disposable_meal_plan_templates_and_groups_round_trip(live_client) -> None:
+    await live_client.load(realtime=False, load_tag_data=False, restore_pending=False)
+    user_id = live_client.user_id
+    assert user_id is not None
+    assert live_client.state.meal_plan_calendar_id
+
+    service = MealPlanService(live_client.transport, live_client.state, user_id=user_id)
+    groups = live_client.state.meal_plan_template_groups
+    child_group_ids = {
+        str(item.identifier)
+        for group in groups.values()
+        for item in group.items
+        if int(item.itemType) == int(PB.PBMealPlanTemplateGroupItem.Type.Group)
+    }
+    root_candidates = [
+        group
+        for group_id, group in groups.items()
+        if group_id not in child_group_ids and not str(getattr(group, "name", "") or "")
+    ]
+    if not root_candidates:
+        pytest.skip("no existing unnamed root meal-plan template group available for safe attachment")
+    root = root_candidates[0]
+    root_id = str(root.identifier)
+    original_root_items = [
+        PB.PBMealPlanTemplateGroupItem(identifier=str(item.identifier), itemType=int(item.itemType))
+        for item in root.items
+    ]
+
+    marker = uuid4().hex
+    day_a = uuid4().hex
+    day_b = uuid4().hex
+    day_c = uuid4().hex
+    group_a_id = group_b_id = nested_group_id = template_id = template_event_id = ""
+    try:
+        group_a = await service.create_template_group(
+            f"SDK Disposable Template Group A {marker}", root_id, icon="produce"
+        )
+        group_a_id = str(group_a.identifier)
+        group_b = await service.create_template_group(
+            f"SDK Disposable Template Group B {marker}", root_id
+        )
+        group_b_id = str(group_b.identifier)
+        nested = await service.create_template_group(
+            f"SDK Disposable Nested Group {marker}", group_a_id
+        )
+        nested_group_id = str(nested.identifier)
+
+        await service.set_template_group_items_sort_order(group_a_id, 1)
+        await service.set_template_group_groups_sort_position(group_a_id, 2)
+
+        template = await service.save_template(
+            PB.PBMealPlanTemplate(name=f"SDK Disposable Template {marker}"),
+            parent_group_id=group_a_id,
+        )
+        template_id = str(template.identifier)
+        await service.set_template_name(template_id, f"SDK Disposable Template Updated {marker}")
+        await service.set_template_icon(template_id, "produce")
+        await service.add_template_day_ids(template_id, [day_a, day_b])
+        assert service.queue.pending_count == 0
+        await service.remove_template_day_ids(template_id, [day_a])
+        assert service.queue.pending_count == 0
+        await service.set_template_day_ids(template_id, [day_b, day_c])
+        assert service.queue.pending_count == 0
+
+        group_a_current = live_client.state.meal_plan_template_groups[group_a_id]
+        by_id = {str(item.identifier): item for item in group_a_current.items}
+        await service.set_ordered_template_group_items(
+            group_a_id,
+            [by_id[nested_group_id], by_id[template_id]],
+        )
+        moved_item = PB.PBMealPlanTemplateGroupItem(
+            identifier=nested_group_id,
+            itemType=PB.PBMealPlanTemplateGroupItem.Type.Group,
+        )
+        assert await service.move_template_group_items(
+            [moved_item], group_a_id, group_b_id
+        )
+        assert service.queue.pending_count == 0
+
+        template_event = await service.save_event(
+            PB.PBCalendarEvent(
+                eventType=PB.PBCalendarEventType.MealPlanTemplateEvent,
+                title=f"SDK Disposable Template Event {marker}",
+                templateId=template_id,
+                templateDayId=day_b,
+            )
+        )
+        template_event_id = str(template_event.identifier)
+        assert service.queue.pending_count == 0
+        await service.set_template_day_id_for_events([template_event_id], day_c)
+        assert service.queue.pending_count == 0
+
+        fresh = await _fresh_meal_plan_state(live_client)
+        fresh_template = fresh["templates"].get(template_id)
+        fresh_event = fresh["template_events"].get(template_event_id)
+        fresh_group_a = fresh["groups"].get(group_a_id)
+        fresh_group_b = fresh["groups"].get(group_b_id)
+        fresh_nested = fresh["groups"].get(nested_group_id)
+        assert fresh_template is not None and fresh_event is not None
+        assert fresh_group_a is not None and fresh_group_b is not None and fresh_nested is not None
+        assert str(fresh_template.name) == f"SDK Disposable Template Updated {marker}"
+        assert str(fresh_template.icon.iconName) == "produce"
+        assert list(fresh_template.dayIds) == [day_b, day_c]
+        assert str(fresh_event.templateDayId) == day_c
+        assert [str(item.identifier) for item in fresh_group_a.items] == [template_id]
+        assert nested_group_id in [str(item.identifier) for item in fresh_group_b.items]
+        assert int(fresh_group_a.groupSettings.itemsSortOrder) == 1
+        assert int(fresh_group_a.groupSettings.groupsSortPosition) == 2
+
+        await service.delete_template(template_id)
+        template_id = template_event_id = ""
+        await service.delete_template_group(group_a_id, root_id)
+        group_a_id = ""
+        await service.delete_template_group(group_b_id, root_id)
+        group_b_id = nested_group_id = ""
+    finally:
+        await _cleanup_meal_plan_template_marker(live_client, service, marker)
+        await service.refresh()
+        current_root = live_client.state.meal_plan_template_groups.get(root_id)
+        if current_root is not None:
+            current_items = [(str(item.identifier), int(item.itemType)) for item in current_root.items]
+            original_items = [(str(item.identifier), int(item.itemType)) for item in original_root_items]
+            if current_items != original_items:
+                await service.set_ordered_template_group_items(root_id, original_root_items)
+
+    fresh = await _fresh_meal_plan_state(live_client)
+    assert not any(marker in str(template.name) for template in fresh["templates"].values())
+    assert not any(marker in str(group.name) for group in fresh["groups"].values())
+    assert not any(marker in str(event.title) for event in fresh["template_events"].values())
+    fresh_root = fresh["groups"].get(root_id)
+    assert fresh_root is not None
+    assert [(str(item.identifier), int(item.itemType)) for item in fresh_root.items] == [
+        (str(item.identifier), int(item.itemType)) for item in original_root_items
+    ]
+
+
+@pytest.mark.asyncio
+async def test_live_disposable_delete_events_for_recipe_and_recipe_remove(live_client) -> None:
+    await live_client.load(realtime=False, load_tag_data=False, restore_pending=False)
+    user_id = live_client.user_id
+    assert user_id is not None
+    assert live_client.state.meal_plan_calendar_id
+
+    recipes = RecipesService(live_client.transport, live_client.state, user_id=user_id)
+    meal_plan = MealPlanService(live_client.transport, live_client.state, user_id=user_id)
+    groups = live_client.state.meal_plan_template_groups
+    child_group_ids = {
+        str(item.identifier)
+        for group in groups.values()
+        for item in group.items
+        if int(item.itemType) == int(PB.PBMealPlanTemplateGroupItem.Type.Group)
+    }
+    roots = [
+        group
+        for group_id, group in groups.items()
+        if group_id not in child_group_ids and not str(getattr(group, "name", "") or "")
+    ]
+    if not roots:
+        pytest.skip("no existing unnamed root meal-plan template group available")
+    root_id = str(roots[0].identifier)
+
+    marker = uuid4().hex
+    day_id = uuid4().hex
+    recipe_id = group_id = template_id = normal_event_id = template_event_id = ""
+    try:
+        recipe = await recipes.create(f"SDK Disposable Delete Recipe {marker}")
+        recipe_id = str(recipe.identifier)
+        group = await meal_plan.create_template_group(
+            f"SDK Disposable Delete Group {marker}", root_id
+        )
+        group_id = str(group.identifier)
+        template = await meal_plan.save_template(
+            PB.PBMealPlanTemplate(name=f"SDK Disposable Delete Template {marker}"),
+            parent_group_id=group_id,
+        )
+        template_id = str(template.identifier)
+        await meal_plan.add_template_day_ids(template_id, [day_id])
+        assert meal_plan.queue.pending_count == 0
+
+        normal_event = await meal_plan.save_event(
+            PB.PBCalendarEvent(
+                eventType=PB.PBCalendarEventType.MealPlanQueueEvent,
+                title=f"SDK Disposable Recipe Event {marker}",
+                recipeId=recipe_id,
+            )
+        )
+        normal_event_id = str(normal_event.identifier)
+        template_event = await meal_plan.save_event(
+            PB.PBCalendarEvent(
+                eventType=PB.PBCalendarEventType.MealPlanTemplateEvent,
+                title=f"SDK Disposable Recipe Template Event {marker}",
+                recipeId=recipe_id,
+                templateId=template_id,
+                templateDayId=day_id,
+            )
+        )
+        template_event_id = str(template_event.identifier)
+        assert meal_plan.queue.pending_count == 0
+
+        fresh = await _fresh_meal_plan_state(live_client)
+        assert normal_event_id in fresh["events"]
+        assert template_event_id in fresh["template_events"]
+
+        await meal_plan.delete_events_for_recipe_id(recipe_id)
+        assert meal_plan.queue.pending_count == 0
+        fresh = await _fresh_meal_plan_state(live_client)
+        assert normal_event_id not in fresh["events"]
+        assert template_event_id not in fresh["template_events"]
+        normal_event_id = template_event_id = ""
+
+        await recipes.remove(recipe_id)
+        recipe_id = ""
+        fresh_recipes = await _fresh_recipe_state(live_client)
+        assert not any(marker in str(recipe.name) for recipe in fresh_recipes["recipes"].values())
+    finally:
+        await meal_plan.refresh()
+        for event_id in (normal_event_id, template_event_id):
+            if event_id and (
+                event_id in live_client.state.meal_plan_events
+                or event_id in live_client.state.meal_plan_template_events
+            ):
+                await meal_plan.delete_event(event_id)
+        await _cleanup_meal_plan_template_marker(live_client, meal_plan, marker)
+        await recipes.refresh()
+        if recipe_id and recipe_id in live_client.state.recipes:
+            await recipes.remove(recipe_id)
+
+    fresh_meal = await _fresh_meal_plan_state(live_client)
+    fresh_recipes = await _fresh_recipe_state(live_client)
+    assert not any(marker in str(event.title) for event in fresh_meal["events"].values())
+    assert not any(marker in str(event.title) for event in fresh_meal["template_events"].values())
+    assert not any(marker in str(group.name) for group in fresh_meal["groups"].values())
+    assert not any(marker in str(template.name) for template in fresh_meal["templates"].values())
+    assert not any(marker in str(recipe.name) for recipe in fresh_recipes["recipes"].values())
 
 
 @pytest.mark.asyncio
