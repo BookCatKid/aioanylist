@@ -12,6 +12,7 @@ from anylist_sdk.derived import (
     ingredient_to_item_ingredient,
 )
 from anylist_sdk.proto import PB, ListItem, ShoppingList
+from anylist_sdk.services.generic import GenericDomainService
 from anylist_sdk.services.shopping import category_rule_identifier
 from anylist_sdk.services.starter import favorite_list_id, recent_list_id
 
@@ -1467,6 +1468,71 @@ async def test_live_direct_shopping_queue_wrappers_round_trip(
     finally:
         await live_client.lists.refresh()
         await _remove_without_recents(live_client, live_mutation_list_id, [item_id])
+
+
+@pytest.mark.asyncio
+async def test_live_generic_domain_service_round_trip_on_disposable_starter(
+    live_client, live_mutation_list_id: str
+) -> None:
+    await _ensure_disposable_starters(live_client, live_mutation_list_id)
+    assert live_client.starter_lists is not None
+    user_id = live_client.user_id
+    assert user_id is not None
+
+    starter_id = favorite_list_id(live_mutation_list_id)
+    starter = live_client.starter_lists.get(starter_id)
+    assert starter is not None
+    original_name = str(starter.name)
+    temporary_name = f"SDK Generic Starter {uuid4().hex[:8]}"
+
+    generic = GenericDomainService(
+        live_client.transport,
+        live_client.state,
+        user_id=user_id,
+        queue_id=f"{user_id}:sdk-generic-starter-live",
+        endpoint="/data/starter-lists/update",
+        operation_type="PBStarterListOperation",
+        operation_list_type="PBStarterListOperationList",
+    )
+
+    generic.pause()
+    try:
+        await generic.operation(
+            "rename-list",
+            listId=starter_id,
+            updatedValue=temporary_name,
+            flush=True,
+        )
+        assert generic.queue.paused
+        assert generic.queue.pending_count == 1
+
+        before = await _fresh_disposable_starters(live_client, live_mutation_list_id)
+        before_starter = before["favorite"]
+        assert before_starter is not None
+        assert str(before_starter.name) == original_name
+
+        await generic.resume(flush=True)
+        assert not generic.queue.paused
+        assert generic.queue.pending_count == 0
+
+        after = await _fresh_disposable_starters(live_client, live_mutation_list_id)
+        after_starter = after["favorite"]
+        assert after_starter is not None
+        assert str(after_starter.name) == temporary_name
+    finally:
+        while generic.queue.paused:
+            await generic.resume(flush=True)
+        if generic.queue.pending_count:
+            await generic.flush()
+        await live_client.starter_lists.refresh()
+        current = live_client.starter_lists.get(starter_id)
+        if current is not None and str(current.name) != original_name:
+            await live_client.starter_lists.rename(starter_id, original_name)
+
+    restored = await _fresh_disposable_starters(live_client, live_mutation_list_id)
+    restored_starter = restored["favorite"]
+    assert restored_starter is not None
+    assert str(restored_starter.name) == original_name
 
 
 @pytest.mark.asyncio

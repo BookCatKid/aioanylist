@@ -17,7 +17,7 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 
 - Offline suite: **476 passing** at the latest local gate.
 - Current read-only live suite: **12/12 passing** with the corrected multipart transport, including live autocomplete/categorization against official English/German tag resources plus live sync-hook, raw-API, service-view, and transport-close coverage.
-- Guarded disposable-list mutation suite: **41 passed, 1 safely skipped without writing** in the latest complete live run. Coverage now includes the disposable shopping list, its deterministic Recent/Favorite starter lists, starter-list settings, temporary disposable-linked starter lists, exact starter-list ordering restoration, a fully restored disposable folder-tree round trip, explicit client-wide flush, queue pause/resume, durable operation replay after simulated abrupt loss, real cross-client WebSocket invalidation delivery, automatic reconnect catch-up after a forced transport loss, direct shopping queue wrappers, and shopping-service journal restore/replay.
+- Guarded disposable-list mutation suite: **42 passed, 1 safely skipped without writing** in the latest complete live run. Coverage now includes the disposable shopping list, its deterministic Recent/Favorite starter lists, starter-list settings, temporary disposable-linked starter lists, exact starter-list ordering restoration, a fully restored disposable folder-tree round trip, explicit client-wide flush, queue pause/resume, durable operation replay after simulated abrupt loss, real cross-client WebSocket invalidation delivery, automatic reconnect catch-up after a forced transport loss, direct shopping queue wrappers, shopping-service journal restore/replay, and a live `GenericDomainService` round trip against the disposable Favorite list.
 - The reusable server-side disposable list **`AnyList SDK Conformance Test`** exists and is retained for future verification. Mutation guards require both its reserved ID and exact name before any write.
 - No normal shopping list was mutated. Temporary items/stores/filters/categories/rules/provenance created by live tests were removed again; removal paths suppress Recent Items where required.
 - The protobuf multipart correction is now **live write verified**: AnyList requires binary protobuf fields as ordinary multipart form fields with no filename and no per-part Content-Type.
@@ -30,8 +30,8 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 
 | Functionality | Status | Evidence / next check |
 |---|---|---|
-| `AnyListClient.tokens()` | 🧪 OFFLINE VERIFIED |  |
-| `AnyListClient.user_id()` | 🧪 OFFLINE VERIFIED |  |
+| `AnyListClient.tokens()` | ✅ LIVE VERIFIED | Read from authenticated live clients throughout the read-only and guarded mutation suites, including token rotation. |
+| `AnyListClient.user_id()` | ✅ LIVE VERIFIED | Read from authenticated live clients and matched the authenticated token user ID. |
 | `AnyListClient.sign_in()` | ✅ LIVE VERIFIED | Succeeded repeatedly with current multipart implementation; AnyList later began returning HTTP 503 after repeated test logins. |
 | `AnyListClient.load()` | ✅ LIVE VERIFIED |  |
 | `AnyListClient.refresh()` | ✅ LIVE VERIFIED | Called against the real endpoint and decoded/applied successfully. |
@@ -43,7 +43,7 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 
 | Functionality | Status | Evidence / next check |
 |---|---|---|
-| `AnyListTransport.session()` | 🧪 OFFLINE VERIFIED |  |
+| `AnyListTransport.session()` | ✅ LIVE VERIFIED | Live HTTP and WebSocket requests lazily created the owned aiohttp session; close/reopen behavior was also verified. |
 | `AnyListTransport.close()` | ✅ LIVE VERIFIED | Live read-only clients were closed and their owned aiohttp sessions were verified closed; a subsequent lazy session reopen/close also succeeded. |
 | `AnyListTransport.sign_in()` | ✅ LIVE VERIFIED | Succeeded repeatedly with current multipart implementation; AnyList later began returning HTTP 503 after repeated test logins. |
 | `AnyListTransport.refresh_access_token()` | ✅ LIVE VERIFIED |  |
@@ -318,7 +318,7 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 | `StarterListsService.remove_price()` | ✅ LIVE VERIFIED | Temporary Favorite item price removal persisted. |
 | `StarterListsService.reorder_lists()` | ✅ LIVE VERIFIED | Two temporary disposable-linked starter IDs were reordered while all pre-existing IDs retained their exact relative order, then the original order was restored. |
 | `StarterListsService.flush()` | ✅ LIVE VERIFIED | Exercised by bulk starter mutations, including the live 201-item Recent cap batch. |
-| `StarterListsService.restore()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
+| `StarterListsService.restore()` | ✅ LIVE VERIFIED | The disposable starter journal-replay test restored the inherited starter queue after simulated abrupt loss and fresh server readback confirmed persistence. |
 
 ## Recipes
 
@@ -329,7 +329,7 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 | `RecipesService.collections()` | ✅ LIVE VERIFIED | Live collection view matched synchronized recipe collections. |
 | `RecipesService.source_collections()` | ✅ LIVE VERIFIED | Executed against real synchronized recipe/source state without mutation. |
 | `RecipesService.not_in_collection()` | ✅ LIVE VERIFIED | Live helper returned the official deterministic not-in-collection smart collection ID. |
-| `RecipesService.sorted()` | 🧪 OFFLINE VERIFIED |  |
+| `RecipesService.sorted()` | ✅ LIVE VERIFIED | Executed against real synchronized recipe state and returned exactly the synchronized recipe IDs. |
 | `RecipesService.refresh()` | ✅ LIVE VERIFIED | Called against the real endpoint and decoded/applied successfully. |
 | `RecipesService.operation()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
 | `RecipesService.save()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Would change account/global/other-list state; intentionally not exercised while writes are restricted to the disposable shopping list. |
@@ -652,20 +652,20 @@ This is the authoritative verification checklist for the SDK. It is intentionall
 
 | Functionality | Status | Evidence / next check |
 |---|---|---|
-| `services.category_rule_identifier()` | 🧪 OFFLINE VERIFIED | Deterministic official UUIDv5 rule identity. |
-| `services.recent_list_id()` | 🧪 OFFLINE VERIFIED | Deterministic Recent Items identity. No live mutation is permitted under current safety scope. |
-| `services.favorite_list_id()` | 🧪 OFFLINE VERIFIED | Deterministic Favorite Items identity. No live mutation is permitted under current safety scope. |
+| `services.category_rule_identifier()` | ✅ LIVE VERIFIED | The deterministic UUIDv5 output was independently enforced by the live server for single, bulk, and migration categorization-rule writes. |
+| `services.recent_list_id()` | ✅ LIVE VERIFIED | Deterministic ID resolved to the disposable list's real Recent Items list across create/remove/recreate and side-effect tests. |
+| `services.favorite_list_id()` | ✅ LIVE VERIFIED | Deterministic ID resolved to the disposable list's real Favorite Items list across CRUD, settings, lifecycle, and replay tests. |
 | `services.aggregate_favorites_id()` | 🧪 OFFLINE VERIFIED | Official synthetic aggregate-favorites identifier. |
 | `services.enrich_item_from_starter()` | 🧪 OFFLINE VERIFIED | Exact starter-item property inheritance behavior is source-derived and regression-tested. |
-| `TagData.from_json()` | 🧪 OFFLINE VERIFIED | Official tag-data resource parser, including localized resources without `tagKeywordsIndex`. |
+| `TagData.from_json()` | ✅ LIVE VERIFIED | Parsed the real official English and German tag-data resources, including German's missing `tagKeywordsIndex`. |
 | `OperationAck.processed_ids()` | ✅ LOCAL VERIFIED | Typed alias for processed operation identifiers. |
-| `OperationService.operation()` | 🧪 OFFLINE VERIFIED | Base typed operation construction/enqueue path used by concrete services. |
-| `OperationService.flush()` | 🧪 OFFLINE VERIFIED | Base queue flush path; queue acknowledgment behavior is exhaustively regression-tested. |
-| `OperationService.pause()` | 🧪 OFFLINE VERIFIED | Base queue pause behavior. |
-| `OperationService.resume()` | 🧪 OFFLINE VERIFIED | Base queue resume/optional flush behavior. |
-| `OperationService.restore()` | 🧪 OFFLINE VERIFIED | Base durable-operation restore path. |
+| `OperationService.operation()` | ✅ LIVE VERIFIED | Inherited operation path is exercised by multiple concrete services and directly by the live generic-domain test. |
+| `OperationService.flush()` | ✅ LIVE VERIFIED | Inherited flush path persisted deferred disposable operations in concrete services and the generic-domain test. |
+| `OperationService.pause()` | ✅ LIVE VERIFIED | Inherited pause path held a disposable starter mutation server-side absent until resume. |
+| `OperationService.resume()` | ✅ LIVE VERIFIED | Inherited resume path flushed the held disposable starter mutation and fresh readback confirmed persistence. |
+| `OperationService.restore()` | ✅ LIVE VERIFIED | Inherited restore path was exercised by StarterListsService during durable starter replay after simulated abrupt loss. |
 | `services.partial_message()` | 🧪 OFFLINE VERIFIED | Dynamic partial-protobuf helper used for official operation payloads. |
 | `services.clone_message()` | 🧪 OFFLINE VERIFIED | Type-preserving protobuf clone helper. |
-| `GenericDomainService` | 🧪 OFFLINE VERIFIED / ⚪ NOT LIVE TESTED | Generic typed operation-queue wrapper; concrete service classes are preferred for all proven domains. |
+| `GenericDomainService` | ✅ LIVE VERIFIED | Configured with AnyList's official starter-list queue types/endpoint; pause/deferred rename/resume persisted only the disposable starter list and exact name restoration was verified. |
 | Public exception hierarchy | ✅ LOCAL VERIFIED | Typed exceptions are exercised by transport/auth/sync/tag tests. |
 | `AuthTokens` / `OperationAck` / `AutocompleteSuggestion` / `Domain` | ✅ LOCAL VERIFIED | Typed public data models covered by strict consumer typing and runtime tests. |
