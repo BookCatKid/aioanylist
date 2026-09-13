@@ -51,3 +51,23 @@ fails when the schema and stub drift. The test suite also runs a strict mypy con
 Opt-in real-service tests live under `live_tests/` and are excluded from the default test
 suite. See [`OFFLINE_CONFORMANCE.md`](OFFLINE_CONFORMANCE.md) for the required environment
 variables and mutation-safety rules.
+
+## Example TUI client
+
+A substantial Textual-based terminal client lives at [`examples/anylist_tui.py`](examples/anylist_tui.py).
+It is intentionally an example downstream application rather than part of the SDK API, and covers a
+large cross-section of the high-level services: shopping lists/items, list stores/categories,
+conservative folder management, Favorites/Recents/custom starter lists, recipes/collections,
+meal-plan events/items/labels, and global user categories/groupings. Actions with external or
+hard-to-reverse side effects (sharing/email, Alexa, uploads, recursive folder deletion, recipe web
+import, account-name changes) are intentionally omitted.
+
+```bash
+python -m pip install -e '.[tui]'
+python examples/anylist_tui.py
+```
+
+The first run prompts for the AnyList email/password before the TUI starts. The password is never
+stored; only the access/refresh tokens and email are cached under `~/.config/anylist-sdk/` with the
+token file set to mode `0600` where supported. Use `python examples/anylist_tui.py --logout` to remove
+the cached session.
