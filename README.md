@@ -63,9 +63,11 @@ the contextual **List Settings…** screen. Item creation defaults to AnyList-st
 categorization and exposes the same current-list/Favorite/Recent/generic autocomplete branches while
 still allowing manual overrides. Item and recipe photos can be added from a local image or URL.
 Recipes are browsable by custom and smart collections, with a full detail reader and editors for
-ingredients, directions, timing, nutrition, rating, source data, and photos. Actions with external or
-hard-to-reverse side effects (sharing/email, Alexa, recursive folder deletion, recipe web import,
-account-name changes) are intentionally omitted.
+ingredients, directions, timing, nutrition, rating, source data, and photos. Meal Plan provides a
+week planner, Queue/Favorites workspace, recipe-first scheduling, labels, and editable multi-day
+templates. List settings expose stores/categories, saved items, folder moves/deletion, ordering, and
+default-category controls. External-account actions such as sharing/email, Alexa, recipe web import,
+and account-name changes are intentionally omitted.
 
 ```bash
 python -m pip install -e '.[tui]'

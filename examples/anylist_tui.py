@@ -24,6 +24,7 @@ import os
 import sys
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import asdict, dataclass
+from datetime import date, datetime, timedelta
 from getpass import getpass
 from pathlib import Path
 from typing import ClassVar, Literal, cast
@@ -55,10 +56,19 @@ except ModuleNotFoundError as exc:  # pragma: no cover - friendly optional-extra
     ) from exc
 
 from anylist_sdk import AnyListClient
+from anylist_sdk.derived import effective_recipe_scale_factor, recipe_servings_after_scaling
 from anylist_sdk.normalization import canonical_category_match_id
 from anylist_sdk.parsing.ingredient import parse_ingredient_lines, parse_recipe_steps
 from anylist_sdk.parsing.quantity import parse_quantity_and_package_size
-from anylist_sdk.proto import PB, ListItem, PBCalendarEvent, PBRecipe, StarterList
+from anylist_sdk.proto import (
+    PB,
+    ListItem,
+    PBCalendarEvent,
+    PBMealPlanTemplate,
+    PBMealPlanTemplateGroup,
+    PBRecipe,
+    StarterList,
+)
 from anylist_sdk.types import AuthTokens, AutocompleteSuggestion
 
 APP_DIR = Path.home() / ".config" / "anylist-sdk"
@@ -171,6 +181,25 @@ def _folder_options(client: AnyListClient) -> tuple[tuple[str, str], ...]:
     values = list(client.state.list_folders)
     values.sort(key=lambda folder_id: _folder_label(client, folder_id).casefold())
     return tuple((_folder_label(client, folder_id), folder_id) for folder_id in values)
+
+
+def _folder_descendants(client: AnyListClient, folder_id: str) -> set[str]:
+    descendants: set[str] = set()
+    pending = [folder_id]
+    while pending:
+        current = pending.pop()
+        folder = client.state.list_folders.get(current)
+        if folder is None:
+            continue
+        for item in folder.items:
+            if int(item.itemType) != 1:
+                continue
+            child_id = str(item.identifier)
+            if child_id in descendants:
+                continue
+            descendants.add(child_id)
+            pending.append(child_id)
+    return descendants
 
 
 def _list_folder_id(client: AnyListClient, list_id: str) -> str | None:
@@ -1133,9 +1162,14 @@ class StoresCategoriesPanel(SDKPanel):
         with Horizontal(classes="toolbar"):
             yield Button("New store", id="store-new", variant="success")
             yield Button("Edit store", id="store-edit")
+            yield Button("Store ↑", id="store-up")
+            yield Button("Store ↓", id="store-down")
             yield Button("Delete store", id="store-delete", variant="error")
             yield Button("New category", id="category-new", variant="success")
             yield Button("Edit category", id="category-edit")
+            yield Button("Category ↑", id="category-up")
+            yield Button("Category ↓", id="category-down")
+            yield Button("Make default", id="category-default")
             yield Button("Delete category", id="category-delete", variant="error")
         with Horizontal(id="metadata-tables"):
             with Vertical():
@@ -1230,6 +1264,20 @@ class StoresCategoriesPanel(SDKPanel):
                 await self.refresh_view()
 
             self.confirm("Delete store", f"Delete “{current.name}”?", delete)
+        elif button_id in {"store-up", "store-down"}:
+            if not store_id:
+                return self.error("Select a store")
+            ordered = [
+                str(value.identifier)
+                for value in sorted(stores.values(), key=lambda value: int(value.sortIndex))
+            ]
+            index = ordered.index(store_id)
+            new_index = index - 1 if button_id == "store-up" else index + 1
+            if new_index < 0 or new_index >= len(ordered):
+                return
+            ordered[index], ordered[new_index] = ordered[new_index], ordered[index]
+            await service.set_sorted_store_ids(self.list_id, ordered)
+            await self.refresh_view()
         elif button_id == "category-new":
             if not groups:
                 return self.error("This list has no category group")
@@ -1318,14 +1366,44 @@ class StoresCategoriesPanel(SDKPanel):
             group = groups.get(str(category.categoryGroupId))
             if group is None:
                 return self.error("Category group is missing")
+            category_group = group
             if str(group.defaultCategoryId) == category_id:
                 return self.error("The default category cannot be deleted")
 
             async def delete_category() -> None:
-                await service.remove_category_ids(group, [category])
+                await service.remove_category_ids(category_group, [category])
                 await self.refresh_view()
 
             self.confirm("Delete category", f"Delete “{category.name}”?", delete_category)
+        elif button_id in {"category-up", "category-down", "category-default"}:
+            if not category_id:
+                return self.error("Select a category")
+            category = categories[category_id]
+            group = groups.get(str(category.categoryGroupId))
+            if group is None:
+                return self.error("Category group is missing")
+            if button_id == "category-default":
+                await service.set_default_category(group, category_id)
+                await self.refresh_view()
+                return
+            ordered = [
+                str(value.identifier)
+                for value in sorted(
+                    (
+                        value
+                        for value in categories.values()
+                        if str(value.categoryGroupId) == str(group.identifier)
+                    ),
+                    key=lambda value: int(value.sortIndex),
+                )
+            ]
+            index = ordered.index(category_id)
+            new_index = index - 1 if button_id == "category-up" else index + 1
+            if new_index < 0 or new_index >= len(ordered):
+                return
+            ordered[index], ordered[new_index] = ordered[new_index], ordered[index]
+            await service.set_sorted_category_ids(group, ordered)
+            await self.refresh_view()
 
 
 class FoldersPanel(SDKPanel):
@@ -1342,7 +1420,7 @@ class FoldersPanel(SDKPanel):
         with Horizontal(classes="toolbar"):
             yield Button("New folder", id="folder-new", variant="success")
             yield Button("Edit folder", id="folder-edit")
-        yield Label("Folders — destructive recursive deletion is intentionally omitted")
+            yield Button("Delete folder", id="folder-delete", variant="error")
         yield DataTable(id="folders-table", cursor_type="row", zebra_stripes=True)
 
     def on_mount(self) -> None:
@@ -1420,18 +1498,27 @@ class FoldersPanel(SDKPanel):
             current = service.get(folder_id)
             if current is None:
                 return
-            settings = current.folderSettings
+            current_folder = current
+            settings = current_folder.folderSettings
+            current_parent = _folder_parent_map(self.client).get(folder_id)
+            excluded = {folder_id, *_folder_descendants(self.client, folder_id)}
+            parent_options = tuple(
+                (label, value)
+                for label, value in _folder_options(self.client)
+                if value not in excluded
+            )
 
             async def edit(result: FormResult) -> None:
                 name = str(result["name"]).strip()
                 color = _hex_color(str(result.get("color") or "").strip())
                 icon = str(result.get("icon") or "").strip()
+                parent_id = cast(str | None, result.get("parent"))
                 if not name:
                     return self.error("Folder name is required")
                 if color is None:
                     return self.error("Color must be a six-digit hex value")
                 changed = False
-                if name != current.name:
+                if name != current_folder.name:
                     await service.rename(folder_id, name, flush=False)
                     changed = True
                 if color and color != settings.folderHexColor:
@@ -1439,6 +1526,14 @@ class FoldersPanel(SDKPanel):
                     changed = True
                 if icon and icon != settings.icon.iconName:
                     await service.set_icon(folder_id, icon, flush=False)
+                    changed = True
+                if parent_id and current_parent and parent_id != current_parent:
+                    await service.move(
+                        [PB.PBListFolderItem(identifier=folder_id, itemType=1)],
+                        current_parent,
+                        parent_id,
+                        flush=False,
+                    )
                     changed = True
                 if changed:
                     await service.flush()
@@ -1448,11 +1543,48 @@ class FoldersPanel(SDKPanel):
                 "Edit folder",
                 [
                     FormField("name", "Folder name", value=current.name),
+                    FormField(
+                        "parent",
+                        "Parent folder",
+                        kind="select",
+                        value=current_parent,
+                        options=parent_options,
+                        allow_blank=False,
+                    ),
                     FormField("color", "Color", value=settings.folderHexColor),
                     FormField("icon", "Icon name", value=settings.icon.iconName),
                 ],
                 edit,
             )
+        elif button_id == "folder-delete":
+            if not folder_id:
+                return self.error("Select a folder")
+            current = service.get(folder_id)
+            parent_id = _folder_parent_map(self.client).get(folder_id)
+            if current is None or not parent_id:
+                return self.error("That folder cannot be deleted")
+
+            descendants = _folder_descendants(self.client, folder_id)
+            nested_lists = 0
+            for candidate_id in {folder_id, *descendants}:
+                candidate = service.get(candidate_id)
+                if candidate is not None:
+                    nested_lists += sum(1 for item in candidate.items if int(item.itemType) == 0)
+
+            async def delete_folder() -> None:
+                await service.delete_folder(folder_id, parent_id)
+                await self.refresh_view()
+
+            message = f"Delete “{current.name}”"
+            if descendants or nested_lists:
+                message += (
+                    f" and everything inside it ({len(descendants)} nested folder"
+                    f"{'s' if len(descendants) != 1 else ''}, {nested_lists} list"
+                    f"{'s' if nested_lists != 1 else ''})?"
+                )
+            else:
+                message += "?"
+            self.confirm("Delete folder", message, delete_folder)
 
 
 class SavedItemsPanel(SDKPanel):
@@ -1488,7 +1620,9 @@ class SavedItemsPanel(SDKPanel):
 
     def on_mount(self) -> None:
         self.query_one("#saved-lists", DataTable).add_columns("Name", "Type", "Items")
-        self.query_one("#saved-items", DataTable).add_columns("Item", "Details")
+        self.query_one("#saved-items", DataTable).add_columns(
+            "Item", "Quantity", "Photo", "Stores", "Details"
+        )
 
     def _kind(self, identifier: str) -> str:
         state = self.client.state
@@ -1547,9 +1681,28 @@ class SavedItemsPanel(SDKPanel):
         old = _selected_id(table, self.item_ids)
         items = list(current.items)
         self.item_ids = [str(value.identifier) for value in items]
+        stores = self.client.state.list_stores.get(self.shopping_list_id, {})
+
+        def row(value: ListItem) -> tuple[object, ...]:
+            quantity = str(getattr(getattr(value, "quantityPb", None), "rawQuantity", "") or "")
+            package = str(
+                getattr(getattr(value, "packageSizePb", None), "rawPackageSize", "") or ""
+            )
+            quantity_text = " ".join(part for part in (quantity, package) if part)
+            store_names = ", ".join(
+                str(stores[store_id].name) for store_id in value.storeIds if store_id in stores
+            )
+            return (
+                value.name,
+                quantity_text,
+                len(value.photoIds) or "",
+                store_names,
+                value.details,
+            )
+
         _replace_rows(
             table,
-            ((value.name, value.details) for value in items),
+            (row(value) for value in items),
             self.item_ids,
             keep_id=old,
         )
@@ -1558,6 +1711,41 @@ class SavedItemsPanel(SDKPanel):
         if event.data_table.id == "saved-lists":
             self.current_list_id = _selected_id(event.data_table, self.list_ids)
             self._refresh_items()
+
+    def _item_fields(self, item: ListItem | None = None) -> list[FormField]:
+        current_photo = ""
+        if item is not None and item.photoIds and self.client.photos is not None:
+            current_photo = self.client.photos.url(str(item.photoIds[0]))
+        stores = sorted(
+            self.client.state.list_stores.get(self.shopping_list_id, {}).values(),
+            key=lambda value: (int(value.sortIndex), str(value.name).casefold()),
+        )
+        return [
+            FormField("name", "Name", value=getattr(item, "name", "")),
+            FormField("details", "Details", kind="textarea", value=getattr(item, "details", "")),
+            FormField(
+                "quantity",
+                "Quantity / package size",
+                placeholder="e.g. 2, 1 lb, or 2 cans (14 oz)",
+            ),
+            FormField(
+                "stores",
+                "Stores",
+                kind="multiselect",
+                options=tuple((str(value.name), str(value.identifier)) for value in stores),
+                selected=tuple(str(value) for value in getattr(item, "storeIds", ())),
+            ),
+            FormField(
+                "photo",
+                "Photo",
+                value=current_photo,
+                placeholder=(
+                    "Local file or image URL"
+                    if item is None
+                    else "Keep this URL, replace with file/URL, or type - to remove"
+                ),
+            ),
+        ]
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         service = self.client.starter_lists
@@ -1623,15 +1811,25 @@ class SavedItemsPanel(SDKPanel):
                 name = str(result["name"]).strip()
                 if not name:
                     return self.error("Item name is required")
-                await service.add_item(
-                    list_id,
-                    PB.ListItem(name=name, details=str(result.get("details") or "")),
-                )
+                item = PB.ListItem(name=name, details=str(result.get("details") or ""))
+                quantity_text = str(result.get("quantity") or "").strip()
+                parsed = parse_quantity_and_package_size(quantity_text) if quantity_text else None
+                if quantity_text and parsed is None:
+                    return self.error("Could not understand that quantity/package size")
+                if parsed is not None and parsed.HasField("quantityPb"):
+                    item.quantityPb.CopyFrom(parsed.quantityPb)
+                if parsed is not None and parsed.HasField("packageSizePb"):
+                    item.packageSizePb.CopyFrom(parsed.packageSizePb)
+                item.storeIds.extend(cast(list[str], result.get("stores") or []))
+                photo_reference = str(result.get("photo") or "").strip()
+                if photo_reference and photo_reference != "-":
+                    item.photoIds.append(await self.upload_photo_reference(photo_reference))
+                await service.add_item(list_id, item)
                 await self.refresh_view()
 
             self.form(
                 "Add saved item",
-                [FormField("name", "Name"), FormField("details", "Details", kind="textarea")],
+                self._item_fields(),
                 add_item,
                 submit_label="Add",
             )
@@ -1662,16 +1860,58 @@ class SavedItemsPanel(SDKPanel):
                 if details != item_snapshot.details:
                     await service.set_item_details(list_id, item_id, details, flush=False)
                     changed = True
+                quantity_text = str(result.get("quantity") or "").strip()
+                if quantity_text:
+                    parsed = parse_quantity_and_package_size(quantity_text)
+                    if parsed is None:
+                        return self.error("Could not understand that quantity/package size")
+                    if parsed.HasField("quantityPb"):
+                        await service.set_quantity(list_id, item_id, parsed.quantityPb, flush=False)
+                        changed = True
+                    if parsed.HasField("packageSizePb"):
+                        await service.set_package_size(
+                            list_id, item_id, parsed.packageSizePb, flush=False
+                        )
+                        changed = True
+                requested_stores = set(cast(list[str], result.get("stores") or []))
+                current_stores = {str(value) for value in item_snapshot.storeIds}
+                added_stores = sorted(requested_stores - current_stores)
+                removed_stores = sorted(current_stores - requested_stores)
+                if added_stores:
+                    await service.add_store_ids_to_items(
+                        list_id, [item_id], added_stores, flush=False
+                    )
+                    changed = True
+                if removed_stores:
+                    await service.remove_store_ids_from_items(
+                        list_id, [item_id], removed_stores, flush=False
+                    )
+                    changed = True
+                current_photo = (
+                    self.client.photos.url(str(item_snapshot.photoIds[0]))
+                    if item_snapshot.photoIds and self.client.photos is not None
+                    else ""
+                )
+                photo_reference = str(result.get("photo") or "").strip()
+                if photo_reference == "-":
+                    if item_snapshot.photoIds:
+                        await service.set_photo(list_id, item_id, None, flush=False)
+                        changed = True
+                elif photo_reference and photo_reference != current_photo:
+                    await service.set_photo(
+                        list_id,
+                        item_id,
+                        await self.upload_photo_reference(photo_reference),
+                        flush=False,
+                    )
+                    changed = True
                 if changed:
                     await service.flush()
                 await self.refresh_view()
 
             self.form(
                 "Edit saved item",
-                [
-                    FormField("name", "Name", value=item_snapshot.name),
-                    FormField("details", "Details", kind="textarea", value=item_snapshot.details),
-                ],
+                self._item_fields(item_snapshot),
                 edit_item,
             )
         elif button_id == "saved-remove-item":
@@ -1698,6 +1938,131 @@ class SavedItemsPanel(SDKPanel):
             )
 
 
+class ListBehaviorPanel(SDKPanel):
+    """User-facing list behavior toggles backed by official PBListSettings mutations."""
+
+    DEFAULT_CSS = """
+    ListBehaviorPanel { padding: 1; }
+    ListBehaviorPanel Checkbox { margin-bottom: 1; }
+    ListBehaviorPanel #behavior-save { margin-top: 1; }
+    """
+
+    _FIELDS: ClassVar[tuple[tuple[str, str, str, bool, bool], ...]] = (
+        (
+            "behavior-generic",
+            "Grocery autocomplete suggestions",
+            "genericGroceryAutocompleteEnabled",
+            False,
+            False,
+        ),
+        (
+            "behavior-favorites",
+            "Favorite-item autocomplete suggestions",
+            "favoritesAutocompleteEnabled",
+            True,
+            False,
+        ),
+        (
+            "behavior-recents",
+            "Recent-item autocomplete suggestions",
+            "recentItemsAutocompleteEnabled",
+            True,
+            False,
+        ),
+        (
+            "behavior-remember-categories",
+            "Remember item categories",
+            "shouldRememberItemCategories",
+            True,
+            False,
+        ),
+        (
+            "behavior-show-categories",
+            "Show categories",
+            "shouldHideCategories",
+            False,
+            True,
+        ),
+        (
+            "behavior-show-completed",
+            "Show completed items",
+            "shouldHideCompletedItems",
+            False,
+            True,
+        ),
+        (
+            "behavior-show-store-names",
+            "Show store names",
+            "shouldHideStoreNames",
+            False,
+            True,
+        ),
+        (
+            "behavior-show-prices",
+            "Show item prices",
+            "shouldHidePrices",
+            False,
+            True,
+        ),
+        (
+            "behavior-show-running-totals",
+            "Show running totals",
+            "shouldHideRunningTotals",
+            False,
+            True,
+        ),
+    )
+
+    def __init__(self, list_id: str) -> None:
+        super().__init__()
+        self.list_id = list_id
+
+    def compose(self) -> ComposeResult:
+        yield Label("List behavior")
+        yield Static(
+            "These are the per-list switches AnyList uses for suggestions and list presentation."
+        )
+        for widget_id, label, _field, _default, _inverted in self._FIELDS:
+            yield Checkbox(label, id=widget_id)
+        yield Button("Save behavior", id="behavior-save", variant="primary")
+
+    def _effective_bool(self, field: str, default: bool) -> bool:
+        for settings_id in (self.list_id, ""):
+            settings = self.client.state.list_settings.get(settings_id)
+            if settings is None:
+                continue
+            try:
+                if settings.HasField(field):
+                    return bool(getattr(settings, field))
+            except ValueError:
+                return bool(getattr(settings, field))
+        return default
+
+    async def refresh_view(self) -> None:
+        for widget_id, _label, field, default, inverted in self._FIELDS:
+            raw = self._effective_bool(field, default)
+            self.query_one(f"#{widget_id}", Checkbox).value = not raw if inverted else raw
+
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id != "behavior-save":
+            return
+        service = self.client.list_settings
+        if service is None:
+            return
+        changed = False
+        for widget_id, _label, field, default, inverted in self._FIELDS:
+            shown = bool(self.query_one(f"#{widget_id}", Checkbox).value)
+            requested = not shown if inverted else shown
+            if requested == self._effective_bool(field, default):
+                continue
+            await service.set(self.list_id, field, requested, flush=False)
+            changed = True
+        if changed:
+            await service.flush()
+            self.tui.notify("List behavior saved")
+        await self.refresh_view()
+
+
 class ListSettingsScreen(ModalScreen[None]):
     DEFAULT_CSS = """
     ListSettingsScreen { align: center middle; background: $background 45%; }
@@ -1712,7 +2077,8 @@ class ListSettingsScreen(ModalScreen[None]):
     ListSettingsScreen TabPane { height: 1fr; padding: 1; }
     ListSettingsScreen StoresCategoriesPanel,
     ListSettingsScreen SavedItemsPanel,
-    ListSettingsScreen FoldersPanel { width: 1fr; height: 1fr; }
+    ListSettingsScreen FoldersPanel,
+    ListSettingsScreen ListBehaviorPanel { width: 1fr; height: 1fr; }
     """
 
     def __init__(self, list_id: str) -> None:
@@ -1736,6 +2102,8 @@ class ListSettingsScreen(ModalScreen[None]):
                     yield SavedItemsPanel(self.list_id)
                 with TabPane("Folders", id="folders"):
                     yield FoldersPanel()
+                with TabPane("Behavior", id="list-behavior"):
+                    yield ListBehaviorPanel(self.list_id)
 
     async def on_mount(self) -> None:
         for panel in self.query(SDKPanel):
@@ -2313,6 +2681,8 @@ class LabelsPanel(SDKPanel):
         with Horizontal(classes="toolbar"):
             yield Button("New label", id="label-new", variant="success")
             yield Button("Edit label", id="label-edit")
+            yield Button("Move ↑", id="label-up")
+            yield Button("Move ↓", id="label-down")
             yield Button("Delete label", id="label-delete", variant="error")
         yield DataTable(id="labels-table", cursor_type="row", zebra_stripes=True)
 
@@ -2404,6 +2774,20 @@ class LabelsPanel(SDKPanel):
                 f"Delete “{current_label.name}”? It will also be cleared from events that use it.",
                 delete,
             )
+        elif button_id in {"label-up", "label-down"}:
+            if not label_id:
+                return self.error("Select a label")
+            ordered = [
+                str(value.identifier)
+                for value in sorted(service.labels(), key=lambda value: int(value.sortIndex))
+            ]
+            index = ordered.index(label_id)
+            new_index = index - 1 if button_id == "label-up" else index + 1
+            if new_index < 0 or new_index >= len(ordered):
+                return
+            ordered[index], ordered[new_index] = ordered[new_index], ordered[index]
+            await service.reorder_labels(ordered)
+            await self.refresh_view()
 
 
 class LabelsScreen(ModalScreen[None]):
@@ -2435,35 +2819,168 @@ class LabelsScreen(ModalScreen[None]):
 class MealPlanPanel(SDKPanel):
     DEFAULT_CSS = """
     MealPlanPanel .toolbar { height: auto; }
-    MealPlanPanel #meal-events { height: 58%; }
-    MealPlanPanel #meal-items { height: 1fr; }
+    MealPlanPanel #meal-tabs { height: 1fr; }
+    MealPlanPanel #planner-browser,
+    MealPlanPanel #ideas-browser,
+    MealPlanPanel #template-top,
+    MealPlanPanel #template-bottom { height: 1fr; }
+    MealPlanPanel #planner-days-pane { width: 24%; }
+    MealPlanPanel #planner-events-pane { width: 36%; }
+    MealPlanPanel #planner-detail-pane { width: 1fr; border: round $primary; padding: 0 1; }
+    MealPlanPanel #ideas-list-pane { width: 46%; }
+    MealPlanPanel #ideas-detail-pane { width: 1fr; border: round $primary; padding: 0 1; }
+    MealPlanPanel #template-groups-pane { width: 34%; }
+    MealPlanPanel #templates-pane { width: 1fr; }
+    MealPlanPanel #template-days-pane { width: 34%; }
+    MealPlanPanel #template-events-pane { width: 1fr; }
+    MealPlanPanel #template-detail-pane { width: 1fr; border: round $primary; padding: 0 1; }
+    MealPlanPanel #planner-detail-scroll,
+    MealPlanPanel #ideas-detail-scroll,
+    MealPlanPanel #template-detail-scroll { height: 1fr; }
+    MealPlanPanel #planner-items,
+    MealPlanPanel #ideas-items,
+    MealPlanPanel #template-items { height: 12; }
+    MealPlanPanel #template-events { height: 1fr; }
     """
 
     def __init__(self) -> None:
         super().__init__()
+        today = datetime.now().astimezone().date()
+        self.week_start = today - timedelta(days=today.weekday())
+        self.selected_date = today.isoformat()
+        self.day_ids: list[str] = []
         self.event_ids: list[str] = []
-        self.item_ids: list[str] = []
         self.current_event_id: str | None = None
+        self.item_ids: list[str] = []
+        self.idea_ids: list[str] = []
+        self.current_idea_id: str | None = None
+        self.idea_item_ids: list[str] = []
+        self.template_group_ids: list[str] = []
+        self.current_template_group_id: str | None = None
+        self.template_ids: list[str] = []
+        self.current_template_id: str | None = None
+        self.template_day_ids: list[str] = []
+        self.current_template_day_id: str | None = None
+        self.template_event_ids: list[str] = []
+        self.current_template_event_id: str | None = None
+        self.template_item_ids: list[str] = []
 
     def compose(self) -> ComposeResult:
-        with Horizontal(classes="toolbar"):
-            yield Button("New entry", id="meal-new", variant="success")
-            yield Button("Edit entry", id="meal-edit")
-            yield Button("Delete entry", id="meal-delete", variant="error")
-            yield Button("Add item", id="meal-item-new", variant="success")
-            yield Button("Edit item", id="meal-item-edit")
-            yield Button("Remove item", id="meal-item-delete", variant="error")
-            yield Button("Labels…", id="meal-labels")
-        yield Label("Meal plan")
-        yield DataTable(id="meal-events", cursor_type="row", zebra_stripes=True)
-        yield Label("Items in selected entry")
-        yield DataTable(id="meal-items", cursor_type="row", zebra_stripes=True)
+        with TabbedContent(initial="meal-planner-tab", id="meal-tabs"):
+            with TabPane("Planner", id="meal-planner-tab"):
+                with Horizontal(classes="toolbar"):
+                    yield Button("← Week", id="meal-week-prev")
+                    yield Button("Today", id="meal-week-today", variant="primary")
+                    yield Button("Week →", id="meal-week-next")
+                    yield Button("Add recipe", id="meal-add-recipe", variant="success")
+                    yield Button("Add note", id="meal-add-note")
+                    yield Button("Edit", id="meal-edit")
+                    yield Button("Delete", id="meal-delete", variant="error")
+                    yield Button("Move to queue", id="meal-to-queue")
+                    yield Button("Save favorite", id="meal-save-favorite")
+                    yield Button("Labels…", id="meal-labels")
+                with Horizontal(id="planner-browser"):
+                    with Vertical(id="planner-days-pane"):
+                        yield Label("Week", id="meal-week-title")
+                        yield DataTable(id="meal-days", cursor_type="row", zebra_stripes=True)
+                    with Vertical(id="planner-events-pane"):
+                        yield Label("Meals", id="meal-selected-day-title")
+                        yield DataTable(id="meal-events", cursor_type="row", zebra_stripes=True)
+                    with Vertical(id="template-detail-pane"):
+                        yield Label("Entry details")
+                        with VerticalScroll(id="planner-detail-scroll"):
+                            yield Static("Select an entry", id="meal-event-detail", markup=False)
+                        yield Label("Items")
+                        yield DataTable(id="planner-items", cursor_type="row", zebra_stripes=True)
+                        with Horizontal(classes="toolbar"):
+                            yield Button("Add item", id="meal-item-new", variant="success")
+                            yield Button("Edit item", id="meal-item-edit")
+                            yield Button("Item ↑", id="meal-item-up")
+                            yield Button("Item ↓", id="meal-item-down")
+                            yield Button("Remove item", id="meal-item-delete", variant="error")
+
+            with TabPane("Queue & Favorites", id="meal-ideas-tab"):
+                with Horizontal(classes="toolbar"):
+                    yield Button("Add recipe", id="idea-add-recipe", variant="success")
+                    yield Button("Add note", id="idea-add-note")
+                    yield Button("Edit", id="idea-edit")
+                    yield Button("Delete", id="idea-delete", variant="error")
+                    yield Button("Schedule", id="idea-schedule", variant="primary")
+                    yield Button("Save favorite", id="idea-save-favorite")
+                with Horizontal(id="ideas-browser"):
+                    with Vertical(id="ideas-list-pane"):
+                        yield Label("Queue & Favorites")
+                        yield DataTable(id="meal-ideas", cursor_type="row", zebra_stripes=True)
+                    with Vertical(id="ideas-detail-pane"):
+                        yield Label("Entry details")
+                        with VerticalScroll(id="ideas-detail-scroll"):
+                            yield Static("Select an entry", id="idea-detail", markup=False)
+                        yield Label("Items")
+                        yield DataTable(id="ideas-items", cursor_type="row", zebra_stripes=True)
+                        with Horizontal(classes="toolbar"):
+                            yield Button("Add item", id="idea-item-new", variant="success")
+                            yield Button("Edit item", id="idea-item-edit")
+                            yield Button("Item ↑", id="idea-item-up")
+                            yield Button("Item ↓", id="idea-item-down")
+                            yield Button("Remove item", id="idea-item-delete", variant="error")
+
+            with TabPane("Templates", id="meal-templates-tab"):
+                with Horizontal(classes="toolbar"):
+                    yield Button("New group", id="template-group-new", variant="success")
+                    yield Button("Delete group", id="template-group-delete", variant="error")
+                    yield Button("New template", id="template-new", variant="success")
+                    yield Button("Edit template", id="template-edit")
+                    yield Button("Delete template", id="template-delete", variant="error")
+                    yield Button("Use template", id="template-use", variant="primary")
+                with Horizontal(id="template-top"):
+                    with Vertical(id="template-groups-pane"):
+                        yield Label("Template groups")
+                        yield DataTable(id="template-groups", cursor_type="row", zebra_stripes=True)
+                    with Vertical(id="templates-pane"):
+                        yield Label("Templates")
+                        yield DataTable(id="templates", cursor_type="row", zebra_stripes=True)
+                with Horizontal(classes="toolbar"):
+                    yield Button("Add day", id="template-day-new", variant="success")
+                    yield Button("Remove day", id="template-day-delete", variant="error")
+                    yield Button("Add recipe", id="template-event-recipe", variant="success")
+                    yield Button("Add note", id="template-event-note")
+                    yield Button("Edit entry", id="template-event-edit")
+                    yield Button("Delete entry", id="template-event-delete", variant="error")
+                with Horizontal(id="template-bottom"):
+                    with Vertical(id="template-days-pane"):
+                        yield Label("Days")
+                        yield DataTable(id="template-days", cursor_type="row", zebra_stripes=True)
+                    with Vertical(id="template-events-pane"):
+                        yield Label("Entries")
+                        yield DataTable(id="template-events", cursor_type="row", zebra_stripes=True)
+                    with Vertical(id="planner-detail-pane"):
+                        yield Label("Template entry details")
+                        with VerticalScroll(id="template-detail-scroll"):
+                            yield Static(
+                                "Select an entry", id="template-event-detail", markup=False
+                            )
+                        yield Label("Items")
+                        yield DataTable(id="template-items", cursor_type="row", zebra_stripes=True)
+                        with Horizontal(classes="toolbar"):
+                            yield Button("Add item", id="template-item-new", variant="success")
+                            yield Button("Edit item", id="template-item-edit")
+                            yield Button("Item ↑", id="template-item-up")
+                            yield Button("Item ↓", id="template-item-down")
+                            yield Button("Remove item", id="template-item-delete", variant="error")
 
     def on_mount(self) -> None:
-        self.query_one("#meal-events", DataTable).add_columns(
-            "Entry", "When", "Label", "Items", "Type"
+        self.query_one("#meal-days", DataTable).add_columns("Day", "Date", "Meals")
+        self.query_one("#meal-events", DataTable).add_columns("Meal", "Label", "Recipe", "Items")
+        self.query_one("#planner-items", DataTable).add_columns("Item", "Quantity", "Details")
+        self.query_one("#meal-ideas", DataTable).add_columns(
+            "Type", "Meal", "Label", "Recipe", "Items"
         )
-        self.query_one("#meal-items", DataTable).add_columns("Item", "Details")
+        self.query_one("#ideas-items", DataTable).add_columns("Item", "Quantity", "Details")
+        self.query_one("#template-groups", DataTable).add_columns("Group", "Templates", "Groups")
+        self.query_one("#templates", DataTable).add_columns("Template", "Days")
+        self.query_one("#template-days", DataTable).add_columns("Day", "Entries")
+        self.query_one("#template-events", DataTable).add_columns("Meal", "Recipe", "Label")
+        self.query_one("#template-items", DataTable).add_columns("Item", "Quantity", "Details")
 
     @staticmethod
     def _event_type_name(event: PBCalendarEvent) -> str:
@@ -2476,69 +2993,455 @@ class MealPlanPanel(SDKPanel):
             return "Template"
         return "Calendar"
 
+    def _event_title(self, event: PBCalendarEvent) -> str:
+        recipe_id = str(event.recipeId or "")
+        recipe = self.client.state.recipes.get(recipe_id) if recipe_id else None
+        return str(event.title or (recipe.name if recipe is not None else "") or "Untitled entry")
+
+    def _event_recipe_name(self, event: PBCalendarEvent) -> str:
+        recipe_id = str(event.recipeId or "")
+        recipe = self.client.state.recipes.get(recipe_id) if recipe_id else None
+        return str(recipe.name) if recipe is not None else ""
+
+    def _event_label_name(self, event: PBCalendarEvent) -> str:
+        label = self.client.state.meal_plan_labels.get(str(event.labelId or ""))
+        return str(label.name) if label is not None else ""
+
+    @staticmethod
+    def _event_item_quantity(item: object) -> str:
+        quantity = str(getattr(getattr(item, "quantityPb", None), "rawQuantity", "") or "")
+        package = str(getattr(getattr(item, "packageSizePb", None), "rawPackageSize", "") or "")
+        return " ".join(part for part in (quantity, package) if part)
+
+    def _event_detail_text(self, event: PBCalendarEvent | None) -> str:
+        if event is None:
+            return "Select an entry"
+        lines = [self._event_title(event)]
+        metadata: list[str] = [self._event_type_name(event)]
+        if event.date:
+            metadata.append(str(event.date))
+        label = self._event_label_name(event)
+        if label:
+            metadata.append(label)
+        if bool(event.isLeftover):
+            metadata.append("Leftovers")
+        lines.append(" • ".join(metadata))
+        recipe_id = str(event.recipeId or "")
+        recipe = self.client.state.recipes.get(recipe_id) if recipe_id else None
+        if recipe is not None:
+            factor = float(event.recipeScaleFactor or 1.0)
+            lines.extend(["", f"Recipe: {recipe.name}"])
+            servings = recipe_servings_after_scaling(recipe, event)
+            if servings:
+                lines.append(f"Servings: {servings}")
+            if factor != 1.0:
+                lines.append(f"Scale: {factor:g}×")
+            if recipe.sourceUrl:
+                lines.append(f"Source: {recipe.sourceUrl}")
+        if event.details:
+            lines.extend(["", "Details:", str(event.details)])
+        if event.eventListItems:
+            lines.extend(["", "Items:"])
+            for item in event.eventListItems:
+                quantity = self._event_item_quantity(item)
+                suffix = f" — {item.details}" if item.details else ""
+                lines.append(f"  • {quantity + ' ' if quantity else ''}{item.name}{suffix}")
+        return "\n".join(lines)
+
+    def _calendar_events_for_date(self, value: str) -> list[PBCalendarEvent]:
+        events = [
+            event
+            for event in self.client.state.meal_plan_events.values()
+            if int(event.eventType) == int(PB.PBCalendarEventType.MealPlanCalendarEvent)
+            and str(event.date or "") == value
+        ]
+        return sorted(
+            events,
+            key=lambda event: (
+                int(event.labelSortIndex),
+                int(event.orderAddedSortIndex),
+                self._event_title(event).casefold(),
+            ),
+        )
+
     async def refresh_view(self) -> None:
-        service = self.client.meal_plan
-        if service is None:
+        if self.client.meal_plan is None:
             return
+        self._refresh_planner()
+        self._refresh_ideas()
+        self._refresh_templates()
+
+    def _refresh_planner(self) -> None:
+        day_table = self.query_one("#meal-days", DataTable)
+        days = [self.week_start + timedelta(days=index) for index in range(7)]
+        self.day_ids = [value.isoformat() for value in days]
+        if self.selected_date not in self.day_ids:
+            self.selected_date = self.day_ids[0]
+        _replace_rows(
+            day_table,
+            (
+                (
+                    value.strftime("%a"),
+                    value.strftime("%b %-d"),
+                    len(self._calendar_events_for_date(value.isoformat())),
+                )
+                for value in days
+            ),
+            self.day_ids,
+            keep_id=self.selected_date,
+        )
+        self.query_one("#meal-week-title", Label).update(
+            f"Week of {self.week_start.strftime('%b %-d, %Y')}"
+        )
+        self._refresh_planner_events()
+
+    def _refresh_planner_events(self) -> None:
         table = self.query_one("#meal-events", DataTable)
         old = self.current_event_id or _selected_id(table, self.event_ids)
-        events = sorted(
-            service.events(),
-            key=lambda value: (str(value.date or "9999-99-99"), str(value.title).casefold()),
-        )
-        labels = {str(value.identifier): str(value.name) for value in service.labels()}
-        self.event_ids = [str(value.identifier) for value in events]
+        events = self._calendar_events_for_date(self.selected_date)
+        self.event_ids = [str(event.identifier) for event in events]
         _replace_rows(
             table,
             (
                 (
-                    value.title,
-                    value.date or "Queue",
-                    labels.get(str(value.labelId), ""),
-                    len(value.eventListItems),
-                    self._event_type_name(value),
+                    self._event_title(event),
+                    self._event_label_name(event),
+                    self._event_recipe_name(event),
+                    len(event.eventListItems),
                 )
-                for value in events
+                for event in events
             ),
             self.event_ids,
             keep_id=old,
         )
         self.current_event_id = _selected_id(table, self.event_ids)
-        self._refresh_items()
+        try:
+            pretty = date.fromisoformat(self.selected_date).strftime("%A, %b %-d")
+        except ValueError:
+            pretty = self.selected_date
+        self.query_one("#meal-selected-day-title", Label).update(pretty)
+        self._refresh_planner_detail()
 
-    def _event(self) -> PBCalendarEvent | None:
-        if not self.current_event_id:
-            return None
-        return self.client.state.meal_plan_events.get(self.current_event_id)
+    def _planner_event(self) -> PBCalendarEvent | None:
+        return (
+            self.client.state.meal_plan_events.get(self.current_event_id)
+            if self.current_event_id
+            else None
+        )
 
-    def _refresh_items(self) -> None:
-        table = self.query_one("#meal-items", DataTable)
-        event = self._event()
+    def _refresh_planner_detail(self) -> None:
+        event = self._planner_event()
+        self.query_one("#meal-event-detail", Static).update(self._event_detail_text(event))
+        table = self.query_one("#planner-items", DataTable)
         if event is None:
             self.item_ids = []
             table.clear()
             return
         old = _selected_id(table, self.item_ids)
         items = list(event.eventListItems)
-        self.item_ids = [str(value.identifier) for value in items]
+        self.item_ids = [str(item.identifier) for item in items]
         _replace_rows(
             table,
-            ((value.name, value.details) for value in items),
+            ((item.name, self._event_item_quantity(item), item.details) for item in items),
             self.item_ids,
             keep_id=old,
         )
 
-    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        if event.data_table.id == "meal-events":
-            self.current_event_id = _selected_id(event.data_table, self.event_ids)
-            self._refresh_items()
-
-    def _event_fields(self, event: PBCalendarEvent | None = None) -> list[FormField]:
-        labels = sorted(
-            self.client.state.meal_plan_labels.values(),
-            key=lambda value: int(value.sortIndex),
+    def _idea_events(self) -> list[PBCalendarEvent]:
+        allowed = {
+            int(PB.PBCalendarEventType.MealPlanQueueEvent),
+            int(PB.PBCalendarEventType.MealPlanFavoriteEvent),
+        }
+        return sorted(
+            (
+                event
+                for event in self.client.state.meal_plan_events.values()
+                if int(event.eventType) in allowed
+            ),
+            key=lambda event: (
+                int(event.eventType),
+                int(event.labelSortIndex),
+                int(event.orderAddedSortIndex),
+                self._event_title(event).casefold(),
+            ),
         )
-        return [
+
+    def _refresh_ideas(self) -> None:
+        table = self.query_one("#meal-ideas", DataTable)
+        old = self.current_idea_id or _selected_id(table, self.idea_ids)
+        events = self._idea_events()
+        self.idea_ids = [str(event.identifier) for event in events]
+        _replace_rows(
+            table,
+            (
+                (
+                    self._event_type_name(event),
+                    self._event_title(event),
+                    self._event_label_name(event),
+                    self._event_recipe_name(event),
+                    len(event.eventListItems),
+                )
+                for event in events
+            ),
+            self.idea_ids,
+            keep_id=old,
+        )
+        self.current_idea_id = _selected_id(table, self.idea_ids)
+        self._refresh_idea_detail()
+
+    def _idea_event(self) -> PBCalendarEvent | None:
+        return (
+            self.client.state.meal_plan_events.get(self.current_idea_id)
+            if self.current_idea_id
+            else None
+        )
+
+    def _refresh_idea_detail(self) -> None:
+        event = self._idea_event()
+        self.query_one("#idea-detail", Static).update(self._event_detail_text(event))
+        table = self.query_one("#ideas-items", DataTable)
+        if event is None:
+            self.idea_item_ids = []
+            table.clear()
+            return
+        old = _selected_id(table, self.idea_item_ids)
+        items = list(event.eventListItems)
+        self.idea_item_ids = [str(item.identifier) for item in items]
+        _replace_rows(
+            table,
+            ((item.name, self._event_item_quantity(item), item.details) for item in items),
+            self.idea_item_ids,
+            keep_id=old,
+        )
+
+    def _template_parent_map(self) -> dict[str, str]:
+        parent: dict[str, str] = {}
+        for group_id, group in self.client.state.meal_plan_template_groups.items():
+            for item in group.items:
+                if int(item.itemType) == int(PB.PBMealPlanTemplateGroupItem.Type.Group):
+                    parent[str(item.identifier)] = group_id
+        return parent
+
+    def _template_group_path(self, group_id: str) -> str:
+        parents = self._template_parent_map()
+        parts: list[str] = []
+        current = group_id
+        seen: set[str] = set()
+        while current and current not in seen:
+            seen.add(current)
+            group = self.client.state.meal_plan_template_groups.get(current)
+            if group is None:
+                break
+            if group.name:
+                parts.append(str(group.name))
+            current = parents.get(current, "")
+        return " / ".join(reversed(parts)) or "Templates"
+
+    def _sorted_template_groups(self) -> list[PBMealPlanTemplateGroup]:
+        groups = list(self.client.state.meal_plan_template_groups.values())
+        return sorted(
+            groups, key=lambda group: self._template_group_path(str(group.identifier)).casefold()
+        )
+
+    def _refresh_templates(self) -> None:
+        group_table = self.query_one("#template-groups", DataTable)
+        groups = self._sorted_template_groups()
+        old_group = self.current_template_group_id or _selected_id(
+            group_table, self.template_group_ids
+        )
+        self.template_group_ids = [str(group.identifier) for group in groups]
+        _replace_rows(
+            group_table,
+            (
+                (
+                    self._template_group_path(str(group.identifier)),
+                    len(
+                        [
+                            item
+                            for item in group.items
+                            if int(item.itemType)
+                            == int(PB.PBMealPlanTemplateGroupItem.Type.Template)
+                        ]
+                    ),
+                    len(
+                        [
+                            item
+                            for item in group.items
+                            if int(item.itemType) == int(PB.PBMealPlanTemplateGroupItem.Type.Group)
+                        ]
+                    ),
+                )
+                for group in groups
+            ),
+            self.template_group_ids,
+            keep_id=old_group,
+        )
+        self.current_template_group_id = _selected_id(group_table, self.template_group_ids)
+        self._refresh_template_list()
+
+    def _current_template_group(self) -> PBMealPlanTemplateGroup | None:
+        return (
+            self.client.state.meal_plan_template_groups.get(self.current_template_group_id)
+            if self.current_template_group_id
+            else None
+        )
+
+    def _refresh_template_list(self) -> None:
+        table = self.query_one("#templates", DataTable)
+        old = self.current_template_id or _selected_id(table, self.template_ids)
+        group = self._current_template_group()
+        ids = []
+        if group is not None:
+            ids = [
+                str(item.identifier)
+                for item in group.items
+                if int(item.itemType) == int(PB.PBMealPlanTemplateGroupItem.Type.Template)
+                and str(item.identifier) in self.client.state.meal_plan_templates
+            ]
+        templates = [self.client.state.meal_plan_templates[value] for value in ids]
+        templates.sort(key=lambda value: (int(value.sortIndex), str(value.name).casefold()))
+        self.template_ids = [str(value.identifier) for value in templates]
+        _replace_rows(
+            table,
+            ((value.name, len(value.dayIds)) for value in templates),
+            self.template_ids,
+            keep_id=old,
+        )
+        self.current_template_id = _selected_id(table, self.template_ids)
+        self._refresh_template_days()
+
+    def _current_template(self) -> PBMealPlanTemplate | None:
+        return (
+            self.client.state.meal_plan_templates.get(self.current_template_id)
+            if self.current_template_id
+            else None
+        )
+
+    def _refresh_template_days(self) -> None:
+        table = self.query_one("#template-days", DataTable)
+        old = self.current_template_day_id or _selected_id(table, self.template_day_ids)
+        template = self._current_template()
+        self.template_day_ids = list(template.dayIds) if template is not None else []
+        event_counts = {
+            day_id: sum(
+                1
+                for event in self.client.state.meal_plan_template_events.values()
+                if str(event.templateId) == str(self.current_template_id or "")
+                and str(event.templateDayId) == day_id
+            )
+            for day_id in self.template_day_ids
+        }
+        _replace_rows(
+            table,
+            (
+                (f"Day {index + 1}", event_counts.get(day_id, 0))
+                for index, day_id in enumerate(self.template_day_ids)
+            ),
+            self.template_day_ids,
+            keep_id=old,
+        )
+        self.current_template_day_id = _selected_id(table, self.template_day_ids)
+        self._refresh_template_events()
+
+    def _refresh_template_events(self) -> None:
+        table = self.query_one("#template-events", DataTable)
+        old = self.current_template_event_id or _selected_id(table, self.template_event_ids)
+        events = sorted(
+            (
+                event
+                for event in self.client.state.meal_plan_template_events.values()
+                if str(event.templateId) == str(self.current_template_id or "")
+                and str(event.templateDayId) == str(self.current_template_day_id or "")
+            ),
+            key=lambda event: (int(event.orderAddedSortIndex), self._event_title(event).casefold()),
+        )
+        self.template_event_ids = [str(event.identifier) for event in events]
+        _replace_rows(
+            table,
+            (
+                (
+                    self._event_title(event),
+                    self._event_recipe_name(event),
+                    self._event_label_name(event),
+                )
+                for event in events
+            ),
+            self.template_event_ids,
+            keep_id=old,
+        )
+        self.current_template_event_id = _selected_id(table, self.template_event_ids)
+        self._refresh_template_event_detail()
+
+    def _refresh_template_event_detail(self) -> None:
+        event = (
+            self.client.state.meal_plan_template_events.get(self.current_template_event_id)
+            if self.current_template_event_id
+            else None
+        )
+        self.query_one("#template-event-detail", Static).update(self._event_detail_text(event))
+        table = self.query_one("#template-items", DataTable)
+        if event is None:
+            self.template_item_ids = []
+            table.clear()
+            return
+        old = _selected_id(table, self.template_item_ids)
+        items = list(event.eventListItems)
+        self.template_item_ids = [str(item.identifier) for item in items]
+        _replace_rows(
+            table,
+            ((item.name, self._event_item_quantity(item), item.details) for item in items),
+            self.template_item_ids,
+            keep_id=old,
+        )
+
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        table_id = event.data_table.id or ""
+        if table_id == "meal-days":
+            selected = _selected_id(event.data_table, self.day_ids)
+            if selected and selected != self.selected_date:
+                self.selected_date = selected
+                self.current_event_id = None
+                self._refresh_planner_events()
+        elif table_id == "meal-events":
+            self.current_event_id = _selected_id(event.data_table, self.event_ids)
+            self._refresh_planner_detail()
+        elif table_id == "meal-ideas":
+            self.current_idea_id = _selected_id(event.data_table, self.idea_ids)
+            self._refresh_idea_detail()
+        elif table_id == "template-groups":
+            selected = _selected_id(event.data_table, self.template_group_ids)
+            if selected != self.current_template_group_id:
+                self.current_template_group_id = selected
+                self.current_template_id = None
+                self._refresh_template_list()
+        elif table_id == "templates":
+            selected = _selected_id(event.data_table, self.template_ids)
+            if selected != self.current_template_id:
+                self.current_template_id = selected
+                self.current_template_day_id = None
+                self._refresh_template_days()
+        elif table_id == "template-days":
+            selected = _selected_id(event.data_table, self.template_day_ids)
+            if selected != self.current_template_day_id:
+                self.current_template_day_id = selected
+                self.current_template_event_id = None
+                self._refresh_template_events()
+        elif table_id == "template-events":
+            self.current_template_event_id = _selected_id(event.data_table, self.template_event_ids)
+            self._refresh_template_event_detail()
+
+    def _label_options(self) -> tuple[tuple[str, str], ...]:
+        return tuple(
+            (str(value.name), str(value.identifier))
+            for value in sorted(
+                self.client.state.meal_plan_labels.values(), key=lambda value: int(value.sortIndex)
+            )
+        )
+
+    def _note_fields(
+        self, event: PBCalendarEvent | None = None, *, include_date: bool = True
+    ) -> list[FormField]:
+        fields = [
             FormField("title", "Title", value=event.title if event is not None else ""),
             FormField(
                 "details",
@@ -2547,216 +3450,880 @@ class MealPlanPanel(SDKPanel):
                 value=event.details if event is not None else "",
             ),
             FormField(
-                "date",
-                "Date",
-                value=event.date if event is not None else "",
-                placeholder="YYYY-MM-DD — leave blank to keep it in the queue",
-            ),
-            FormField(
                 "label",
                 "Label",
                 kind="select",
                 value=str(event.labelId) if event is not None and event.labelId else None,
-                options=tuple((str(value.name), str(value.identifier)) for value in labels),
+                options=self._label_options(),
             ),
         ]
+        if include_date:
+            fields.insert(
+                2,
+                FormField(
+                    "date",
+                    "Date",
+                    value=event.date if event is not None and event.date else self.selected_date,
+                    placeholder="YYYY-MM-DD; blank keeps it in the queue",
+                ),
+            )
+        return fields
+
+    def _recipe_fields(self, *, include_date: bool, include_kind: bool = False) -> list[FormField]:
+        recipes = self.client.recipes.sorted() if self.client.recipes is not None else []
+        fields = [
+            FormField(
+                "recipe",
+                "Recipe",
+                kind="select",
+                options=tuple((str(value.name), str(value.identifier)) for value in recipes),
+                value=str(recipes[0].identifier) if recipes else None,
+                allow_blank=False,
+            ),
+            FormField("label", "Label", kind="select", options=self._label_options(), value=None),
+            FormField(
+                "scale",
+                "Scale factor",
+                value="",
+                placeholder="Optional, e.g. 0.5, 1, 2",
+            ),
+        ]
+        if include_date:
+            fields.insert(
+                1, FormField("date", "Date", value=self.selected_date, placeholder="YYYY-MM-DD")
+            )
+        if include_kind:
+            fields.insert(
+                1,
+                FormField(
+                    "kind",
+                    "Save to",
+                    kind="select",
+                    value="queue",
+                    options=(("Queue", "queue"), ("Favorites", "favorite")),
+                    allow_blank=False,
+                ),
+            )
+        return fields
+
+    def _validate_date(self, raw: str, *, allow_blank: bool = False) -> str:
+        value = raw.strip()
+        if not value and allow_blank:
+            return ""
+        try:
+            return date.fromisoformat(value).isoformat()
+        except ValueError as exc:
+            raise ValueError("Date must use YYYY-MM-DD") from exc
+
+    def _new_recipe_event(
+        self,
+        recipe_id: str,
+        *,
+        event_type: int,
+        date_value: str = "",
+        label_id: str = "",
+        scale: float | None = None,
+        template_id: str = "",
+        template_day_id: str = "",
+    ) -> PBCalendarEvent:
+        recipe = self.client.state.recipes.get(recipe_id)
+        if recipe is None:
+            raise ValueError("Recipe is no longer available")
+        event = PB.PBCalendarEvent(eventType=event_type, recipeId=recipe_id)
+        effective_scale = scale if scale is not None else effective_recipe_scale_factor(recipe)
+        if effective_scale:
+            event.recipeScaleFactor = effective_scale
+        if date_value:
+            event.date = date_value
+        if label_id:
+            event.labelId = label_id
+        if template_id:
+            event.templateId = template_id
+        if template_day_id:
+            event.templateDayId = template_day_id
+        return event
+
+    @staticmethod
+    def _copy_event(
+        source: PBCalendarEvent, *, event_type: int, date_value: str = ""
+    ) -> PBCalendarEvent:
+        event = PB.PBCalendarEvent(eventType=event_type)
+        if source.recipeId:
+            event.recipeId = source.recipeId
+        if float(source.recipeScaleFactor or 1.0) != 1.0:
+            event.recipeScaleFactor = source.recipeScaleFactor
+        if source.isLeftover:
+            event.isLeftover = True
+        if source.title:
+            event.title = source.title
+        if source.details:
+            event.details = source.details
+        if source.HasField("icon"):
+            event.icon.CopyFrom(source.icon)
+        if source.labelId:
+            event.labelId = source.labelId
+        if date_value:
+            event.date = date_value
+        for item in source.eventListItems:
+            copied = event.eventListItems.add(identifier=uuid4().hex)
+            copied.name = item.name
+            copied.details = item.details
+            if item.HasField("quantityPb"):
+                copied.quantityPb.CopyFrom(item.quantityPb)
+            if item.HasField("packageSizePb"):
+                copied.packageSizePb.CopyFrom(item.packageSizePb)
+        return event
+
+    async def _create_recipe_event(self, result: FormResult, *, mode: str) -> None:
+        service = self.client.meal_plan
+        if service is None:
+            return
+        recipe_id = cast(str | None, result.get("recipe"))
+        if not recipe_id:
+            return self.error("Select a recipe")
+        label_id = cast(str | None, result.get("label")) or ""
+        scale_text = str(result.get("scale") or "").strip()
+        scale = None
+        if scale_text:
+            try:
+                scale = float(scale_text)
+            except ValueError as exc:
+                raise ValueError("Scale factor must be a number") from exc
+            if scale <= 0:
+                raise ValueError("Scale factor must be greater than zero")
+        if mode == "planner":
+            date_value = self._validate_date(str(result.get("date") or ""))
+            event_type = PB.PBCalendarEventType.MealPlanCalendarEvent
+        elif mode == "template":
+            date_value = ""
+            event_type = PB.PBCalendarEventType.MealPlanTemplateEvent
+        else:
+            date_value = ""
+            kind = cast(str | None, result.get("kind")) or "queue"
+            event_type = (
+                PB.PBCalendarEventType.MealPlanFavoriteEvent
+                if kind == "favorite"
+                else PB.PBCalendarEventType.MealPlanQueueEvent
+            )
+        event = self._new_recipe_event(
+            recipe_id,
+            event_type=event_type,
+            date_value=date_value,
+            label_id=label_id,
+            scale=scale,
+            template_id=str(self.current_template_id or "") if mode == "template" else "",
+            template_day_id=str(self.current_template_day_id or "") if mode == "template" else "",
+        )
+        created = await service.save_event(event)
+        if mode == "planner":
+            self.current_event_id = str(created.identifier)
+        elif mode == "template":
+            self.current_template_event_id = str(created.identifier)
+        else:
+            self.current_idea_id = str(created.identifier)
+        await self.refresh_view()
+
+    async def _create_note_event(
+        self, result: FormResult, *, mode: str, event_type: int | None = None
+    ) -> None:
+        service = self.client.meal_plan
+        if service is None:
+            return
+        title = str(result.get("title") or "").strip()
+        if not title:
+            return self.error("Title is required")
+        label_id = cast(str | None, result.get("label")) or ""
+        if mode == "planner":
+            date_value = self._validate_date(str(result.get("date") or ""))
+            resolved_type = PB.PBCalendarEventType.MealPlanCalendarEvent
+        elif mode == "template":
+            date_value = ""
+            resolved_type = PB.PBCalendarEventType.MealPlanTemplateEvent
+        else:
+            date_value = ""
+            resolved_type = event_type or PB.PBCalendarEventType.MealPlanQueueEvent
+        event = PB.PBCalendarEvent(eventType=resolved_type, title=title)
+        details = str(result.get("details") or "")
+        if details:
+            event.details = details
+        if label_id:
+            event.labelId = label_id
+        if date_value:
+            event.date = date_value
+        if mode == "template":
+            event.templateId = str(self.current_template_id or "")
+            event.templateDayId = str(self.current_template_day_id or "")
+        created = await service.save_event(event)
+        if mode == "planner":
+            self.current_event_id = str(created.identifier)
+        elif mode == "template":
+            self.current_template_event_id = str(created.identifier)
+        else:
+            self.current_idea_id = str(created.identifier)
+        await self.refresh_view()
+
+    def _edit_event_form(
+        self,
+        event: PBCalendarEvent,
+        *,
+        include_date: bool,
+        callback: Callable[[FormResult], Awaitable[None]],
+    ) -> None:
+        self.form(
+            "Edit meal-plan entry", self._note_fields(event, include_date=include_date), callback
+        )
+
+    async def _apply_event_edit(
+        self, event: PBCalendarEvent, result: FormResult, *, include_date: bool
+    ) -> None:
+        service = self.client.meal_plan
+        if service is None:
+            return
+        event_id = str(event.identifier)
+        changed = False
+        title = str(result.get("title") or "").strip()
+        if title != str(event.title or ""):
+            await service.set_event_title(event_id, title, flush=False)
+            changed = True
+        details = str(result.get("details") or "")
+        if details != str(event.details or ""):
+            await service.set_event_details(event_id, details, flush=False)
+            changed = True
+        label_id = cast(str | None, result.get("label")) or ""
+        if label_id != str(event.labelId or ""):
+            await service.set_event_label(event_id, label_id, flush=False)
+            changed = True
+        if include_date:
+            date_value = self._validate_date(str(result.get("date") or ""), allow_blank=True)
+            if date_value != str(event.date or ""):
+                await service.set_event_date([event_id], date_value or None, flush=False)
+                changed = True
+        if changed:
+            await service.flush()
+        await self.refresh_view()
+
+    def _event_item_fields(self, item: object | None = None) -> list[FormField]:
+        current_quantity = self._event_item_quantity(item) if item is not None else ""
+        return [
+            FormField("name", "Name", value=getattr(item, "name", "")),
+            FormField("details", "Details", kind="textarea", value=getattr(item, "details", "")),
+            FormField(
+                "quantity",
+                "Quantity / package size",
+                placeholder=(
+                    f"Current: {current_quantity} — leave blank to keep"
+                    if current_quantity
+                    else "e.g. 2, 1 lb, or 2 cans (14 oz)"
+                ),
+            ),
+        ]
+
+    async def _edit_event_item(
+        self, event_id: str, item_id: str, item: object, result: FormResult
+    ) -> None:
+        service = self.client.meal_plan
+        if service is None:
+            return
+        name = str(result.get("name") or "").strip()
+        if not name:
+            return self.error("Item name is required")
+        changed = False
+        if name != str(getattr(item, "name", "")):
+            await service.set_event_list_item_name(event_id, item_id, name, flush=False)
+            changed = True
+        details = str(result.get("details") or "")
+        if details != str(getattr(item, "details", "")):
+            await service.set_event_list_item_details(event_id, item_id, details, flush=False)
+            changed = True
+        quantity_text = str(result.get("quantity") or "").strip()
+        if quantity_text:
+            parsed = parse_quantity_and_package_size(quantity_text)
+            if parsed is None:
+                return self.error("Could not understand that quantity/package size")
+            if parsed.HasField("quantityPb"):
+                await service.set_event_list_item_quantity(
+                    event_id, item_id, parsed.quantityPb, flush=False
+                )
+                changed = True
+            if parsed.HasField("packageSizePb"):
+                await service.set_event_list_item_package_size(
+                    event_id, item_id, parsed.packageSizePb, flush=False
+                )
+                changed = True
+        if changed:
+            await service.flush()
+        await self.refresh_view()
+
+    async def _handle_event_item_action(
+        self,
+        button_id: str,
+        event: PBCalendarEvent,
+        *,
+        prefix: str,
+        table_selector: str,
+        item_ids: Sequence[str],
+    ) -> None:
+        service = self.client.meal_plan
+        if service is None:
+            return
+        event_id = str(event.identifier)
+        item_id = _selected_id(self.query_one(table_selector, DataTable), item_ids)
+        current_item = next(
+            (item for item in event.eventListItems if str(item.identifier) == str(item_id or "")),
+            None,
+        )
+
+        if button_id == f"{prefix}-new":
+
+            async def create_item(result: FormResult) -> None:
+                name = str(result.get("name") or "").strip()
+                if not name:
+                    return self.error("Item name is required")
+                item = PB.PBCalendarEventListItem(
+                    name=name, details=str(result.get("details") or "")
+                )
+                quantity_text = str(result.get("quantity") or "").strip()
+                parsed = parse_quantity_and_package_size(quantity_text) if quantity_text else None
+                if quantity_text and parsed is None:
+                    return self.error("Could not understand that quantity/package size")
+                if parsed is not None and parsed.HasField("quantityPb"):
+                    item.quantityPb.CopyFrom(parsed.quantityPb)
+                if parsed is not None and parsed.HasField("packageSizePb"):
+                    item.packageSizePb.CopyFrom(parsed.packageSizePb)
+                await service.add_event_list_item(event_id, item)
+                await self.refresh_view()
+
+            self.form(
+                "Add meal-plan item",
+                self._event_item_fields(),
+                create_item,
+                submit_label="Add",
+            )
+            return
+
+        if current_item is None:
+            self.error("Select an item")
+            return
+
+        selected_item = current_item
+        if button_id == f"{prefix}-edit":
+
+            async def edit_selected_item(result: FormResult) -> None:
+                await self._edit_event_item(
+                    event_id, str(selected_item.identifier), selected_item, result
+                )
+
+            self.form(
+                "Edit meal-plan item",
+                self._event_item_fields(selected_item),
+                edit_selected_item,
+            )
+        elif button_id == f"{prefix}-delete":
+
+            async def delete_item() -> None:
+                await service.remove_event_list_item(event_id, str(selected_item.identifier))
+                await self.refresh_view()
+
+            self.confirm(
+                "Remove meal-plan item",
+                f"Remove “{selected_item.name}”?",
+                delete_item,
+                confirm_label="Remove",
+            )
+        elif button_id in {f"{prefix}-up", f"{prefix}-down"}:
+            ordered = [str(item.identifier) for item in event.eventListItems]
+            index = ordered.index(str(selected_item.identifier))
+            new_index = index - 1 if button_id == f"{prefix}-up" else index + 1
+            if 0 <= new_index < len(ordered):
+                ordered[index], ordered[new_index] = ordered[new_index], ordered[index]
+                await service.reorder_event_list_items(event_id, ordered)
+                await self.refresh_view()
+
+    async def _ensure_template_root(self) -> str:
+        service = self.client.meal_plan
+        if service is None:
+            raise RuntimeError("Meal plan service is unavailable")
+        groups = self.client.state.meal_plan_template_groups
+        if groups:
+            parents = self._template_parent_map()
+            roots = [group_id for group_id in groups if group_id not in parents]
+            if roots:
+                return roots[0]
+        created = await service.create_root_template_group()
+        return str(created.identifier)
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         service = self.client.meal_plan
         if service is None:
             return
         button_id = event.button.id or ""
-        event_id = self.current_event_id
-        item_id = _selected_id(self.query_one("#meal-items", DataTable), self.item_ids)
 
-        if button_id == "meal-new":
-            fields = self._event_fields()
-            fields.append(
-                FormField(
-                    "items",
-                    "Items",
-                    kind="textarea",
-                    placeholder="Optional — one item per line",
-                )
+        if button_id == "meal-week-prev":
+            self.week_start -= timedelta(days=7)
+            self.selected_date = self.week_start.isoformat()
+            self.current_event_id = None
+            self._refresh_planner()
+        elif button_id == "meal-week-next":
+            self.week_start += timedelta(days=7)
+            self.selected_date = self.week_start.isoformat()
+            self.current_event_id = None
+            self._refresh_planner()
+        elif button_id == "meal-week-today":
+            today = datetime.now().astimezone().date()
+            self.week_start = today - timedelta(days=today.weekday())
+            self.selected_date = today.isoformat()
+            self.current_event_id = None
+            self._refresh_planner()
+        elif button_id == "meal-add-recipe":
+            if not self.client.state.recipes:
+                return self.error("No recipes are available")
+            self.form(
+                "Add recipe to meal plan",
+                self._recipe_fields(include_date=True),
+                lambda result: self._create_recipe_event(result, mode="planner"),
+                submit_label="Add",
             )
-
-            async def create(result: FormResult) -> None:
-                title = str(result["title"]).strip()
-                if not title:
-                    return self.error("Title is required")
-                date = str(result.get("date") or "").strip()
-                new_event = PB.PBCalendarEvent(
-                    eventType=(
-                        PB.PBCalendarEventType.MealPlanCalendarEvent
-                        if date
-                        else PB.PBCalendarEventType.MealPlanQueueEvent
-                    ),
-                    title=title,
-                )
-                details = str(result.get("details") or "")
-                if details:
-                    new_event.details = details
-                if date:
-                    new_event.date = date
-                label_id = cast(str | None, result.get("label"))
-                if label_id:
-                    new_event.labelId = label_id
-                for line in str(result.get("items") or "").splitlines():
-                    name = line.strip()
-                    if name:
-                        new_event.eventListItems.add(identifier=uuid4().hex, name=name)
-                created = await service.save_event(new_event)
-                self.current_event_id = str(created.identifier)
-                await self.refresh_view()
-
-            self.form("New meal-plan entry", fields, create, submit_label="Create")
+        elif button_id == "meal-add-note":
+            self.form(
+                "Add meal-plan note",
+                self._note_fields(None, include_date=True),
+                lambda result: self._create_note_event(result, mode="planner"),
+                submit_label="Add",
+            )
         elif button_id == "meal-edit":
-            if not event_id:
-                return self.error("Select a meal-plan entry")
-            current_event = self._event()
-            if current_event is None:
-                return
-            event_snapshot = current_event
+            selected = self._planner_event()
+            if selected is None:
+                return self.error("Select an entry")
+            selected_event = selected
 
-            async def edit(result: FormResult) -> None:
-                title = str(result["title"]).strip()
-                if not title:
-                    return self.error("Title is required")
-                changed = False
-                if title != event_snapshot.title:
-                    await service.set_event_title(event_id, title, flush=False)
-                    changed = True
-                details = str(result.get("details") or "")
-                if details != event_snapshot.details:
-                    await service.set_event_details(event_id, details, flush=False)
-                    changed = True
-                date = str(result.get("date") or "").strip()
-                current_date = str(event_snapshot.date or "")
-                if date != current_date:
-                    await service.set_event_date([event_id], date or None, flush=False)
-                    changed = True
-                label_id = cast(str | None, result.get("label")) or ""
-                if label_id != str(event_snapshot.labelId or ""):
-                    await service.set_event_label(event_id, label_id, flush=False)
-                    changed = True
-                if changed:
-                    await service.flush()
-                await self.refresh_view()
+            async def edit_selected(result: FormResult) -> None:
+                await self._apply_event_edit(selected_event, result, include_date=True)
 
-            self.form("Edit meal-plan entry", self._event_fields(event_snapshot), edit)
+            self._edit_event_form(
+                selected_event,
+                include_date=True,
+                callback=edit_selected,
+            )
         elif button_id == "meal-delete":
-            if not event_id:
-                return self.error("Select a meal-plan entry")
-            current_event = self._event()
-            if current_event is None:
-                return
+            selected = self._planner_event()
+            if selected is None:
+                return self.error("Select an entry")
+            selected_event = selected
 
             async def delete() -> None:
-                await service.delete_event(event_id)
+                await service.delete_event(str(selected_event.identifier))
                 self.current_event_id = None
                 await self.refresh_view()
 
-            self.confirm("Delete meal-plan entry", f"Delete “{current_event.title}”?", delete)
-        elif button_id == "meal-item-new":
-            if not event_id:
-                return self.error("Select a meal-plan entry")
+            self.confirm(
+                "Delete meal-plan entry", f"Delete “{self._event_title(selected_event)}”?", delete
+            )
+        elif button_id == "meal-to-queue":
+            selected = self._planner_event()
+            if selected is None:
+                return self.error("Select an entry")
+            await service.set_event_date([str(selected.identifier)], None)
+            self.current_event_id = None
+            await self.refresh_view()
+        elif button_id == "meal-save-favorite":
+            selected = self._planner_event()
+            if selected is None:
+                return self.error("Select an entry")
+            favorite = self._copy_event(
+                selected, event_type=PB.PBCalendarEventType.MealPlanFavoriteEvent
+            )
+            await service.save_event(favorite)
+            await self.refresh_view()
+            self.tui.notify("Saved to Favorites")
+        elif button_id == "meal-labels":
+            self.app.push_screen(LabelsScreen())
+        elif button_id in {
+            "meal-item-new",
+            "meal-item-edit",
+            "meal-item-delete",
+            "meal-item-up",
+            "meal-item-down",
+        }:
+            selected = self._planner_event()
+            if selected is None:
+                return self.error("Select an entry")
+            await self._handle_event_item_action(
+                button_id,
+                selected,
+                prefix="meal-item",
+                table_selector="#planner-items",
+                item_ids=self.item_ids,
+            )
 
-            async def create_item(result: FormResult) -> None:
-                name = str(result["name"]).strip()
-                if not name:
-                    return self.error("Item name is required")
-                await service.add_event_list_item(
-                    event_id,
-                    PB.PBCalendarEventListItem(
-                        name=name,
-                        details=str(result.get("details") or ""),
-                    ),
-                )
-                await self.refresh_view()
-
+        elif button_id == "idea-add-recipe":
+            if not self.client.state.recipes:
+                return self.error("No recipes are available")
             self.form(
-                "Add meal-plan item",
-                [FormField("name", "Name"), FormField("details", "Details", kind="textarea")],
-                create_item,
-                submit_label="Add",
+                "Save recipe for later",
+                self._recipe_fields(include_date=False, include_kind=True),
+                lambda result: self._create_recipe_event(result, mode="idea"),
+                submit_label="Save",
             )
-        elif button_id == "meal-item-edit":
-            if not event_id or not item_id:
-                return self.error("Select an item")
-            current_event = self._event()
-            current_item = (
-                next(
-                    (
-                        value
-                        for value in current_event.eventListItems
-                        if value.identifier == item_id
-                    ),
-                    None,
+        elif button_id == "idea-add-note":
+            fields = self._note_fields(None, include_date=False)
+            fields.append(
+                FormField(
+                    "kind",
+                    "Save to",
+                    kind="select",
+                    value="queue",
+                    options=(("Queue", "queue"), ("Favorites", "favorite")),
+                    allow_blank=False,
                 )
-                if current_event
-                else None
             )
-            if current_item is None:
-                return
-            item_snapshot = current_item
 
-            async def edit_item(result: FormResult) -> None:
-                name = str(result["name"]).strip()
-                if not name:
-                    return self.error("Item name is required")
-                changed = False
-                if name != item_snapshot.name:
-                    await service.set_event_list_item_name(event_id, item_id, name, flush=False)
-                    changed = True
-                details = str(result.get("details") or "")
-                if details != item_snapshot.details:
-                    await service.set_event_list_item_details(
-                        event_id, item_id, details, flush=False
-                    )
-                    changed = True
-                if changed:
-                    await service.flush()
-                await self.refresh_view()
-
-            self.form(
-                "Edit meal-plan item",
-                [
-                    FormField("name", "Name", value=item_snapshot.name),
-                    FormField("details", "Details", kind="textarea", value=item_snapshot.details),
-                ],
-                edit_item,
-            )
-        elif button_id == "meal-item-delete":
-            if not event_id or not item_id:
-                return self.error("Select an item")
-            current_event = self._event()
-            current_item = (
-                next(
-                    (
-                        value
-                        for value in current_event.eventListItems
-                        if value.identifier == item_id
-                    ),
-                    None,
+            async def create_idea_note(result: FormResult) -> None:
+                kind = cast(str | None, result.get("kind")) or "queue"
+                event_type = (
+                    PB.PBCalendarEventType.MealPlanFavoriteEvent
+                    if kind == "favorite"
+                    else PB.PBCalendarEventType.MealPlanQueueEvent
                 )
-                if current_event
-                else None
-            )
-            if current_item is None:
-                return
+                await self._create_note_event(result, mode="idea", event_type=event_type)
 
-            async def delete_item() -> None:
-                await service.remove_event_list_item(event_id, item_id)
+            self.form("Save meal idea", fields, create_idea_note, submit_label="Save")
+        elif button_id == "idea-edit":
+            selected = self._idea_event()
+            if selected is None:
+                return self.error("Select an entry")
+            selected_event = selected
+
+            async def edit_idea(result: FormResult) -> None:
+                await self._apply_event_edit(selected_event, result, include_date=False)
+
+            self._edit_event_form(
+                selected_event,
+                include_date=False,
+                callback=edit_idea,
+            )
+        elif button_id == "idea-delete":
+            selected = self._idea_event()
+            if selected is None:
+                return self.error("Select an entry")
+            selected_event = selected
+
+            async def delete_idea() -> None:
+                await service.delete_event(str(selected_event.identifier))
+                self.current_idea_id = None
                 await self.refresh_view()
 
             self.confirm(
-                "Remove meal-plan item",
-                f"Remove “{current_item.name}”?",
-                delete_item,
+                "Delete saved meal", f"Delete “{self._event_title(selected_event)}”?", delete_idea
+            )
+        elif button_id == "idea-schedule":
+            selected = self._idea_event()
+            if selected is None:
+                return self.error("Select an entry")
+            if int(selected.eventType) == int(PB.PBCalendarEventType.MealPlanQueueEvent):
+                await service.set_event_date([str(selected.identifier)], self.selected_date)
+            else:
+                scheduled = self._copy_event(
+                    selected,
+                    event_type=PB.PBCalendarEventType.MealPlanCalendarEvent,
+                    date_value=self.selected_date,
+                )
+                await service.save_event(scheduled)
+            await self.refresh_view()
+            self.tui.notify(f"Scheduled for {self.selected_date}")
+        elif button_id == "idea-save-favorite":
+            selected = self._idea_event()
+            if selected is None:
+                return self.error("Select an entry")
+            if int(selected.eventType) == int(PB.PBCalendarEventType.MealPlanFavoriteEvent):
+                return self.tui.notify("This entry is already a Favorite")
+            favorite = self._copy_event(
+                selected, event_type=PB.PBCalendarEventType.MealPlanFavoriteEvent
+            )
+            await service.save_event(favorite)
+            await self.refresh_view()
+            self.tui.notify("Saved to Favorites")
+        elif button_id in {
+            "idea-item-new",
+            "idea-item-edit",
+            "idea-item-delete",
+            "idea-item-up",
+            "idea-item-down",
+        }:
+            selected = self._idea_event()
+            if selected is None:
+                return self.error("Select an entry")
+            await self._handle_event_item_action(
+                button_id,
+                selected,
+                prefix="idea-item",
+                table_selector="#ideas-items",
+                item_ids=self.idea_item_ids,
+            )
+
+        elif button_id == "template-group-new":
+            parent_id = self.current_template_group_id or await self._ensure_template_root()
+
+            async def create_group(result: FormResult) -> None:
+                name = str(result.get("name") or "").strip()
+                if not name:
+                    return self.error("Group name is required")
+                created = await service.create_template_group(
+                    name, parent_id, icon=str(result.get("icon") or "") or None
+                )
+                self.current_template_group_id = str(created.identifier)
+                await self.refresh_view()
+
+            self.form(
+                "New template group",
+                [FormField("name", "Group name"), FormField("icon", "Icon name")],
+                create_group,
+                submit_label="Create",
+            )
+        elif button_id == "template-group-delete":
+            group_id = self.current_template_group_id
+            if not group_id:
+                return self.error("Select a template group")
+            parent_group_id = self._template_parent_map().get(group_id)
+            if not parent_group_id:
+                return self.error("The root template group cannot be deleted")
+            group = self.client.state.meal_plan_template_groups[group_id]
+
+            async def delete_group() -> None:
+                await service.delete_template_group(group_id, parent_group_id)
+                self.current_template_group_id = parent_group_id
+                await self.refresh_view()
+
+            self.confirm(
+                "Delete template group",
+                f"Delete “{group.name}” and its nested templates/groups?",
+                delete_group,
+            )
+        elif button_id == "template-new":
+            parent_id = self.current_template_group_id or await self._ensure_template_root()
+
+            async def create_template(result: FormResult) -> None:
+                name = str(result.get("name") or "").strip()
+                if not name:
+                    return self.error("Template name is required")
+                template = PB.PBMealPlanTemplate(name=name)
+                icon = str(result.get("icon") or "").strip()
+                if icon:
+                    template.icon.iconName = icon
+                created = await service.save_template(template, parent_group_id=parent_id)
+                self.current_template_group_id = parent_id
+                self.current_template_id = str(created.identifier)
+                await self.refresh_view()
+
+            self.form(
+                "New meal-plan template",
+                [FormField("name", "Template name"), FormField("icon", "Icon name")],
+                create_template,
+                submit_label="Create",
+            )
+        elif button_id == "template-edit":
+            template = self._current_template()
+            if template is None:
+                return self.error("Select a template")
+            selected_template = template
+
+            async def edit_template(result: FormResult) -> None:
+                name = str(result.get("name") or "").strip()
+                icon = str(result.get("icon") or "").strip()
+                if not name:
+                    return self.error("Template name is required")
+                if name != selected_template.name:
+                    await service.set_template_name(
+                        str(selected_template.identifier), name, flush=False
+                    )
+                current_icon = (
+                    str(selected_template.icon.iconName or "")
+                    if selected_template.HasField("icon")
+                    else ""
+                )
+                if icon and icon != current_icon:
+                    await service.set_template_icon(
+                        str(selected_template.identifier), icon, flush=False
+                    )
+                await service.flush()
+                await self.refresh_view()
+
+            self.form(
+                "Edit meal-plan template",
+                [
+                    FormField("name", "Template name", value=selected_template.name),
+                    FormField(
+                        "icon",
+                        "Icon name",
+                        value=(
+                            selected_template.icon.iconName
+                            if selected_template.HasField("icon")
+                            else ""
+                        ),
+                    ),
+                ],
+                edit_template,
+            )
+        elif button_id == "template-delete":
+            template = self._current_template()
+            if template is None:
+                return self.error("Select a template")
+            template_id = str(template.identifier)
+
+            async def delete_template() -> None:
+                await service.delete_template(template_id)
+                self.current_template_id = None
+                await self.refresh_view()
+
+            self.confirm("Delete template", f"Delete “{template.name}”?", delete_template)
+        elif button_id == "template-use":
+            template = self._current_template()
+            if template is None:
+                return self.error("Select a template")
+            selected_template = template
+
+            async def use_template(result: FormResult) -> None:
+                start = date.fromisoformat(self._validate_date(str(result.get("date") or "")))
+                events: list[PBCalendarEvent] = []
+                for index, day_id in enumerate(selected_template.dayIds):
+                    target_date = (start + timedelta(days=index)).isoformat()
+                    for source in self.client.state.meal_plan_template_events.values():
+                        if str(source.templateId) != str(selected_template.identifier) or str(
+                            source.templateDayId
+                        ) != str(day_id):
+                            continue
+                        events.append(
+                            self._copy_event(
+                                source,
+                                event_type=PB.PBCalendarEventType.MealPlanCalendarEvent,
+                                date_value=target_date,
+                            )
+                        )
+                if not events:
+                    return self.error("This template has no entries")
+                await service.save_events(events)
+                self.week_start = start - timedelta(days=start.weekday())
+                self.selected_date = start.isoformat()
+                await self.refresh_view()
+                self.tui.notify(f"Added {len(events)} template entries")
+
+            self.form(
+                f"Use {selected_template.name}",
+                [
+                    FormField(
+                        "date", "Start date", value=self.selected_date, placeholder="YYYY-MM-DD"
+                    )
+                ],
+                use_template,
+                submit_label="Add to plan",
+            )
+        elif button_id == "template-day-new":
+            template = self._current_template()
+            if template is None:
+                return self.error("Select a template")
+            day_id = uuid4().hex
+            await service.add_template_day_ids(str(template.identifier), [day_id])
+            self.current_template_day_id = day_id
+            await self.refresh_view()
+        elif button_id == "template-day-delete":
+            template = self._current_template()
+            selected_day_id = self.current_template_day_id
+            if template is None or not selected_day_id:
+                return self.error("Select a template day")
+            selected_template = template
+            day_number = list(selected_template.dayIds).index(selected_day_id) + 1
+
+            async def delete_day() -> None:
+                await service.remove_template_day_ids(
+                    str(selected_template.identifier), [selected_day_id]
+                )
+                self.current_template_day_id = None
+                await self.refresh_view()
+
+            self.confirm(
+                "Remove template day",
+                f"Remove Day {day_number} and all entries on that day?",
+                delete_day,
                 confirm_label="Remove",
             )
-        elif button_id == "meal-labels":
-            self.app.push_screen(LabelsScreen())
+        elif button_id == "template-event-recipe":
+            if not self.current_template_id or not self.current_template_day_id:
+                return self.error("Select a template day")
+            if not self.client.state.recipes:
+                return self.error("No recipes are available")
+            self.form(
+                "Add recipe to template",
+                self._recipe_fields(include_date=False),
+                lambda result: self._create_recipe_event(result, mode="template"),
+                submit_label="Add",
+            )
+        elif button_id == "template-event-note":
+            if not self.current_template_id or not self.current_template_day_id:
+                return self.error("Select a template day")
+            self.form(
+                "Add note to template",
+                self._note_fields(None, include_date=False),
+                lambda result: self._create_note_event(result, mode="template"),
+                submit_label="Add",
+            )
+        elif button_id == "template-event-edit":
+            selected = (
+                self.client.state.meal_plan_template_events.get(self.current_template_event_id)
+                if self.current_template_event_id
+                else None
+            )
+            if selected is None:
+                return self.error("Select a template entry")
+            selected_event = selected
+
+            async def edit_template_event(result: FormResult) -> None:
+                await self._apply_event_edit(selected_event, result, include_date=False)
+
+            self._edit_event_form(
+                selected_event,
+                include_date=False,
+                callback=edit_template_event,
+            )
+        elif button_id == "template-event-delete":
+            selected = (
+                self.client.state.meal_plan_template_events.get(self.current_template_event_id)
+                if self.current_template_event_id
+                else None
+            )
+            if selected is None:
+                return self.error("Select a template entry")
+            selected_event = selected
+
+            async def delete_template_event() -> None:
+                await service.delete_event(str(selected_event.identifier))
+                self.current_template_event_id = None
+                await self.refresh_view()
+
+            self.confirm(
+                "Delete template entry",
+                f"Delete “{self._event_title(selected_event)}”?",
+                delete_template_event,
+            )
+        elif button_id in {
+            "template-item-new",
+            "template-item-edit",
+            "template-item-delete",
+            "template-item-up",
+            "template-item-down",
+        }:
+            selected = (
+                self.client.state.meal_plan_template_events.get(self.current_template_event_id)
+                if self.current_template_event_id
+                else None
+            )
+            if selected is None:
+                return self.error("Select a template entry")
+            await self._handle_event_item_action(
+                button_id,
+                selected,
+                prefix="template-item",
+                table_selector="#template-items",
+                item_ids=self.template_item_ids,
+            )
 
 
 class InfoScreen(ModalScreen[None]):
@@ -2780,8 +4347,8 @@ class InfoScreen(ModalScreen[None]):
             f"Meal-plan entries: {len(client.state.meal_plan_events)}",
             f"Folders: {len(client.state.list_folders)}",
             "",
-            "The TUI intentionally leaves out sharing/email, Alexa, uploads, recipe web import,",
-            "account changes, and destructive recursive folder operations.",
+            "External-account actions such as sharing/email, Alexa, recipe web import, and",
+            "account changes are intentionally left out of this example client.",
         ]
         with Vertical(id="info-dialog"):
             yield Static("\n".join(lines))

@@ -131,6 +131,10 @@ This is the authoritative verification checklist for the SDK. **Official executa
 | `ShoppingListsService.create()` | ✅ LIVE VERIFIED | Created the reserved disposable shopping list with starter-list side effects disabled; a fresh authenticated state confirmed server persistence. |
 | `ShoppingListsService.rename()` | ✅ LIVE VERIFIED | Temporary rename persisted on a fresh read and was restored to the exact guard name. |
 | `ShoppingListsService.set_password()` | ✅ LIVE VERIFIED | Temporary password persisted on fresh read and was restored exactly once the server-side optional field was materialized. First-ever set/clear changes protobuf presence from absent to present-empty, matching server behavior. |
+| `ShoppingListsService.prepare_item_for_add()` | 🧪 OFFLINE VERIFIED | Source-traced fresh-item constructor builds the client-side category/tag metadata before upload; regressions assert the official category precedence and single-add payload behavior. |
+| `ShoppingListsService.prepare_autocomplete_item_for_add()` | 🧪 OFFLINE VERIFIED | Source-traced Favorite/Recent autocomplete branch keeps freshly computed fields and fills only missing/empty fields from the selected suggestion. |
+| `ShoppingListsService.apply_category_to_prepared_item()` | 🧪 OFFLINE VERIFIED | Local prepared-item helper applies the explicit category assignment/match metadata before the item is queued, matching the UI's pre-upload edit path. |
+| `ShoppingListsService.add_prepared_item()` | 🧪 OFFLINE VERIFIED | Regression verifies one complete `add-shopping-list-item` operation containing the already-enriched ListItem rather than a bulk add plus follow-up category mutations. |
 | `ShoppingListsService.add_item()` | ✅ LIVE VERIFIED | Temporary items persisted on fresh server reads and were removed with Recent Items suppressed. |
 | `ShoppingListsService.add_items()` | ✅ LIVE VERIFIED | Bulk-created temporary items persisted and were used for ordering/uncheck tests. |
 | `ShoppingListsService.revive_matching_item()` | ✅ LIVE VERIFIED | Checked temporary item was revived via the safe unchecked path and verified on a fresh read. |
