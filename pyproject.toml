@@ -23,6 +23,7 @@ test = [
   "pytest>=8.2",
   "pytest-asyncio>=0.23",
   "mypy>=1.11",
+  "types-protobuf>=5.27",
 ]
 
 [tool.pytest.ini_options]
@@ -35,6 +36,9 @@ markers = [
 
 [tool.ruff]
 line-length = 100
+# This file is deterministic generator output; formatting it independently makes
+# tools/generate_proto_stubs.py --check report a false stale-stub failure.
+extend-exclude = ["src/anylist_sdk/proto/__init__.pyi"]
 
 [tool.mypy]
 strict = true
