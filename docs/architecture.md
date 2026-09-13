@@ -15,7 +15,7 @@ Authenticated requests send the access token as a bearer token. On an authentica
 
 Refresh tokens rotate. Applications that persist sessions should write the latest token pair whenever it changes.
 
-`logout()` uses the official native `/data/auth/sign-out` token-session endpoint observed in the current iOS client. The request carries bearer authentication and the current refresh token; optional push-token metadata can be supplied by a native integration. `clear_session()` is the explicit local-only operation for discarding credentials without contacting AnyList.
+`logout()` uses the official native `/data/auth/sign-out` token-session endpoint observed in the current iOS client. The request carries bearer authentication and the current refresh token; optional push-token metadata can be supplied by a native integration. Live tests against both `www.anylist.com` and `production.anylist.com` confirm that sign-out immediately revokes the refresh token but leaves the current access token valid until its normal expiry. `clear_session()` is the explicit local-only operation for discarding credentials without contacting AnyList.
 
 ## Transport and protobufs
 

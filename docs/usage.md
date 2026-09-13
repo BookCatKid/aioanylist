@@ -47,7 +47,7 @@ client = AnyListClient(
 await client.load(realtime=True)
 ```
 
-AnyList rotates both the access token and refresh token. `token_callback` runs whenever the SDK publishes a new pair, including automatic refresh, so integrations do not need to reach into `client.transport` to keep persisted credentials current. `await client.logout()` uses AnyList's official native token-session sign-out endpoint and publishes `None` after success so the application can clear its persisted token record too. Use `await client.clear_session()` when the application intentionally wants to forget local credentials without revoking that server session.
+AnyList rotates both the access token and refresh token. `token_callback` runs whenever the SDK publishes a new pair, including automatic refresh, so integrations do not need to reach into `client.transport` to keep persisted credentials current. `await client.logout()` uses AnyList's official native token-session sign-out endpoint and publishes `None` after success so the application can clear its persisted token record too. Live verification shows that AnyList revokes the refresh token immediately while allowing the current access token to remain valid until its ordinary expiry; after that expiry the signed-out session cannot refresh itself. Use `await client.clear_session()` when the application intentionally wants to forget local credentials without revoking that server session.
 
 Native clients can also unregister their push registration while signing out:
 

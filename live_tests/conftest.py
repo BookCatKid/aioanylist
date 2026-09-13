@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pytest
 import pytest_asyncio
@@ -20,14 +20,21 @@ def _required_env(name: str) -> str:
     return value
 
 
+@dataclass(slots=True, frozen=True)
+class LiveCredentials:
+    email: str
+    password: str = field(repr=False)
+    base_url: str = "https://www.anylist.com"
+
+
 @pytest.fixture(scope="session")
-def live_credentials() -> tuple[str, str, str]:
+def live_credentials() -> LiveCredentials:
     if os.environ.get("ANYLIST_LIVE") != "1":
         pytest.skip("set ANYLIST_LIVE=1 to enable live AnyList conformance tests")
-    return (
-        _required_env("ANYLIST_EMAIL"),
-        _required_env("ANYLIST_PASSWORD"),
-        os.environ.get("ANYLIST_BASE_URL", "https://www.anylist.com"),
+    return LiveCredentials(
+        email=_required_env("ANYLIST_EMAIL"),
+        password=_required_env("ANYLIST_PASSWORD"),
+        base_url=os.environ.get("ANYLIST_BASE_URL", "https://www.anylist.com"),
     )
 
 
@@ -39,10 +46,12 @@ class LiveAuthSession:
 
 
 @pytest.fixture(scope="session")
-def live_auth_session(live_credentials: tuple[str, str, str]) -> LiveAuthSession:
+def live_auth_session(live_credentials: LiveCredentials) -> LiveAuthSession:
     """Authenticate once per live pytest run and reuse/rotate that token set safely."""
 
-    email, password, base_url = live_credentials
+    email = live_credentials.email
+    password = live_credentials.password
+    base_url = live_credentials.base_url
 
     async def authenticate() -> AuthTokens:
         transport = AnyListTransport(base_url=base_url)

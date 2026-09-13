@@ -84,7 +84,7 @@ Sign-in returns an `AuthTokens` object containing the user ID, access token, ref
 
 AnyList's refresh response rotates **both** the access token and refresh token, so applications that persist sessions should always save the newest `AuthTokens` value rather than assuming the original refresh token remains valid indefinitely.
 
-The SDK never needs to retain the user's password after sign-in. `logout()` performs AnyList's official native token-session sign-out and then clears local credentials; `clear_session()` is available when an application deliberately wants local-only credential removal.
+The SDK never needs to retain the user's password after sign-in. `logout()` performs AnyList's official native token-session sign-out and then clears local credentials; `clear_session()` is available when an application deliberately wants local-only credential removal. Live verification on both AnyList hosts shows that sign-out revokes the refresh token immediately but does not invalidate the already-issued access token, which remains usable until its normal expiry.
 
 See [`docs/architecture.md`](docs/architecture.md) for the transport, sync, operation-queue, and realtime model.
 
