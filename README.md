@@ -60,10 +60,12 @@ navigation is user-facing — **Lists**, **Recipes**, and **Meal Plan** — inst
 service boundaries as separate pages. Create/edit actions open focused forms with the relevant
 controls; less-common list features such as stores/categories, saved items, and folders live behind
 the contextual **List Settings…** screen. Item creation defaults to AnyList-style automatic
-categorization and can reuse saved metadata from Favorites/Recent Items while still allowing manual
-overrides. Actions with external or hard-to-reverse side effects
-(sharing/email, Alexa, uploads, recursive folder deletion, recipe web import, account-name changes)
-are intentionally omitted.
+categorization and exposes the same current-list/Favorite/Recent/generic autocomplete branches while
+still allowing manual overrides. Item and recipe photos can be added from a local image or URL.
+Recipes are browsable by custom and smart collections, with a full detail reader and editors for
+ingredients, directions, timing, nutrition, rating, source data, and photos. Actions with external or
+hard-to-reverse side effects (sharing/email, Alexa, recursive folder deletion, recipe web import,
+account-name changes) are intentionally omitted.
 
 ```bash
 python -m pip install -e '.[tui]'

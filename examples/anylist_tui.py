@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import mimetypes
 import os
 import sys
 from collections.abc import Awaitable, Callable, Iterable, Sequence
@@ -55,8 +56,9 @@ except ModuleNotFoundError as exc:  # pragma: no cover - friendly optional-extra
 
 from anylist_sdk import AnyListClient
 from anylist_sdk.normalization import canonical_category_match_id
+from anylist_sdk.parsing.ingredient import parse_ingredient_lines, parse_recipe_steps
 from anylist_sdk.parsing.quantity import parse_quantity_and_package_size
-from anylist_sdk.proto import PB, ListItem, PBCalendarEvent, StarterList
+from anylist_sdk.proto import PB, ListItem, PBCalendarEvent, PBRecipe, StarterList
 from anylist_sdk.types import AuthTokens, AutocompleteSuggestion
 
 APP_DIR = Path.home() / ".config" / "anylist-sdk"
@@ -187,6 +189,29 @@ def _hex_color(value: str) -> str | None:
     if len(color) != 7 or any(ch not in "0123456789abcdefABCDEF" for ch in color[1:]):
         return None
     return color.upper()
+
+
+def _ingredient_line(value: object) -> str:
+    if bool(getattr(value, "isHeading", False)):
+        return f"# {getattr(value, 'name', '')}".rstrip()
+    raw = str(getattr(value, "rawIngredient", "") or "")
+    if raw:
+        return raw
+    quantity = str(getattr(value, "quantity", "") or "").strip()
+    name = str(getattr(value, "name", "") or "").strip()
+    note = str(getattr(value, "note", "") or "").strip()
+    result = " ".join(part for part in (quantity, name) if part)
+    if note:
+        result = f"{result}, {note}" if result else note
+    return result
+
+
+def _recipe_ingredients_text(recipe: object) -> str:
+    return "\n".join(_ingredient_line(value) for value in getattr(recipe, "ingredients", ()))
+
+
+def _recipe_steps_text(recipe: object) -> str:
+    return "\n\n".join(str(value) for value in getattr(recipe, "preparationSteps", ()))
 
 
 FieldKind = Literal["input", "textarea", "select", "multiselect", "checkbox"]
@@ -451,6 +476,25 @@ class SDKPanel(Vertical):
     def error(self, exc: BaseException | str) -> None:
         self.tui.notify(str(exc), severity="error", timeout=6)
 
+    async def upload_photo_reference(self, value: str) -> str:
+        photos = self.client.photos
+        if photos is None:
+            raise RuntimeError("Photo service is unavailable")
+        reference = value.strip()
+        if reference.startswith(("http://", "https://")):
+            return await photos.upload_url(reference)
+        path = Path(reference).expanduser()
+        if not path.is_file():
+            raise ValueError("Photo must be an existing local file or an http(s) URL")
+        content_type = mimetypes.guess_type(path.name)[0] or ""
+        if content_type not in photos.ACCEPTED_CONTENT_TYPES:
+            raise ValueError(f"Unsupported photo type for {path.name}")
+        return await photos.upload_bytes(
+            path.read_bytes(),
+            content_type=content_type,
+            filename=path.name,
+        )
+
     def form(
         self,
         title: str,
@@ -529,7 +573,7 @@ class ListsPanel(SDKPanel):
     def on_mount(self) -> None:
         self.query_one("#lists-table", DataTable).add_columns("List", "Items", "Done", "Folder")
         self.query_one("#items-table", DataTable).add_columns(
-            "Item", "✓", "Quantity", "Category", "Stores", "Details"
+            "Item", "✓", "Quantity", "Category", "Stores", "Photo", "Details"
         )
 
     async def refresh_view(self) -> None:
@@ -604,6 +648,7 @@ class ListsPanel(SDKPanel):
                     getattr(getattr(item, "quantityPb", None), "rawQuantity", "") or "",
                     category_name(item),
                     store_names(item),
+                    str(len(item.photoIds)) if getattr(item, "photoIds", ()) else "",
                     item.details,
                 )
                 for item in items
@@ -624,7 +669,7 @@ class ListsPanel(SDKPanel):
             ("Basic — no categories", 2),
         )
 
-    def _item_form_fields(self, *, item: object | None = None) -> list[FormField]:
+    def _item_form_fields(self, *, item: ListItem | None = None) -> list[FormField]:
         list_id = self.current_list_id or ""
         stores = sorted(
             self.client.state.list_stores.get(list_id, {}).values(),
@@ -643,6 +688,9 @@ class ListsPanel(SDKPanel):
                     category_id = str(assignment.categoryId)
                     break
         selected_stores = tuple(str(value) for value in getattr(item, "storeIds", ()))
+        current_photo = ""
+        if item is not None and item.photoIds and self.client.photos is not None:
+            current_photo = self.client.photos.url(str(item.photoIds[0]))
         category_options = tuple((str(value.name), str(value.identifier)) for value in categories)
         if item is None:
             category_options = (("Automatic (recommended)", AUTO_CATEGORY),) + category_options
@@ -671,6 +719,16 @@ class ListsPanel(SDKPanel):
                 kind="multiselect",
                 options=tuple((str(value.name), str(value.identifier)) for value in stores),
                 selected=selected_stores,
+            ),
+            FormField(
+                "photo",
+                "Photo",
+                value=current_photo,
+                placeholder=(
+                    "Local file or image URL"
+                    if item is None
+                    else "Keep this URL, replace with file/URL, or type - to remove"
+                ),
             ),
         ]
         if item is None:
@@ -853,6 +911,14 @@ class ListsPanel(SDKPanel):
             if category is not None:
                 service.apply_category_to_prepared_item(list_id, draft, category)
 
+        photo_reference = str(result.get("photo") or "").strip()
+        if photo_reference and photo_reference != "-":
+            photo_id = await self.upload_photo_reference(photo_reference)
+            del draft.photoIds[:]
+            draft.photoIds.append(photo_id)
+        elif photo_reference == "-":
+            del draft.photoIds[:]
+
         await service.add_prepared_item(list_id, draft)
         await self.refresh_view()
 
@@ -922,6 +988,20 @@ class ListsPanel(SDKPanel):
             if parsed.HasField("packageSizePb"):
                 await service.set_package_size(list_id, item_id, parsed.packageSizePb, flush=False)
                 changed = True
+        photo_reference = str(result.get("photo") or "").strip()
+        current_photo = (
+            self.client.photos.url(str(item.photoIds[0]))
+            if item.photoIds and self.client.photos is not None
+            else ""
+        )
+        if photo_reference == "-":
+            if item.photoIds:
+                await service.set_photo(list_id, item_id, None, flush=False)
+                changed = True
+        elif photo_reference and photo_reference != current_photo:
+            photo_id = await self.upload_photo_reference(photo_reference)
+            await service.set_photo(list_id, item_id, photo_id, flush=False)
+            changed = True
         if changed:
             await service.flush()
         await self.refresh_view()
@@ -1666,21 +1746,67 @@ class ListSettingsScreen(ModalScreen[None]):
             self.dismiss(None)
 
 
+class RecipeDetailScreen(ModalScreen[None]):
+    DEFAULT_CSS = """
+    RecipeDetailScreen { align: center middle; background: $background 55%; }
+    RecipeDetailScreen #recipe-detail-dialog {
+        width: 92%; height: 90%; padding: 1 2;
+        border: round $accent; background: $surface;
+    }
+    RecipeDetailScreen #recipe-detail-header { height: 3; }
+    RecipeDetailScreen #recipe-detail-title { width: 1fr; text-style: bold; }
+    RecipeDetailScreen #recipe-detail-close { dock: right; }
+    RecipeDetailScreen #recipe-detail-body { height: 1fr; }
+    """
+
+    def __init__(self, title: str, body: str) -> None:
+        super().__init__()
+        self.recipe_title = title
+        self.body = body
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="recipe-detail-dialog"):
+            with Horizontal(id="recipe-detail-header"):
+                yield Label(self.recipe_title, id="recipe-detail-title")
+                yield Button("Close", id="recipe-detail-close")
+            with VerticalScroll(id="recipe-detail-body"):
+                yield Static(self.body, markup=False)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "recipe-detail-close":
+            self.dismiss(None)
+
+    def on_key(self, event: object) -> None:
+        if getattr(event, "key", "") == "escape":
+            self.dismiss(None)
+
+
 class RecipesPanel(SDKPanel):
+    ALL_RECIPES = "__all_recipes__"
+
     DEFAULT_CSS = """
     RecipesPanel .toolbar { height: auto; }
-    RecipesPanel #recipe-tables { height: 1fr; }
-    RecipesPanel #recipe-list { width: 58%; }
-    RecipesPanel #collection-list { width: 42%; }
+    RecipesPanel #recipe-browser { height: 1fr; }
+    RecipesPanel #recipe-collections-pane { width: 27%; }
+    RecipesPanel #recipe-list-pane { width: 34%; }
+    RecipesPanel #recipe-detail-pane {
+        width: 1fr; border: round $primary; padding: 0 1;
+    }
+    RecipesPanel #collection-list, RecipesPanel #recipe-list { height: 1fr; }
+    RecipesPanel #recipe-preview-scroll { height: 1fr; }
+    RecipesPanel #recipe-preview { height: auto; }
     """
 
     def __init__(self) -> None:
         super().__init__()
         self.recipe_ids: list[str] = []
         self.collection_ids: list[str] = []
+        self.collection_values: dict[str, object] = {}
+        self.active_collection_id = self.ALL_RECIPES
 
     def compose(self) -> ComposeResult:
         with Horizontal(classes="toolbar"):
+            yield Button("View recipe", id="recipe-view", variant="primary")
             yield Button("New recipe", id="recipe-new", variant="success")
             yield Button("Edit recipe", id="recipe-edit")
             yield Button("Delete recipe", id="recipe-delete", variant="error")
@@ -1689,143 +1815,403 @@ class RecipesPanel(SDKPanel):
             yield Button("Delete collection", id="collection-delete", variant="error")
             yield Button("Add to collection", id="collection-add")
             yield Button("Remove from collection", id="collection-remove")
-        with Horizontal(id="recipe-tables"):
-            with Vertical():
-                yield Label("Recipes")
-                yield DataTable(id="recipe-list", cursor_type="row", zebra_stripes=True)
-            with Vertical():
+        with Horizontal(id="recipe-browser"):
+            with Vertical(id="recipe-collections-pane"):
                 yield Label("Collections")
                 yield DataTable(id="collection-list", cursor_type="row", zebra_stripes=True)
+            with Vertical(id="recipe-list-pane"):
+                yield Label("Recipes")
+                yield DataTable(id="recipe-list", cursor_type="row", zebra_stripes=True)
+            with Vertical(id="recipe-detail-pane"):
+                yield Label("Recipe details")
+                with VerticalScroll(id="recipe-preview-scroll"):
+                    yield Static("Select a recipe", id="recipe-preview", markup=False)
 
     def on_mount(self) -> None:
-        self.query_one("#recipe-list", DataTable).add_columns(
-            "Recipe", "Rating", "Servings", "Ingredients", "Source"
-        )
         self.query_one("#collection-list", DataTable).add_columns("Collection", "Recipes")
+        self.query_one("#recipe-list", DataTable).add_columns(
+            "Recipe", "Rating", "Servings", "Photo"
+        )
+
+    def _browse_collections(self) -> list[object]:
+        service = self.client.recipes
+        if service is None:
+            return []
+        state = self.client.state
+        ordered: list[object] = []
+        seen: set[str] = set()
+        for collection_id in state.recipe_collection_ids:
+            value = state.recipe_collections.get(collection_id)
+            if value is not None:
+                ordered.append(value)
+                seen.add(collection_id)
+        ordered.extend(
+            value
+            for collection_id, value in state.recipe_collections.items()
+            if collection_id not in seen
+        )
+        ordered.append(service.not_in_collection())
+        ordered.extend(service.source_collections())
+        return ordered
+
+    def _active_collection(self) -> object | None:
+        return self.collection_values.get(self.active_collection_id)
+
+    def _recipes_for_active_collection(self) -> list[PBRecipe]:
+        service = self.client.recipes
+        if service is None:
+            return []
+        if self.active_collection_id == self.ALL_RECIPES:
+            return list(service.sorted())
+        collection = self._active_collection()
+        if collection is None:
+            return list(service.sorted())
+        recipes = [
+            self.client.state.recipes[recipe_id]
+            for recipe_id in getattr(collection, "recipeIds", ())
+            if recipe_id in self.client.state.recipes
+        ]
+        settings = (
+            collection.collectionSettings
+            if getattr(collection, "HasField", lambda _name: False)("collectionSettings")
+            else None
+        )
+        return list(service.sorted(recipes, settings=settings))
 
     async def refresh_view(self) -> None:
         service = self.client.recipes
         if service is None:
             return
-        recipe_table = self.query_one("#recipe-list", DataTable)
         collection_table = self.query_one("#collection-list", DataTable)
-        old_recipe = _selected_id(recipe_table, self.recipe_ids)
-        old_collection = _selected_id(collection_table, self.collection_ids)
-        recipes = service.sorted()
-        collections = sorted(
-            service.collections(), key=lambda value: _message_name(value).casefold()
-        )
-        self.recipe_ids = [str(value.identifier) for value in recipes]
-        self.collection_ids = [str(value.identifier) for value in collections]
+        previous_collection = self.active_collection_id
+        collections = self._browse_collections()
+        self.collection_values = {
+            str(getattr(value, "identifier", "")): value for value in collections
+        }
+        self.collection_ids = [self.ALL_RECIPES, *self.collection_values]
+        if previous_collection not in self.collection_ids:
+            self.active_collection_id = self.ALL_RECIPES
         _replace_rows(
-            recipe_table,
+            collection_table,
             (
-                (value.name, value.rating, value.servings, len(value.ingredients), value.sourceName)
+                [("All Recipes", len(service.all()))]
+                + [
+                    (
+                        getattr(value, "name", "Unnamed collection"),
+                        len(getattr(value, "recipeIds", ())),
+                    )
+                    for value in collections
+                ]
+            ),
+            self.collection_ids,
+            keep_id=self.active_collection_id,
+        )
+        self.active_collection_id = (
+            _selected_id(collection_table, self.collection_ids) or self.ALL_RECIPES
+        )
+        self._refresh_recipes()
+
+    def _refresh_recipes(self) -> None:
+        table = self.query_one("#recipe-list", DataTable)
+        old_recipe = _selected_id(table, self.recipe_ids)
+        recipes = self._recipes_for_active_collection()
+        self.recipe_ids = [str(getattr(value, "identifier", "")) for value in recipes]
+        _replace_rows(
+            table,
+            (
+                (
+                    getattr(value, "name", ""),
+                    getattr(value, "rating", "") or "",
+                    getattr(value, "servings", ""),
+                    len(getattr(value, "photoIds", ())) + len(getattr(value, "photoUrls", ()))
+                    or "",
+                )
                 for value in recipes
             ),
             self.recipe_ids,
             keep_id=old_recipe,
         )
-        _replace_rows(
-            collection_table,
-            ((value.name, len(value.recipeIds)) for value in collections),
-            self.collection_ids,
-            keep_id=old_collection,
+        self._refresh_recipe_preview()
+
+    def _selected_recipe(self) -> PBRecipe | None:
+        service = self.client.recipes
+        if service is None:
+            return None
+        recipe_id = _selected_id(self.query_one("#recipe-list", DataTable), self.recipe_ids)
+        return service.get(recipe_id) if recipe_id else None
+
+    def _recipe_collection_names(self, recipe_id: str) -> list[str]:
+        return [
+            str(value.name)
+            for value in self.client.state.recipe_collections.values()
+            if recipe_id in value.recipeIds
+        ]
+
+    def _recipe_detail_text(self, recipe: PBRecipe) -> str:
+        lines: list[str] = [str(recipe.name)]
+        servings = str(getattr(recipe, "servings", "") or "")
+        rating = int(getattr(recipe, "rating", 0) or 0)
+        prep_time = int(getattr(recipe, "prepTime", 0) or 0)
+        cook_time = int(getattr(recipe, "cookTime", 0) or 0)
+        metadata = []
+        if servings:
+            metadata.append(f"Servings: {servings}")
+        if rating:
+            metadata.append(f"Rating: {rating}/5")
+        if prep_time:
+            metadata.append(f"Prep: {prep_time} min")
+        if cook_time:
+            metadata.append(f"Cook: {cook_time} min")
+        if metadata:
+            lines.append(" • ".join(metadata))
+
+        collection_names = self._recipe_collection_names(str(getattr(recipe, "identifier", "")))
+        if collection_names:
+            lines.append(f"Collections: {', '.join(collection_names)}")
+
+        photos: list[str] = [str(value) for value in getattr(recipe, "photoUrls", ()) if value]
+        if self.client.photos is not None:
+            photos.extend(
+                self.client.photos.url(str(value))
+                for value in getattr(recipe, "photoIds", ())
+                if value
+            )
+        if photos:
+            lines.extend(["", "Photos:", *(f"  {value}" for value in photos)])
+
+        note = str(getattr(recipe, "note", "") or "")
+        if note:
+            lines.extend(["", "Notes:", note])
+
+        ingredients = list(getattr(recipe, "ingredients", ()))
+        if ingredients:
+            lines.extend(["", "Ingredients:"])
+            for ingredient in ingredients:
+                rendered = _ingredient_line(ingredient)
+                lines.append(rendered if rendered.startswith("# ") else f"  • {rendered}")
+
+        steps = list(getattr(recipe, "preparationSteps", ()))
+        if steps:
+            lines.extend(["", "Directions:"])
+            step_number = 1
+            for step in steps:
+                text = str(step)
+                if text.startswith("# "):
+                    lines.append(text)
+                else:
+                    lines.append(f"  {step_number}. {text}")
+                    step_number += 1
+
+        nutritional = str(getattr(recipe, "nutritionalInfo", "") or "")
+        if nutritional:
+            lines.extend(["", "Nutrition:", nutritional])
+
+        source_name = str(getattr(recipe, "sourceName", "") or "")
+        source_url = str(getattr(recipe, "sourceUrl", "") or "")
+        if source_name or source_url:
+            lines.extend(["", "Source:"])
+            if source_name:
+                lines.append(f"  {source_name}")
+            if source_url:
+                lines.append(f"  {source_url}")
+        return "\n".join(lines) or "No additional recipe details."
+
+    def _refresh_recipe_preview(self) -> None:
+        preview = self.query_one("#recipe-preview", Static)
+        recipe = self._selected_recipe()
+        preview.update(
+            self._recipe_detail_text(recipe) if recipe is not None else "Select a recipe"
         )
 
-    def _recipe_fields(self, recipe: object | None = None) -> list[FormField]:
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        if event.data_table.id == "collection-list":
+            selected = _selected_id(event.data_table, self.collection_ids)
+            if selected and selected != self.active_collection_id:
+                self.active_collection_id = selected
+                self._refresh_recipes()
+        elif event.data_table.id == "recipe-list":
+            self._refresh_recipe_preview()
+
+    def _recipe_fields(self, recipe: PBRecipe | None = None) -> list[FormField]:
         return [
             FormField("name", "Recipe name", value=getattr(recipe, "name", "")),
             FormField("note", "Notes", kind="textarea", value=getattr(recipe, "note", "")),
+            FormField(
+                "ingredients",
+                "Ingredients — one per line; use '# Heading' for sections",
+                kind="textarea",
+                value=_recipe_ingredients_text(recipe) if recipe is not None else "",
+            ),
+            FormField(
+                "steps",
+                "Directions — one step per line (numbered pasted directions are supported)",
+                kind="textarea",
+                value=_recipe_steps_text(recipe) if recipe is not None else "",
+            ),
             FormField(
                 "servings",
                 "Servings",
                 value=getattr(recipe, "servings", ""),
                 placeholder="e.g. 4 servings",
             ),
+            FormField(
+                "rating",
+                "Rating",
+                kind="select",
+                value=int(getattr(recipe, "rating", 0) or 0),
+                options=(
+                    ("Unrated", 0),
+                    ("1 star", 1),
+                    ("2 stars", 2),
+                    ("3 stars", 3),
+                    ("4 stars", 4),
+                    ("5 stars", 5),
+                ),
+                allow_blank=False,
+            ),
+            FormField(
+                "prep_time", "Prep time (minutes)", value=getattr(recipe, "prepTime", "") or ""
+            ),
+            FormField(
+                "cook_time", "Cook time (minutes)", value=getattr(recipe, "cookTime", "") or ""
+            ),
+            FormField(
+                "nutrition",
+                "Nutritional information",
+                kind="textarea",
+                value=getattr(recipe, "nutritionalInfo", ""),
+            ),
             FormField("source_name", "Source name", value=getattr(recipe, "sourceName", "")),
             FormField("source_url", "Source URL", value=getattr(recipe, "sourceUrl", "")),
+            FormField(
+                "photo",
+                "Add photo",
+                placeholder="Local file or image URL; type - to remove existing photos",
+            ),
         ]
+
+    async def _recipe_from_form(
+        self, result: FormResult, recipe: PBRecipe | None = None
+    ) -> PBRecipe:
+        name = str(result["name"]).strip()
+        if not name:
+            raise ValueError("Recipe name is required")
+        updated = PB.PBRecipe()
+        if recipe is not None:
+            updated.CopyFrom(recipe)
+        updated.name = name
+
+        for key, field in (
+            ("note", "note"),
+            ("servings", "servings"),
+            ("nutrition", "nutritionalInfo"),
+            ("source_name", "sourceName"),
+            ("source_url", "sourceUrl"),
+        ):
+            value = str(result.get(key) or "").strip()
+            if value:
+                setattr(updated, field, value)
+            elif recipe is not None:
+                updated.ClearField(field)
+
+        for key, field in (("prep_time", "prepTime"), ("cook_time", "cookTime")):
+            raw = str(result.get(key) or "").strip()
+            if raw:
+                try:
+                    numeric_value = int(raw)
+                except ValueError as exc:
+                    raise ValueError(
+                        f"{key.replace('_', ' ').title()} must be a whole number"
+                    ) from exc
+                if numeric_value < 0:
+                    raise ValueError(f"{key.replace('_', ' ').title()} cannot be negative")
+                setattr(updated, field, numeric_value)
+            elif recipe is not None:
+                updated.ClearField(field)
+        rating_value = result.get("rating")
+        updated.rating = int(rating_value) if isinstance(rating_value, (str, int)) else 0
+
+        ingredients_text = str(result.get("ingredients") or "")
+        if recipe is None or ingredients_text != _recipe_ingredients_text(recipe):
+            del updated.ingredients[:]
+            for ingredient in parse_ingredient_lines(ingredients_text):
+                updated.ingredients.add().CopyFrom(ingredient)
+
+        steps_text = str(result.get("steps") or "")
+        if recipe is None or steps_text != _recipe_steps_text(recipe):
+            del updated.preparationSteps[:]
+            updated.preparationSteps.extend(parse_recipe_steps(steps_text))
+
+        photo_reference = str(result.get("photo") or "").strip()
+        if photo_reference == "-":
+            del updated.photoIds[:]
+            del updated.photoUrls[:]
+        elif photo_reference:
+            photo_id = await self.upload_photo_reference(photo_reference)
+            updated.photoIds.append(photo_id)
+        return updated
+
+    def _custom_collection_id(self) -> str | None:
+        return (
+            self.active_collection_id
+            if self.active_collection_id in self.client.state.recipe_collections
+            else None
+        )
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         service = self.client.recipes
         if service is None:
             return
         button_id = event.button.id or ""
-        recipe_id = _selected_id(self.query_one("#recipe-list", DataTable), self.recipe_ids)
-        collection_id = _selected_id(
-            self.query_one("#collection-list", DataTable), self.collection_ids
-        )
+        recipe = self._selected_recipe()
+        recipe_id = str(getattr(recipe, "identifier", "")) if recipe is not None else None
+        collection_id = self._custom_collection_id()
 
-        if button_id == "recipe-new":
+        if button_id == "recipe-view":
+            if recipe is None:
+                return self.error("Select a recipe")
+            self.app.push_screen(
+                RecipeDetailScreen(str(recipe.name), self._recipe_detail_text(recipe))
+            )
+        elif button_id == "recipe-new":
 
             async def create(result: FormResult) -> None:
-                name = str(result["name"]).strip()
-                if not name:
-                    return self.error("Recipe name is required")
-                recipe = PB.PBRecipe(name=name)
-                for key, field in (
-                    ("note", "note"),
-                    ("servings", "servings"),
-                    ("source_name", "sourceName"),
-                    ("source_url", "sourceUrl"),
-                ):
-                    value = str(result.get(key) or "").strip()
-                    if value:
-                        setattr(recipe, field, value)
-                await service.save(recipe)
+                created_recipe = await self._recipe_from_form(result)
+                saved = await service.save(created_recipe)
+                if collection_id:
+                    await service.add_to_collection(collection_id, [str(saved.identifier)])
                 await self.refresh_view()
 
             self.form("New recipe", self._recipe_fields(), create, submit_label="Create")
         elif button_id == "recipe-edit":
-            if not recipe_id:
+            if recipe is None:
                 return self.error("Select a recipe")
-            current_recipe = service.get(recipe_id)
-            if current_recipe is None:
-                return
-            recipe_snapshot = current_recipe
+            recipe_snapshot = PB.PBRecipe()
+            recipe_snapshot.CopyFrom(recipe)
 
             async def edit(result: FormResult) -> None:
-                name = str(result["name"]).strip()
-                if not name:
-                    return self.error("Recipe name is required")
-                updated = PB.PBRecipe()
-                updated.CopyFrom(recipe_snapshot)
-                updated.name = name
-                for key, field in (
-                    ("note", "note"),
-                    ("servings", "servings"),
-                    ("source_name", "sourceName"),
-                    ("source_url", "sourceUrl"),
-                ):
-                    value = str(result.get(key) or "").strip()
-                    if value:
-                        setattr(updated, field, value)
-                    else:
-                        updated.ClearField(field)
+                updated = await self._recipe_from_form(result, recipe_snapshot)
                 await service.save(updated)
                 await self.refresh_view()
 
             self.form("Edit recipe", self._recipe_fields(recipe_snapshot), edit)
         elif button_id == "recipe-delete":
-            if not recipe_id:
+            if recipe is None or not recipe_id:
                 return self.error("Select a recipe")
-            current_recipe = service.get(recipe_id)
-            if current_recipe is None:
-                return
 
             async def delete() -> None:
                 await service.remove(recipe_id)
                 await self.refresh_view()
 
-            self.confirm("Delete recipe", f"Delete “{current_recipe.name}”?", delete)
+            self.confirm("Delete recipe", f"Delete “{recipe.name}”?", delete)
         elif button_id == "collection-new":
 
             async def create_collection(result: FormResult) -> None:
                 name = str(result["name"]).strip()
                 if not name:
                     return self.error("Collection name is required")
-                await service.create_collection(name)
+                created = await service.create_collection(name)
+                self.active_collection_id = str(created.identifier)
                 await self.refresh_view()
 
             self.form(
@@ -1836,10 +2222,8 @@ class RecipesPanel(SDKPanel):
             )
         elif button_id == "collection-edit":
             if not collection_id:
-                return self.error("Select a collection")
-            current_collection = self.client.state.recipe_collections.get(collection_id)
-            if current_collection is None:
-                return
+                return self.error("Select a custom collection")
+            current_collection = self.client.state.recipe_collections[collection_id]
 
             async def edit_collection(result: FormResult) -> None:
                 name = str(result["name"]).strip()
@@ -1855,12 +2239,11 @@ class RecipesPanel(SDKPanel):
             )
         elif button_id == "collection-delete":
             if not collection_id:
-                return self.error("Select a collection")
-            current_collection = self.client.state.recipe_collections.get(collection_id)
-            if current_collection is None:
-                return
+                return self.error("Select a custom collection")
+            current_collection = self.client.state.recipe_collections[collection_id]
 
             async def delete_collection() -> None:
+                self.active_collection_id = self.ALL_RECIPES
                 await service.remove_collection(collection_id)
                 await self.refresh_view()
 
@@ -1870,23 +2253,50 @@ class RecipesPanel(SDKPanel):
                 delete_collection,
             )
         elif button_id == "collection-add":
-            if not collection_id or not recipe_id:
-                return self.error("Select both a recipe and a collection")
-            try:
-                await service.add_to_collection(collection_id, [recipe_id])
+            if not collection_id:
+                return self.error("Select a custom collection first")
+            current_collection = self.client.state.recipe_collections[collection_id]
+            candidates = [
+                value
+                for value in service.sorted()
+                if str(value.identifier) not in current_collection.recipeIds
+            ]
+            if not candidates:
+                return self.tui.notify("Every recipe is already in this collection")
+
+            async def add_recipes(result: FormResult) -> None:
+                recipe_ids = cast(list[str], result.get("recipes") or [])
+                if not recipe_ids:
+                    return self.error("Select at least one recipe")
+                await service.add_to_collection(collection_id, recipe_ids)
                 await self.refresh_view()
-                self.tui.notify("Added recipe to collection")
-            except Exception as exc:  # noqa: BLE001 - UI boundary reports service errors
-                self.error(exc)
+                self.tui.notify(
+                    f"Added {len(recipe_ids)} recipe{'s' if len(recipe_ids) != 1 else ''}"
+                )
+
+            self.form(
+                f"Add recipes to {current_collection.name}",
+                [
+                    FormField(
+                        "recipes",
+                        "Recipes",
+                        kind="multiselect",
+                        options=tuple(
+                            (str(value.name), str(value.identifier)) for value in candidates
+                        ),
+                    )
+                ],
+                add_recipes,
+                submit_label="Add",
+            )
         elif button_id == "collection-remove":
-            if not collection_id or not recipe_id:
-                return self.error("Select both a recipe and a collection")
-            try:
-                await service.remove_from_collection(collection_id, [recipe_id])
-                await self.refresh_view()
-                self.tui.notify("Removed recipe from collection")
-            except Exception as exc:  # noqa: BLE001 - UI boundary reports service errors
-                self.error(exc)
+            if not collection_id:
+                return self.error("Select a custom collection first")
+            if not recipe_id:
+                return self.error("Select a recipe")
+            await service.remove_from_collection(collection_id, [recipe_id])
+            await self.refresh_view()
+            self.tui.notify("Removed recipe from collection")
 
 
 class LabelsPanel(SDKPanel):
