@@ -67,7 +67,7 @@ def generate() -> str:
         "",
         "from google.protobuf.message import Message",
         "",
-        "_T = TypeVar(\"_T\")",
+        '_T = TypeVar("_T")',
         "",
         "class _EnumWrapper:",
         "    def Name(self, number: int) -> str: ...",
@@ -129,9 +129,7 @@ def generate() -> str:
             lines.append("")
 
         for field in message.get("fields", []):
-            lines.append(
-                f"    {field['name']}: {_field_type(field, messages, enum_scope)}"
-            )
+            lines.append(f"    {field['name']}: {_field_type(field, messages, enum_scope)}")
 
         fields = list(message.get("fields", []))
         lines.append("")

@@ -54,7 +54,6 @@ except ModuleNotFoundError as exc:  # pragma: no cover - friendly optional-extra
     ) from exc
 
 from anylist_sdk import AnyListClient
-from anylist_sdk.item_semantics import apply_properties_from_item
 from anylist_sdk.normalization import canonical_category_match_id
 from anylist_sdk.parsing.quantity import parse_quantity_and_package_size
 from anylist_sdk.proto import PB, ListItem, PBCalendarEvent, StarterList
@@ -569,16 +568,8 @@ class ListsPanel(SDKPanel):
                 FormField(
                     "quantity",
                     "Quantity / package size (optional override)",
-                    placeholder="Leave blank to reuse saved quantity; e.g. 2, 1 lb, 2 cans (14 oz)",
+                    placeholder="e.g. 2, 1 lb, or 2 cans (14 oz)",
                 ),
-            )
-            fields.append(
-                FormField(
-                    "reuse_saved",
-                    "Reuse info from Favorites / Recent Items when available",
-                    kind="checkbox",
-                    value=True,
-                )
             )
         else:
             fields.insert(
@@ -599,82 +590,10 @@ class ListsPanel(SDKPanel):
             )
         return fields
 
-    def _saved_item_for_name(self, list_id: str, name: str) -> ListItem | None:
-        """Return the same kind of list-specific saved item AnyList uses for autocomplete."""
-        service = self.client.starter_lists
-        if service is None:
-            return None
-        wanted = name.casefold()
-        favorite = service.favorite_for_shopping_list(list_id)
-        recent = service.recent_for_shopping_list(list_id)
-        for starter in (favorite, recent):
-            if starter is None:
-                continue
-            values = service.autocomplete_items(str(starter.identifier))
-            for candidate in values:
-                if str(candidate.name).casefold() == wanted:
-                    return candidate
-        return None
-
     @staticmethod
     def _category_match_id(category: object) -> str:
         system = str(getattr(category, "systemCategory", "") or "")
         return system or canonical_category_match_id(str(getattr(category, "name", "") or ""))
-
-    async def _automatic_category(
-        self, list_id: str, name: str, saved: ListItem | None
-    ) -> object | None:
-        """Resolve the category a normal AnyList add-item flow would prefer."""
-        categories = self.client.state.list_categories.get(list_id, {})
-        if not categories:
-            return None
-
-        # Per-list categorization rules are the strongest local signal.
-        for rule in self.client.state.list_categorization_rules.get(list_id, {}).values():
-            if str(rule.itemName).casefold() == name.casefold():
-                category = categories.get(str(rule.categoryId))
-                if category is not None:
-                    return category
-
-        # AnyList also keeps learned list-specific/global category memory.
-        learned_match = ""
-        learned_service = self.client.categorized_items
-        if learned_service is not None:
-            learned = learned_service.lookup(name, list_id)
-            if learned is not None:
-                learned_match = str(learned.categoryMatchId or learned.category or "")
-
-        # A saved Favorite/Recent item is a useful fallback when learned memory is absent.
-        if not learned_match and saved is not None:
-            learned_match = str(
-                getattr(saved, "categoryMatchId", "") or getattr(saved, "category", "") or ""
-            )
-
-        if learned_match:
-            for category in categories.values():
-                if self._category_match_id(category) == learned_match:
-                    return category
-
-        # Finally use AnyList's grocery tag data for a new, never-seen item.
-        try:
-            tag = await self.client.categorizer.classify(name)
-            if tag:
-                data = await self.client.tag_data.get()
-                root = str(data.tags.get(tag, {}).get("rootCategory") or tag)
-                for category in categories.values():
-                    if str(category.systemCategory or "") in {tag, root}:
-                        return category
-        except Exception:  # noqa: BLE001 - categorization is best-effort UI enrichment
-            tag = None
-
-        return next(
-            (
-                category
-                for category in categories.values()
-                if str(category.systemCategory) == "other"
-            ),
-            None,
-        )
 
     async def _new_list(self, result: FormResult) -> None:
         service = self.client.lists
@@ -723,18 +642,7 @@ class ListsPanel(SDKPanel):
         name = str(result["name"]).strip()
         if not name:
             return self.error("Item name is required")
-        saved = (
-            self._saved_item_for_name(list_id, name) if bool(result.get("reuse_saved")) else None
-        )
-        draft = PB.ListItem(
-            identifier=uuid4().hex,
-            listId=list_id,
-            userId=self.client.user_id or "",
-            name=name,
-            checked=False,
-        )
-        if saved is not None:
-            apply_properties_from_item(draft, saved)
+        draft = await service.prepare_item_for_add(list_id, name)
 
         details = str(result.get("details") or "")
         if details:
@@ -755,32 +663,12 @@ class ListsPanel(SDKPanel):
             draft.storeIds.extend(requested_stores)
 
         category_id = cast(str | None, result.get("category"))
-        if category_id == AUTO_CATEGORY:
-            category = await self._automatic_category(list_id, name, saved)
-        else:
+        if category_id != AUTO_CATEGORY:
             category = self.client.state.list_categories.get(list_id, {}).get(category_id or "")
+            if category is not None:
+                service.apply_category_to_prepared_item(list_id, draft, category)
 
-        added = await service.add_items(list_id, [draft], flush=False)
-        if not added:
-            return self.error("AnyList did not add the item")
-        item = added[0]
-        if category is not None:
-            await service.assign_category(
-                list_id,
-                str(item.identifier),
-                PB.PBListItemCategoryAssignment(
-                    categoryGroupId=str(category.categoryGroupId),
-                    categoryId=str(category.identifier),
-                ),
-                flush=False,
-            )
-            await service.set_category_match_id(
-                list_id,
-                str(item.identifier),
-                self._category_match_id(category),
-                flush=False,
-            )
-        await service.flush()
+        await service.add_prepared_item(list_id, draft)
         await self.refresh_view()
 
     async def _edit_item(self, item_id: str, result: FormResult) -> None:

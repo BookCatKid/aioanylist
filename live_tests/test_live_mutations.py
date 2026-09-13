@@ -110,7 +110,9 @@ async def _fresh_list_scope(live_client, list_id: str) -> dict[str, object]:
 
 async def _remove_without_recents(live_client, list_id: str, item_ids: list[str]) -> None:
     assert live_client.lists is not None
-    existing = [item_id for item_id in item_ids if live_client.lists.item(list_id, item_id) is not None]
+    existing = [
+        item_id for item_id in item_ids if live_client.lists.item(list_id, item_id) is not None
+    ]
     if existing:
         await live_client.lists.bulk_remove_items(
             list_id,
@@ -136,12 +138,8 @@ async def _fresh_disposable_starters(live_client, shopping_list_id: str) -> dict
         await fresh.load(realtime=False, load_tag_data=False, restore_pending=False)
         assert fresh.starter_lists is not None
         return {
-            "recent": copied(
-                fresh.starter_lists.get(recent_list_id(shopping_list_id))
-            ),
-            "favorite": copied(
-                fresh.starter_lists.get(favorite_list_id(shopping_list_id))
-            ),
+            "recent": copied(fresh.starter_lists.get(recent_list_id(shopping_list_id))),
+            "favorite": copied(fresh.starter_lists.get(favorite_list_id(shopping_list_id))),
             "recent_settings": copied(
                 fresh.state.starter_list_settings.get(recent_list_id(shopping_list_id))
             ),
@@ -358,12 +356,10 @@ async def _cleanup_meal_plan_template_marker(
 
     fresh = await _fresh_meal_plan_state(live_client)
     assert not any(
-        marker in str(getattr(value, "name", "") or "")
-        for value in fresh["templates"].values()
+        marker in str(getattr(value, "name", "") or "") for value in fresh["templates"].values()
     )
     assert not any(
-        marker in str(getattr(value, "name", "") or "")
-        for value in fresh["groups"].values()
+        marker in str(getattr(value, "name", "") or "") for value in fresh["groups"].values()
     )
     assert not any(
         marker in str(getattr(value, "title", "") or "")
@@ -383,9 +379,7 @@ async def _ensure_disposable_starters(live_client, shopping_list_id: str) -> Non
     await live_client.starter_lists.initialize_for_shopping_list(shopping_list_id)
 
 
-async def _remove_named_starter_items(
-    live_client, shopping_list_id: str, names: set[str]
-) -> None:
+async def _remove_named_starter_items(live_client, shopping_list_id: str, names: set[str]) -> None:
     assert live_client.starter_lists is not None
     await live_client.starter_lists.refresh()
     for starter_id in (
@@ -521,9 +515,7 @@ async def test_live_cross_off_records_disposable_recent_item(
         await live_client.lists.set_checked(live_mutation_list_id, item_id, False)
     finally:
         await _remove_without_recents(live_client, live_mutation_list_id, [item_id])
-        await _remove_named_starter_items(
-            live_client, live_mutation_list_id, {marker}
-        )
+        await _remove_named_starter_items(live_client, live_mutation_list_id, {marker})
 
 
 @pytest.mark.asyncio
@@ -548,9 +540,7 @@ async def test_live_normal_remove_records_disposable_recent_item(
         assert len(matches) == 1
         assert not matches[0].checked
     finally:
-        await _remove_named_starter_items(
-            live_client, live_mutation_list_id, {marker}
-        )
+        await _remove_named_starter_items(live_client, live_mutation_list_id, {marker})
 
 
 @pytest.mark.asyncio
@@ -610,9 +600,7 @@ async def test_live_clear_and_remove_checked_preserve_disposable_recents(
         }
         assert after_counts == before_counts
     finally:
-        await _remove_named_starter_items(
-            live_client, live_mutation_list_id, all_names
-        )
+        await _remove_named_starter_items(live_client, live_mutation_list_id, all_names)
         current = live_client.lists.get(live_mutation_list_id)
         if current is not None and current.items:
             await _remove_without_recents(
@@ -630,9 +618,7 @@ async def test_live_favorite_starter_item_crud_and_fields(
     assert live_client.starter_lists is not None
     favorite_id = favorite_list_id(live_mutation_list_id)
     marker = f"sdk-favorite-{uuid4().hex}"
-    created = await live_client.starter_lists.add_item(
-        favorite_id, PB.ListItem(name=marker)
-    )
+    created = await live_client.starter_lists.add_item(favorite_id, PB.ListItem(name=marker))
     item_id = str(created.identifier)
     final_name = f"{marker}-renamed"
     details = f"details-{uuid4().hex}"
@@ -655,19 +641,11 @@ async def test_live_favorite_starter_item_crud_and_fields(
         await live_client.starter_lists.set_package_size(favorite_id, item_id, package)
         await live_client.starter_lists.set_package_override(favorite_id, item_id, True)
         await live_client.starter_lists.set_price_quantity(favorite_id, item_id, price_quantity)
-        await live_client.starter_lists.set_price_quantity_override(
-            favorite_id, item_id, True
-        )
-        await live_client.starter_lists.set_price_package_size(
-            favorite_id, item_id, price_package
-        )
-        await live_client.starter_lists.set_price_package_override(
-            favorite_id, item_id, True
-        )
+        await live_client.starter_lists.set_price_quantity_override(favorite_id, item_id, True)
+        await live_client.starter_lists.set_price_package_size(favorite_id, item_id, price_package)
+        await live_client.starter_lists.set_price_package_override(favorite_id, item_id, True)
         await live_client.starter_lists.add_store(favorite_id, item_id, store_a)
-        await live_client.starter_lists.add_store_ids_to_items(
-            favorite_id, [item_id], [store_b]
-        )
+        await live_client.starter_lists.add_store_ids_to_items(favorite_id, [item_id], [store_b])
         await live_client.starter_lists.save_price(favorite_id, item_id, price)
 
         snapshot = await _fresh_disposable_starters(live_client, live_mutation_list_id)
@@ -766,14 +744,10 @@ async def test_live_favorite_starter_rename_bulk_remove_and_clear(
         if favorite is not None:
             cleanup_names = set(names) | set(clear_names)
             cleanup_ids = [
-                str(item.identifier)
-                for item in favorite.items
-                if str(item.name) in cleanup_names
+                str(item.identifier) for item in favorite.items if str(item.name) in cleanup_names
             ]
             if cleanup_ids:
-                await live_client.starter_lists.bulk_remove_items(
-                    favorite_id, cleanup_ids
-                )
+                await live_client.starter_lists.bulk_remove_items(favorite_id, cleanup_ids)
 
 
 @pytest.mark.asyncio
@@ -803,9 +777,7 @@ async def test_live_recent_items_200_cap_and_oldest_eviction(
         recent = snapshot["recent"]
         assert recent is not None
         persisted_names = [
-            str(item.name)
-            for item in recent.items
-            if str(item.name).startswith(prefix)
+            str(item.name) for item in recent.items if str(item.name).startswith(prefix)
         ]
         assert len(persisted_names) == 200
         assert names[0] not in persisted_names
@@ -815,9 +787,7 @@ async def test_live_recent_items_200_cap_and_oldest_eviction(
         recent = live_client.starter_lists.get(recent_id)
         if recent is not None:
             ids = [
-                str(item.identifier)
-                for item in recent.items
-                if str(item.name).startswith(prefix)
+                str(item.identifier) for item in recent.items if str(item.name).startswith(prefix)
             ]
             if ids:
                 await live_client.starter_lists.bulk_remove_items(recent_id, ids)
@@ -864,9 +834,7 @@ async def test_live_disposable_favorite_starter_settings_round_trip(
     original = before["favorite_settings"]
 
     if original is None:
-        await live_client.starter_list_settings.set(
-            favorite_id, "shouldHideCategories", True
-        )
+        await live_client.starter_list_settings.set(favorite_id, "shouldHideCategories", True)
         changed = await _fresh_disposable_starters(live_client, live_mutation_list_id)
         settings = changed["favorite_settings"]
         assert settings is not None
@@ -879,9 +847,7 @@ async def test_live_disposable_favorite_starter_settings_round_trip(
         return
 
     if not original.HasField("shouldHideCategories"):
-        pytest.skip(
-            "existing disposable Favorite settings omit the reversible test field"
-        )
+        pytest.skip("existing disposable Favorite settings omit the reversible test field")
 
     original_value = bool(original.shouldHideCategories)
     try:
@@ -1004,9 +970,7 @@ async def test_live_journal_restore_replays_disposable_favorite_item(
     try:
         await writer.load(realtime=False, load_tag_data=False, restore_pending=False)
         assert writer.starter_lists is not None
-        await writer.starter_lists.add_item(
-            favorite_id, PB.ListItem(name=marker), flush=False
-        )
+        await writer.starter_lists.add_item(favorite_id, PB.ListItem(name=marker), flush=False)
         assert writer.starter_lists.queue.pending_count == 1
         assert list((cache_dir / "operations").glob("*.json"))
         writer_tokens = writer.tokens or tokens
@@ -1039,9 +1003,7 @@ async def test_live_journal_restore_replays_disposable_favorite_item(
         assert not list((cache_dir / "operations").glob("*.json"))
 
         verify_tokens = restorer.tokens or writer_tokens
-        verifier = AnyListClient(
-            base_url=live_client.transport.base_url, tokens=verify_tokens
-        )
+        verifier = AnyListClient(base_url=live_client.transport.base_url, tokens=verify_tokens)
         try:
             await verifier.load(realtime=False, load_tag_data=False, restore_pending=False)
             assert verifier.starter_lists is not None
@@ -1055,11 +1017,7 @@ async def test_live_journal_restore_replays_disposable_favorite_item(
         await restorer.starter_lists.refresh()
         favorite = restorer.starter_lists.get(favorite_id)
         if favorite is not None:
-            ids = [
-                str(item.identifier)
-                for item in favorite.items
-                if str(item.name) == marker
-            ]
+            ids = [str(item.identifier) for item in favorite.items if str(item.name) == marker]
             if ids:
                 await restorer.starter_lists.bulk_remove_items(favorite_id, ids)
     finally:
@@ -1158,9 +1116,7 @@ async def test_live_realtime_invalidation_refreshes_disposable_list_from_second_
     try:
         await mutator.load(realtime=False, load_tag_data=False, restore_pending=False)
         assert mutator.lists is not None
-        created = await mutator.lists.add_item(
-            live_mutation_list_id, f"sdk-realtime-{uuid4().hex}"
-        )
+        created = await mutator.lists.add_item(live_mutation_list_id, f"sdk-realtime-{uuid4().hex}")
         item_id = str(created.identifier)
 
         event = await event_task
@@ -1296,9 +1252,7 @@ async def test_live_bulk_remove_records_disposable_recent_items(
         await _remove_named_starter_items(live_client, live_mutation_list_id, names)
         current = live_client.lists.get(live_mutation_list_id)
         if current is not None:
-            leftovers = [
-                str(item.identifier) for item in current.items if str(item.name) in names
-            ]
+            leftovers = [str(item.identifier) for item in current.items if str(item.name) in names]
             if leftovers:
                 await _remove_without_recents(live_client, live_mutation_list_id, leftovers)
 
@@ -1347,7 +1301,9 @@ async def test_live_disposable_custom_starter_create_reorder_remove_round_trip(
             await fresh.close()
 
         after_create_order = await _fresh_starter_order(live_client)
-        untouched = [identifier for identifier in after_create_order if identifier not in created_ids]
+        untouched = [
+            identifier for identifier in after_create_order if identifier not in created_ids
+        ]
         if untouched != original_order:
             pytest.fail(
                 "starter-list ordering changed outside the two disposable temporary IDs; refusing reorder",
@@ -1384,9 +1340,7 @@ async def test_live_disposable_custom_starter_create_reorder_remove_round_trip(
 
 
 @pytest.mark.asyncio
-async def test_live_disposable_folder_round_trip(
-    live_client, live_mutation_list_id: str
-) -> None:
+async def test_live_disposable_folder_round_trip(live_client, live_mutation_list_id: str) -> None:
     await _load_and_require_disposable(live_client, live_mutation_list_id)
     assert live_client.folders is not None
     root_id, initial_folders = await _fresh_folder_state(live_client)
@@ -1451,17 +1405,13 @@ async def test_live_disposable_folder_round_trip(
             for item in parent.items
             if not (int(item.itemType) == 1 and str(item.identifier) == temp_parent_id)
         ]
-        assert untouched == [
-            (int(item.itemType), str(item.identifier)) for item in original_items
-        ]
+        assert untouched == [(int(item.itemType), str(item.identifier)) for item in original_items]
         assert temp.folderSettings.folderHexColor == "C3B2A1"
         assert temp.folderSettings.icon.iconName == "star"
         assert temp.folderSettings.listsSortOrder == 2
         assert temp.folderSettings.folderSortPosition == 4
 
-        await live_client.folders.move(
-            [list_item], original_parent_id, temp_parent_id
-        )
+        await live_client.folders.move([list_item], original_parent_id, temp_parent_id)
         _, folders = await _fresh_folder_state(live_client)
         parent = folders[original_parent_id]
         temp = folders[temp_parent_id]
@@ -1484,9 +1434,10 @@ async def test_live_disposable_folder_round_trip(
         _, folders = await _fresh_folder_state(live_client)
         temp = folders[temp_parent_id]
         assert isinstance(temp, PB.PBListFolder)
-        assert [
-            (int(item.itemType), str(item.identifier)) for item in temp.items
-        ] == [(1, temp_child_id), (0, live_mutation_list_id)]
+        assert [(int(item.itemType), str(item.identifier)) for item in temp.items] == [
+            (1, temp_child_id),
+            (0, live_mutation_list_id),
+        ]
 
         await live_client.folders.move([list_item], temp_parent_id, original_parent_id)
 
@@ -1495,9 +1446,7 @@ async def test_live_disposable_folder_round_trip(
         parent_with_temp = [PB.PBListFolderItem() for _ in original_items]
         for target, source in zip(parent_with_temp, original_items):
             target.CopyFrom(source)
-        parent_with_temp.append(
-            PB.PBListFolderItem(identifier=temp_parent_id, itemType=1)
-        )
+        parent_with_temp.append(PB.PBListFolderItem(identifier=temp_parent_id, itemType=1))
         await live_client.folders.reorder(original_parent_id, parent_with_temp)
 
         # The temporary child is empty; recursive delete therefore exercises child + parent
@@ -1514,22 +1463,14 @@ async def test_live_disposable_folder_round_trip(
                 int(item.itemType) == 0 and str(item.identifier) == live_mutation_list_id
                 for item in temp.items
             ):
-                await live_client.folders.move(
-                    [list_item], temp_parent_id, original_parent_id
-                )
+                await live_client.folders.move([list_item], temp_parent_id, original_parent_id)
             if live_client.folders.get(temp_parent_id) is not None:
-                await live_client.folders.delete_folder(
-                    temp_parent_id, original_parent_id
-                )
+                await live_client.folders.delete_folder(temp_parent_id, original_parent_id)
         await live_client.folders.refresh()
         parent = live_client.folders.get(original_parent_id)
         if parent is not None:
-            current = [
-                (int(item.itemType), str(item.identifier)) for item in parent.items
-            ]
-            expected = [
-                (int(item.itemType), str(item.identifier)) for item in original_items
-            ]
+            current = [(int(item.itemType), str(item.identifier)) for item in parent.items]
+            expected = [(int(item.itemType), str(item.identifier)) for item in original_items]
             if current != expected:
                 await live_client.folders.reorder(
                     original_parent_id,
@@ -1546,9 +1487,9 @@ async def test_live_disposable_folder_round_trip(
     assert temp_child_id not in final_folders
     final_parent = final_folders[original_parent_id]
     assert isinstance(final_parent, PB.PBListFolder)
-    assert [
-        (int(item.itemType), str(item.identifier)) for item in final_parent.items
-    ] == [(int(item.itemType), str(item.identifier)) for item in original_items]
+    assert [(int(item.itemType), str(item.identifier)) for item in final_parent.items] == [
+        (int(item.itemType), str(item.identifier)) for item in original_items
+    ]
 
 
 @pytest.mark.asyncio
@@ -1582,7 +1523,11 @@ async def test_live_add_remove_item_round_trip(live_client, live_mutation_list_i
     try:
         assert live_client.lists.legacy_queue.pending_count == 0
         fresh = await _fresh_server_list(live_client, live_mutation_list_id)
-        persisted = next((item for item in fresh.items if item.identifier == item_id), None) if fresh else None
+        persisted = (
+            next((item for item in fresh.items if item.identifier == item_id), None)
+            if fresh
+            else None
+        )
         assert persisted is not None and persisted.name == marker
     finally:
         await _remove_without_recents(live_client, live_mutation_list_id, [item_id])
@@ -1861,7 +1806,9 @@ async def test_live_disposable_recipes_and_collections_round_trip(live_client) -
     try:
         recipe_a = await service.create(
             recipe_a_name,
-            ingredients=[PB.PBIngredient(name="SDK Ingredient", rawIngredient="1 cup SDK Ingredient")],
+            ingredients=[
+                PB.PBIngredient(name="SDK Ingredient", rawIngredient="1 cup SDK Ingredient")
+            ],
             preparation_steps=["SDK step one", "SDK step two"],
             servings="2",
             source_name="SDK Test",
@@ -2123,7 +2070,9 @@ async def test_live_disposable_meal_plan_events_labels_and_items_round_trip(live
             item_b_id,
             item_a_id,
         ]
-        fresh_item_a = next(item for item in fresh_event_a.eventListItems if item.identifier == item_a_id)
+        fresh_item_a = next(
+            item for item in fresh_event_a.eventListItems if item.identifier == item_a_id
+        )
         assert str(fresh_item_a.name) == "SDK Item A Renamed"
         assert str(fresh_item_a.details) == "SDK item details"
         assert float(fresh_item_a.quantityPb.amount) == 2
@@ -2175,7 +2124,9 @@ async def test_live_disposable_meal_plan_templates_and_groups_round_trip(live_cl
         if group_id not in child_group_ids and not str(getattr(group, "name", "") or "")
     ]
     if not root_candidates:
-        pytest.skip("no existing unnamed root meal-plan template group available for safe attachment")
+        pytest.skip(
+            "no existing unnamed root meal-plan template group available for safe attachment"
+        )
     root = root_candidates[0]
     root_id = str(root.identifier)
     original_root_items = [
@@ -2229,9 +2180,7 @@ async def test_live_disposable_meal_plan_templates_and_groups_round_trip(live_cl
             identifier=nested_group_id,
             itemType=PB.PBMealPlanTemplateGroupItem.Type.Group,
         )
-        assert await service.move_template_group_items(
-            [moved_item], group_a_id, group_b_id
-        )
+        assert await service.move_template_group_items([moved_item], group_a_id, group_b_id)
         assert service.queue.pending_count == 0
 
         template_event = await service.save_event(
@@ -2275,8 +2224,12 @@ async def test_live_disposable_meal_plan_templates_and_groups_round_trip(live_cl
         await service.refresh()
         current_root = live_client.state.meal_plan_template_groups.get(root_id)
         if current_root is not None:
-            current_items = [(str(item.identifier), int(item.itemType)) for item in current_root.items]
-            original_items = [(str(item.identifier), int(item.itemType)) for item in original_root_items]
+            current_items = [
+                (str(item.identifier), int(item.itemType)) for item in current_root.items
+            ]
+            original_items = [
+                (str(item.identifier), int(item.itemType)) for item in original_root_items
+            ]
             if current_items != original_items:
                 await service.set_ordered_template_group_items(root_id, original_root_items)
 
@@ -2451,7 +2404,9 @@ async def test_live_list_password_round_trip_when_field_materialized(
 ) -> None:
     value = await _load_and_require_disposable(live_client, live_mutation_list_id)
     if not value.HasField("password"):
-        pytest.skip("server has not materialized password; refusing an irreversible presence change")
+        pytest.skip(
+            "server has not materialized password; refusing an irreversible presence change"
+        )
     assert live_client.lists is not None
     original = str(value.password)
     temporary = f"sdk-{uuid4().hex}"
@@ -2488,7 +2443,9 @@ async def test_live_item_quantity_package_and_overrides_round_trip(
         await live_client.lists.set_quantity_override(live_mutation_list_id, item_id, True)
         await live_client.lists.set_package_override(live_mutation_list_id, item_id, True)
         await live_client.lists.set_price_quantity(live_mutation_list_id, item_id, price_quantity)
-        await live_client.lists.set_price_package_size(live_mutation_list_id, item_id, price_package)
+        await live_client.lists.set_price_package_size(
+            live_mutation_list_id, item_id, price_package
+        )
         await live_client.lists.set_price_quantity_override(live_mutation_list_id, item_id, True)
         await live_client.lists.set_price_package_override(live_mutation_list_id, item_id, True)
         assert live_client.lists.legacy_queue.pending_count == 0
@@ -2564,15 +2521,11 @@ async def test_live_store_and_store_filter_round_trip(
         renamed_store = PB.PBStore()
         renamed_store.CopyFrom(current_store)
         renamed_store.name = f"SDK Store Renamed {store_id[:8]}"
-        await live_client.lists.save_store(
-            live_mutation_list_id, renamed_store, is_new=False
-        )
+        await live_client.lists.save_store(live_mutation_list_id, renamed_store, is_new=False)
         snapshot = await _fresh_list_scope(live_client, live_mutation_list_id)
         assert snapshot["stores"][store_id].name == renamed_store.name
 
-        await live_client.lists.save_store_filter(
-            live_mutation_list_id, store_filter, is_new=True
-        )
+        await live_client.lists.save_store_filter(live_mutation_list_id, store_filter, is_new=True)
         snapshot = await _fresh_list_scope(live_client, live_mutation_list_id)
         persisted_filter = snapshot["store_filters"].get(filter_id)
         assert persisted_filter is not None
@@ -2590,16 +2543,12 @@ async def test_live_store_and_store_filter_round_trip(
         assert snapshot["store_filters"][filter_id].name == renamed_filter.name
         assert snapshot["store_filters"][filter_id].includesUnassignedItems is False
     finally:
-        current_filter = live_client.state.list_store_filters.get(
-            live_mutation_list_id, {}
-        ).get(filter_id)
-        if current_filter is not None:
-            await live_client.lists.delete_store_filter(
-                live_mutation_list_id, current_filter
-            )
-        current_store = live_client.state.list_stores.get(live_mutation_list_id, {}).get(
-            store_id
+        current_filter = live_client.state.list_store_filters.get(live_mutation_list_id, {}).get(
+            filter_id
         )
+        if current_filter is not None:
+            await live_client.lists.delete_store_filter(live_mutation_list_id, current_filter)
+        current_store = live_client.state.list_stores.get(live_mutation_list_id, {}).get(store_id)
         if current_store is not None:
             await live_client.lists.delete_store(live_mutation_list_id, current_store)
 
@@ -2635,9 +2584,7 @@ async def test_live_store_and_filter_ordering_round_trip(
     ]
     try:
         for store in stores:
-            await live_client.lists.save_store(
-                live_mutation_list_id, store, is_new=True
-            )
+            await live_client.lists.save_store(live_mutation_list_id, store, is_new=True)
         for store_filter in filters:
             await live_client.lists.save_store_filter(
                 live_mutation_list_id, store_filter, is_new=True
@@ -2651,24 +2598,22 @@ async def test_live_store_and_filter_ordering_round_trip(
         )
 
         snapshot = await _fresh_list_scope(live_client, live_mutation_list_id)
-        assert snapshot["stores"][store_ids[1]].sortIndex < snapshot["stores"][store_ids[0]].sortIndex
+        assert (
+            snapshot["stores"][store_ids[1]].sortIndex < snapshot["stores"][store_ids[0]].sortIndex
+        )
         assert (
             snapshot["store_filters"][filter_ids[1]].sortIndex
             < snapshot["store_filters"][filter_ids[0]].sortIndex
         )
     finally:
         for filter_id in filter_ids:
-            current = live_client.state.list_store_filters.get(
-                live_mutation_list_id, {}
-            ).get(filter_id)
+            current = live_client.state.list_store_filters.get(live_mutation_list_id, {}).get(
+                filter_id
+            )
             if current is not None:
-                await live_client.lists.delete_store_filter(
-                    live_mutation_list_id, current
-                )
+                await live_client.lists.delete_store_filter(live_mutation_list_id, current)
         for store_id in store_ids:
-            current = live_client.state.list_stores.get(
-                live_mutation_list_id, {}
-            ).get(store_id)
+            current = live_client.state.list_stores.get(live_mutation_list_id, {}).get(store_id)
             if current is not None:
                 await live_client.lists.delete_store(live_mutation_list_id, current)
 
@@ -2732,9 +2677,7 @@ async def test_live_category_group_category_and_rule_round_trip(
         )
 
         rule_name = f"sdk-rule-{caller_rule_id[:8]}"
-        persisted_rule_id = category_rule_identifier(
-            rule_name, group_id, live_mutation_list_id
-        )
+        persisted_rule_id = category_rule_identifier(rule_name, group_id, live_mutation_list_id)
         rule = PB.PBListCategorizationRule(
             identifier=caller_rule_id,
             listId=live_mutation_list_id,
@@ -2746,17 +2689,15 @@ async def test_live_category_group_category_and_rule_round_trip(
 
         snapshot = await _fresh_list_scope(live_client, live_mutation_list_id)
         assert snapshot["category_groups"][group_id].defaultCategoryId == category_b_id
-        assert snapshot["categories"][category_a_id].name.startswith(
-            "SDK Category A Renamed"
-        )
+        assert snapshot["categories"][category_a_id].name.startswith("SDK Category A Renamed")
         assert snapshot["categories"][category_b_id].icon == "other"
         assert snapshot["categories"][category_b_id].sortIndex == 0
         assert persisted_rule_id in snapshot["categorization_rules"]
         assert caller_rule_id not in snapshot["categorization_rules"]
     finally:
-        current_group = live_client.state.list_category_groups.get(
-            live_mutation_list_id, {}
-        ).get(group_id)
+        current_group = live_client.state.list_category_groups.get(live_mutation_list_id, {}).get(
+            group_id
+        )
         if current_group is not None:
             category_ids = [
                 category_id
@@ -2821,49 +2762,42 @@ async def test_live_category_migration_and_bulk_rule_handlers(
         sortIndex=2,
     )
     rules = [
-            PB.PBListCategorizationRule(
-                identifier=caller_rule_ids[0],
-                listId=live_mutation_list_id,
-                categoryGroupId=group_id,
-                itemName=f"sdk-bulk-a-{caller_rule_ids[0][:8]}",
-                categoryId=category_a_id,
-            ),
-            PB.PBListCategorizationRule(
-                identifier=caller_rule_ids[1],
-                listId=live_mutation_list_id,
-                categoryGroupId=group_id,
-                itemName=f"sdk-bulk-b-{caller_rule_ids[1][:8]}",
-                categoryId=category_b_id,
-            ),
-            PB.PBListCategorizationRule(
-                identifier=caller_rule_ids[2],
-                listId=live_mutation_list_id,
-                categoryGroupId=group_id,
-                itemName=f"sdk-migrate-a-{caller_rule_ids[2][:8]}",
-                categoryId=category_a_id,
-            ),
-        ]
+        PB.PBListCategorizationRule(
+            identifier=caller_rule_ids[0],
+            listId=live_mutation_list_id,
+            categoryGroupId=group_id,
+            itemName=f"sdk-bulk-a-{caller_rule_ids[0][:8]}",
+            categoryId=category_a_id,
+        ),
+        PB.PBListCategorizationRule(
+            identifier=caller_rule_ids[1],
+            listId=live_mutation_list_id,
+            categoryGroupId=group_id,
+            itemName=f"sdk-bulk-b-{caller_rule_ids[1][:8]}",
+            categoryId=category_b_id,
+        ),
+        PB.PBListCategorizationRule(
+            identifier=caller_rule_ids[2],
+            listId=live_mutation_list_id,
+            categoryGroupId=group_id,
+            itemName=f"sdk-migrate-a-{caller_rule_ids[2][:8]}",
+            categoryId=category_a_id,
+        ),
+    ]
     persisted_rule_ids = [
-        category_rule_identifier(rule.itemName, group_id, live_mutation_list_id)
-        for rule in rules
+        category_rule_identifier(rule.itemName, group_id, live_mutation_list_id) for rule in rules
     ]
     try:
         await live_client.lists.migrate_category_group(group)
         await live_client.lists.migrate_list_category(category_a)
         await live_client.lists.save_list_category(category_b)
         await live_client.lists.save_list_category(category_c)
-        await live_client.lists.bulk_save_categorization_rules(
-            live_mutation_list_id, rules[:2]
-        )
-        await live_client.lists.migrate_categorization_rules(
-            live_mutation_list_id, rules[2:]
-        )
+        await live_client.lists.bulk_save_categorization_rules(live_mutation_list_id, rules[:2])
+        await live_client.lists.migrate_categorization_rules(live_mutation_list_id, rules[2:])
 
         snapshot = await _fresh_list_scope(live_client, live_mutation_list_id)
         assert group_id in snapshot["category_groups"]
-        assert {category_a_id, category_b_id, category_c_id}.issubset(
-            snapshot["categories"]
-        )
+        assert {category_a_id, category_b_id, category_c_id}.issubset(snapshot["categories"])
         assert set(persisted_rule_ids).issubset(snapshot["categorization_rules"])
         assert not set(caller_rule_ids) & set(snapshot["categorization_rules"])
 
@@ -2873,9 +2807,9 @@ async def test_live_category_migration_and_bulk_rule_handlers(
         snapshot = await _fresh_list_scope(live_client, live_mutation_list_id)
         assert category_c_id not in snapshot["categories"]
     finally:
-        current_group = live_client.state.list_category_groups.get(
-            live_mutation_list_id, {}
-        ).get(group_id)
+        current_group = live_client.state.list_category_groups.get(live_mutation_list_id, {}).get(
+            group_id
+        )
         if current_group is not None:
             remaining_category_ids = [
                 category_id
@@ -2901,9 +2835,7 @@ async def test_live_category_migration_and_bulk_rule_handlers(
 
 
 @pytest.mark.asyncio
-async def test_live_per_list_settings_round_trip(
-    live_client, live_mutation_list_id: str
-) -> None:
+async def test_live_per_list_settings_round_trip(live_client, live_mutation_list_id: str) -> None:
     await _load_and_require_disposable(live_client, live_mutation_list_id)
     assert live_client.list_settings is not None
     settings = live_client.state.list_settings.get(live_mutation_list_id)
@@ -2922,10 +2854,7 @@ async def test_live_per_list_settings_round_trip(
             pytrace=False,
         )
 
-    original = {
-        field: getattr(settings, field)
-        for field in required
-    }
+    original = {field: getattr(settings, field) for field in required}
     try:
         await live_client.list_settings.set(
             live_mutation_list_id,
@@ -2972,9 +2901,7 @@ async def test_live_per_list_settings_round_trip(
         )
     finally:
         for field in required:
-            await live_client.list_settings.set(
-                live_mutation_list_id, field, original[field]
-            )
+            await live_client.list_settings.set(live_mutation_list_id, field, original[field])
 
     snapshot = await _fresh_list_scope(live_client, live_mutation_list_id)
     restored = snapshot["settings"]
@@ -3004,12 +2931,8 @@ async def test_live_list_settings_filter_clear_round_trip(
         includesUnassignedItems=True,
     )
     try:
-        await live_client.lists.save_store_filter(
-            live_mutation_list_id, store_filter, is_new=True
-        )
-        await live_client.list_settings.set(
-            live_mutation_list_id, "storeFilterId", filter_id
-        )
+        await live_client.lists.save_store_filter(live_mutation_list_id, store_filter, is_new=True)
+        await live_client.list_settings.set(live_mutation_list_id, "storeFilterId", filter_id)
         snapshot = await _fresh_list_scope(live_client, live_mutation_list_id)
         changed = snapshot["settings"]
         assert changed is not None and changed.HasField("storeFilterId")
@@ -3023,13 +2946,11 @@ async def test_live_list_settings_filter_clear_round_trip(
         # but the live server may normalize it back to a present empty string.
         assert not str(cleared.storeFilterId)
     finally:
-        current_filter = live_client.state.list_store_filters.get(
-            live_mutation_list_id, {}
-        ).get(filter_id)
+        current_filter = live_client.state.list_store_filters.get(live_mutation_list_id, {}).get(
+            filter_id
+        )
         if current_filter is not None:
-            await live_client.lists.delete_store_filter(
-                live_mutation_list_id, current_filter
-            )
+            await live_client.lists.delete_store_filter(live_mutation_list_id, current_filter)
         if original_filter_present:
             await live_client.list_settings.set(
                 live_mutation_list_id, "storeFilterId", original_filter
@@ -3051,9 +2972,7 @@ async def test_live_list_settings_filter_clear_round_trip(
 async def test_live_reversible_list_local_flags_when_server_materializes_them(
     live_client, live_mutation_list_id: str
 ) -> None:
-    shopping_list = await _load_and_require_disposable(
-        live_client, live_mutation_list_id
-    )
+    shopping_list = await _load_and_require_disposable(live_client, live_mutation_list_id)
     assert live_client.lists is not None
     restore_multiple: bool | None = None
     restore_position: int | None = None
@@ -3079,9 +2998,7 @@ async def test_live_reversible_list_local_flags_when_server_materializes_them(
                 if restore_position == PB.ShoppingList.NewListItemPosition.Bottom
                 else PB.ShoppingList.NewListItemPosition.Bottom
             )
-            await live_client.lists.set_new_item_position(
-                live_mutation_list_id, alternate_position
-            )
+            await live_client.lists.set_new_item_position(live_mutation_list_id, alternate_position)
 
         fresh = await _fresh_server_list(live_client, live_mutation_list_id)
         assert fresh is not None
@@ -3097,9 +3014,7 @@ async def test_live_reversible_list_local_flags_when_server_materializes_them(
                 live_mutation_list_id, restore_multiple
             )
         if restore_position is not None:
-            await live_client.lists.set_new_item_position(
-                live_mutation_list_id, restore_position
-            )
+            await live_client.lists.set_new_item_position(live_mutation_list_id, restore_position)
 
     fresh = await _fresh_server_list(live_client, live_mutation_list_id)
     assert fresh is not None
@@ -3128,9 +3043,7 @@ async def test_live_uncheck_and_bulk_uncheck_without_recents(
     ids = [str(item.identifier) for item in created]
     try:
         await live_client.lists.set_checked(live_mutation_list_id, ids[0], False)
-        await live_client.lists.bulk_set_checked(
-            live_mutation_list_id, ids[1:3], False
-        )
+        await live_client.lists.bulk_set_checked(live_mutation_list_id, ids[1:3], False)
         await live_client.lists.uncheck_all(live_mutation_list_id)
 
         fresh = await _fresh_server_list(live_client, live_mutation_list_id)
@@ -3156,18 +3069,14 @@ async def test_live_revive_matching_checked_item_without_recents(
     source = PB.ListItem()
     source.CopyFrom(created[0])
     try:
-        revived = await live_client.lists.revive_matching_item(
-            live_mutation_list_id, source
-        )
+        revived = await live_client.lists.revive_matching_item(live_mutation_list_id, source)
         assert revived is not None
         assert str(revived.identifier) == item_id
         assert revived.checked is False
 
         fresh = await _fresh_server_list(live_client, live_mutation_list_id)
         assert fresh is not None
-        persisted = next(
-            (value for value in fresh.items if str(value.identifier) == item_id), None
-        )
+        persisted = next((value for value in fresh.items if str(value.identifier) == item_id), None)
         assert persisted is not None
         assert persisted.checked is False
     finally:
@@ -3175,9 +3084,7 @@ async def test_live_revive_matching_checked_item_without_recents(
 
 
 @pytest.mark.asyncio
-async def test_live_move_single_item_round_trip(
-    live_client, live_mutation_list_id: str
-) -> None:
+async def test_live_move_single_item_round_trip(live_client, live_mutation_list_id: str) -> None:
     await _load_and_require_disposable(live_client, live_mutation_list_id)
     assert live_client.lists is not None
     created = await live_client.lists.add_items(
@@ -3264,20 +3171,12 @@ async def test_live_item_store_category_price_and_matchup_round_trip(
                 categoryId=str(category.identifier),
             ),
         )
-        await live_client.lists.set_category_match_id(
-            live_mutation_list_id, item_id, "produce"
-        )
+        await live_client.lists.set_category_match_id(live_mutation_list_id, item_id, "produce")
         await live_client.lists.add_store(live_mutation_list_id, item_id, store_id)
         await live_client.lists.remove_store(live_mutation_list_id, item_id, store_id)
-        await live_client.lists.add_store_ids_to_items(
-            live_mutation_list_id, [item_id], [store_id]
-        )
-        await live_client.lists.remove_store_id_from_all_items(
-            live_mutation_list_id, store_id
-        )
-        await live_client.lists.add_store_ids_to_items(
-            live_mutation_list_id, [item_id], [store_id]
-        )
+        await live_client.lists.add_store_ids_to_items(live_mutation_list_id, [item_id], [store_id])
+        await live_client.lists.remove_store_id_from_all_items(live_mutation_list_id, store_id)
+        await live_client.lists.add_store_ids_to_items(live_mutation_list_id, [item_id], [store_id])
         price = PB.PBItemPrice(
             amount=4.25,
             details=f"sdk-price-{uuid4().hex[:8]}",
@@ -3285,9 +3184,7 @@ async def test_live_item_store_category_price_and_matchup_round_trip(
         )
         await live_client.lists.save_price(live_mutation_list_id, item_id, price)
         matchup = f"sdk-matchup-{uuid4().hex[:8]}"
-        await live_client.lists.set_price_matchup_tag(
-            live_mutation_list_id, item_id, matchup
-        )
+        await live_client.lists.set_price_matchup_tag(live_mutation_list_id, item_id, matchup)
 
         fresh = await _fresh_server_list(live_client, live_mutation_list_id)
         assert fresh is not None
@@ -3323,9 +3220,7 @@ async def test_live_item_store_category_price_and_matchup_round_trip(
         assert all(str(value.storeId) != store_id for value in item.prices)
     finally:
         await _remove_without_recents(live_client, live_mutation_list_id, [item_id])
-        current_store = live_client.state.list_stores.get(live_mutation_list_id, {}).get(
-            store_id
-        )
+        current_store = live_client.state.list_stores.get(live_mutation_list_id, {}).get(store_id)
         if current_store is not None:
             await live_client.lists.delete_store(live_mutation_list_id, current_store)
 
@@ -3347,22 +3242,16 @@ async def test_live_recipe_ingredient_provenance_lifecycle(
     )
     old_source = ingredient_to_item_ingredient(old_ingredient, old_recipe)
 
-    created = await live_client.lists.add_recipe_ingredient(
-        live_mutation_list_id, old_source
-    )
+    created = await live_client.lists.add_recipe_ingredient(live_mutation_list_id, old_source)
     first_item_id = str(created.identifier)
     try:
         fresh = await _fresh_server_list(live_client, live_mutation_list_id)
         assert fresh is not None
-        first = next(
-            (item for item in fresh.items if str(item.identifier) == first_item_id), None
-        )
+        first = next((item for item in fresh.items if str(item.identifier) == first_item_id), None)
         assert first is not None
         assert any(str(source.recipeId) == recipe_id for source in first.ingredients)
 
-        new_recipe = PB.PBRecipe(
-            identifier=recipe_id, name="SDK Recipe Updated", scaleFactor=1.0
-        )
+        new_recipe = PB.PBRecipe(identifier=recipe_id, name="SDK Recipe Updated", scaleFactor=1.0)
         new_ingredient = new_recipe.ingredients.add(
             identifier=ingredient_id,
             rawIngredient="2 cups sdk roma tomatoes",
@@ -3383,23 +3272,18 @@ async def test_live_recipe_ingredient_provenance_lifecycle(
         ]
         assert recipe_items
         assert any(
-            source.HasField("ingredient")
-            and source.ingredient.name == new_ingredient.name
+            source.HasField("ingredient") and source.ingredient.name == new_ingredient.name
             for item in recipe_items
             for source in item.ingredients
             if str(source.recipeId) == recipe_id
         )
 
-        removed = await live_client.lists.remove_recipe_references(
-            live_mutation_list_id, recipe_id
-        )
+        removed = await live_client.lists.remove_recipe_references(live_mutation_list_id, recipe_id)
         assert removed > 0
         fresh = await _fresh_server_list(live_client, live_mutation_list_id)
         assert fresh is not None
         assert not any(
-            str(source.recipeId) == recipe_id
-            for item in fresh.items
-            for source in item.ingredients
+            str(source.recipeId) == recipe_id for item in fresh.items for source in item.ingredients
         )
 
         new_source = ingredient_to_item_ingredient(new_ingredient, new_recipe)
@@ -3407,16 +3291,12 @@ async def test_live_recipe_ingredient_provenance_lifecycle(
             live_mutation_list_id, new_source
         )
         second_item_id = str(created_again.identifier)
-        assert await live_client.lists.remove_recipe_ingredient(
-            live_mutation_list_id, new_source
-        )
+        assert await live_client.lists.remove_recipe_ingredient(live_mutation_list_id, new_source)
         fresh = await _fresh_server_list(live_client, live_mutation_list_id)
         assert fresh is not None
         assert all(str(item.identifier) != second_item_id for item in fresh.items)
     finally:
-        await live_client.lists.remove_recipe_references(
-            live_mutation_list_id, recipe_id
-        )
+        await live_client.lists.remove_recipe_references(live_mutation_list_id, recipe_id)
 
 
 @pytest.mark.asyncio
@@ -3466,21 +3346,15 @@ async def test_live_recipe_event_provenance_update_and_remove(
         assert event_sources
         assert all(source.eventDate == "2026-09-11" for source in event_sources)
 
-        removed = await live_client.lists.remove_event_references(
-            live_mutation_list_id, event_id
-        )
+        removed = await live_client.lists.remove_event_references(live_mutation_list_id, event_id)
         assert removed > 0
         fresh = await _fresh_server_list(live_client, live_mutation_list_id)
         assert fresh is not None
         assert not any(
-            str(source.eventId) == event_id
-            for item in fresh.items
-            for source in item.ingredients
+            str(source.eventId) == event_id for item in fresh.items for source in item.ingredients
         )
     finally:
-        await live_client.lists.remove_event_references(
-            live_mutation_list_id, event_id
-        )
+        await live_client.lists.remove_event_references(live_mutation_list_id, event_id)
 
 
 @pytest.mark.asyncio
@@ -3535,18 +3409,12 @@ async def test_live_free_event_list_provenance_update_and_remove(
             for source in event_sources
         )
 
-        removed = await live_client.lists.remove_event_references(
-            live_mutation_list_id, event_id
-        )
+        removed = await live_client.lists.remove_event_references(live_mutation_list_id, event_id)
         assert removed > 0
         fresh = await _fresh_server_list(live_client, live_mutation_list_id)
         assert fresh is not None
         assert not any(
-            str(source.eventId) == event_id
-            for item in fresh.items
-            for source in item.ingredients
+            str(source.eventId) == event_id for item in fresh.items for source in item.ingredients
         )
     finally:
-        await live_client.lists.remove_event_references(
-            live_mutation_list_id, event_id
-        )
+        await live_client.lists.remove_event_references(live_mutation_list_id, event_id)

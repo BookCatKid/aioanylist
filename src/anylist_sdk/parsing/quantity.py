@@ -10,11 +10,21 @@ from ..normalization import trim_whitespace_and_punctuation
 from ..proto import PB, PBItemPackageSize, PBItemQuantity, PBItemQuantityAndPackageSize
 
 _VULGAR = {
-    "½": Fraction(1, 2), "⅓": Fraction(1, 3), "⅔": Fraction(2, 3),
-    "¼": Fraction(1, 4), "¾": Fraction(3, 4), "⅕": Fraction(1, 5),
-    "⅖": Fraction(2, 5), "⅗": Fraction(3, 5), "⅘": Fraction(4, 5),
-    "⅙": Fraction(1, 6), "⅚": Fraction(5, 6), "⅛": Fraction(1, 8),
-    "⅜": Fraction(3, 8), "⅝": Fraction(5, 8), "⅞": Fraction(7, 8),
+    "½": Fraction(1, 2),
+    "⅓": Fraction(1, 3),
+    "⅔": Fraction(2, 3),
+    "¼": Fraction(1, 4),
+    "¾": Fraction(3, 4),
+    "⅕": Fraction(1, 5),
+    "⅖": Fraction(2, 5),
+    "⅗": Fraction(3, 5),
+    "⅘": Fraction(4, 5),
+    "⅙": Fraction(1, 6),
+    "⅚": Fraction(5, 6),
+    "⅛": Fraction(1, 8),
+    "⅜": Fraction(3, 8),
+    "⅝": Fraction(5, 8),
+    "⅞": Fraction(7, 8),
 }
 _SUPER = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹", "0123456789")
 _SUB = str.maketrans("₀₁₂₃₄₅₆₇₈₉", "0123456789")
@@ -36,7 +46,20 @@ _UNIT_MATCH_GROUPS: dict[str, tuple[str, ...]] = {
     "pt": ("pint", "pints", "pt"),
     "lb": ("pound", "pounds", "lb", "lbs", "pfund", "pf"),
     "qt": ("quart", "quarts", "qt", "qts"),
-    "Tbsp": ("tablespoon", "tablespoons", "tbsp", "tbs", "tbl", "t", "msk", "ss", "spsk", "rkl", "el", "esslöffel"),
+    "Tbsp": (
+        "tablespoon",
+        "tablespoons",
+        "tbsp",
+        "tbs",
+        "tbl",
+        "t",
+        "msk",
+        "ss",
+        "spsk",
+        "rkl",
+        "el",
+        "esslöffel",
+    ),
     "tsp": ("teaspoon", "teaspoons", "tsp", "ts", "tsk", "tl", "teelöffel"),
     "g": ("gram", "grams", "g", "gr", "gramm"),
     "kg": ("kilogram", "kilograms", "kg", "kilogramm"),
@@ -59,8 +82,18 @@ _UNIT_NORMALIZATION_GROUPS: dict[str, tuple[str, ...]] = {
     "qt": ("quart", "quarts", "qt", "qts"),
     "troy oz": ("oz t", "t oz"),
     "Tbsp": (
-        "tablespoon", "tablespoons", "tbsp", "tbs", "tbl", "t", "msk", "ss",
-        "spsk", "el", "rkl", "esslöffel",
+        "tablespoon",
+        "tablespoons",
+        "tbsp",
+        "tbs",
+        "tbl",
+        "t",
+        "msk",
+        "ss",
+        "spsk",
+        "el",
+        "rkl",
+        "esslöffel",
     ),
     "tsp": ("teaspoon", "teaspoons", "tsp", "ts", "tsk", "tl", "teelöffel"),
     "g": ("gram", "grams", "g", "gr", "gramm"),
@@ -109,46 +142,250 @@ _UNIT_ABBREVIATION_GROUPS: dict[str, tuple[str, ...]] = {
 }
 
 _PACKAGE_WORDS = (
-    "peck", "pecks", "bushel", "bushels", "bucket", "buckets", "slice", "slices",
-    "doz", "doz.", "dozen", "clove", "cloves", "loaf", "loaves", "pinch", "pinches",
-    "package", "packages", "pkg", "pkg.", "can", "cans", "drop", "drops", "bunch",
-    "bunches", "dash", "dashes", "carton", "cartons", "each", "piece", "pieces",
-    "to taste", "square", "squares", "tube", "tubes", "strip", "strips", "stem", "stems",
-    "stalk", "stalks", "sprig", "sprigs", "spear", "spears", "sprout", "sprouts",
-    "sheet", "sheets", "scoop", "scoops", "pouch", "pouches", "packet", "packets",
-    "pack", "packs", "leaf", "leaves", "glass", "glasses", "cube", "cubes", "container",
-    "containers", "cone", "cones", "box", "boxes", "bottle", "bottles", "block", "blocks",
-    "bag", "bags", "part", "parts", "stick", "sticks", "head", "heads", "bar", "bars",
-    "ear", "ears", "jar", "jars", "tub", "tubs", "small", "medium", "large", "dose",
-    "dosen", "glas", "gläser", "packung", "packungen", "päckchen", "beutel", "flasche",
-    "flaschen", "zehe", "zehen", "knolle", "knollen", "kopf", "köpfe", "bund", "bünde",
-    "blatt", "blätter", "spritzer", "tropf", "tropfen", "prise", "prisen", "stück",
-    "stücke", "stiel", "stiele", "stange", "stangen", "würfel", "etwas", "nach belieben",
-    "viel", "do.", "gl.", "pck", "pck.", "pk", "pk.", "pckg", "pckg.", "btl",
-    "btl.", "bt", "bt.", "fl", "fl.", "kn", "kn.", "bd", "bd.", "bn", "bn.",
-    "bl", "bl.", "spr", "spr.", "tr", "tr.", "pr", "pr.", "stk", "stk.", "st",
-    "st.", "stck", "stck.", "stg", "stg.", "wf", "wf.", "n. b.",
+    "peck",
+    "pecks",
+    "bushel",
+    "bushels",
+    "bucket",
+    "buckets",
+    "slice",
+    "slices",
+    "doz",
+    "doz.",
+    "dozen",
+    "clove",
+    "cloves",
+    "loaf",
+    "loaves",
+    "pinch",
+    "pinches",
+    "package",
+    "packages",
+    "pkg",
+    "pkg.",
+    "can",
+    "cans",
+    "drop",
+    "drops",
+    "bunch",
+    "bunches",
+    "dash",
+    "dashes",
+    "carton",
+    "cartons",
+    "each",
+    "piece",
+    "pieces",
+    "to taste",
+    "square",
+    "squares",
+    "tube",
+    "tubes",
+    "strip",
+    "strips",
+    "stem",
+    "stems",
+    "stalk",
+    "stalks",
+    "sprig",
+    "sprigs",
+    "spear",
+    "spears",
+    "sprout",
+    "sprouts",
+    "sheet",
+    "sheets",
+    "scoop",
+    "scoops",
+    "pouch",
+    "pouches",
+    "packet",
+    "packets",
+    "pack",
+    "packs",
+    "leaf",
+    "leaves",
+    "glass",
+    "glasses",
+    "cube",
+    "cubes",
+    "container",
+    "containers",
+    "cone",
+    "cones",
+    "box",
+    "boxes",
+    "bottle",
+    "bottles",
+    "block",
+    "blocks",
+    "bag",
+    "bags",
+    "part",
+    "parts",
+    "stick",
+    "sticks",
+    "head",
+    "heads",
+    "bar",
+    "bars",
+    "ear",
+    "ears",
+    "jar",
+    "jars",
+    "tub",
+    "tubs",
+    "small",
+    "medium",
+    "large",
+    "dose",
+    "dosen",
+    "glas",
+    "gläser",
+    "packung",
+    "packungen",
+    "päckchen",
+    "beutel",
+    "flasche",
+    "flaschen",
+    "zehe",
+    "zehen",
+    "knolle",
+    "knollen",
+    "kopf",
+    "köpfe",
+    "bund",
+    "bünde",
+    "blatt",
+    "blätter",
+    "spritzer",
+    "tropf",
+    "tropfen",
+    "prise",
+    "prisen",
+    "stück",
+    "stücke",
+    "stiel",
+    "stiele",
+    "stange",
+    "stangen",
+    "würfel",
+    "etwas",
+    "nach belieben",
+    "viel",
+    "do.",
+    "gl.",
+    "pck",
+    "pck.",
+    "pk",
+    "pk.",
+    "pckg",
+    "pckg.",
+    "btl",
+    "btl.",
+    "bt",
+    "bt.",
+    "fl",
+    "fl.",
+    "kn",
+    "kn.",
+    "bd",
+    "bd.",
+    "bn",
+    "bn.",
+    "bl",
+    "bl.",
+    "spr",
+    "spr.",
+    "tr",
+    "tr.",
+    "pr",
+    "pr.",
+    "stk",
+    "stk.",
+    "st",
+    "st.",
+    "stck",
+    "stck.",
+    "stg",
+    "stg.",
+    "wf",
+    "wf.",
+    "n. b.",
 )
 
 _SINGULAR_PLURAL = {
-    "peck": "pecks", "bushel": "bushels", "bucket": "buckets", "slice": "slices",
-    "clove": "cloves", "loaf": "loaves", "pinch": "pinches", "package": "packages",
-    "can": "cans", "drop": "drops", "bunch": "bunches", "dash": "dashes",
-    "carton": "cartons", "piece": "pieces", "square": "squares", "tube": "tubes",
-    "strip": "strips", "stem": "stems", "stalk": "stalks", "sprig": "sprigs",
-    "spear": "spears", "sprout": "sprouts", "sheet": "sheets", "scoop": "scoops",
-    "pouch": "pouches", "packet": "packets", "pack": "packs", "leaf": "leaves",
-    "glass": "glasses", "cube": "cubes", "container": "containers", "cone": "cones",
-    "box": "boxes", "bottle": "bottles", "block": "blocks", "bag": "bags",
-    "part": "parts", "stick": "sticks", "head": "heads", "bar": "bars", "ear": "ears",
-    "jar": "jars", "inch": "inches", "tub": "tubs", "cup": "cups", "ounce": "ounces",
-    "gallon": "gallons", "pint": "pints", "pound": "pounds", "quart": "quarts",
-    "tablespoon": "tablespoons", "teaspoon": "teaspoons", "gram": "grams",
-    "kilogram": "kilograms", "milligram": "milligrams", "liter": "liters",
-    "deciliter": "deciliters", "milliliter": "milliliters", "tasse": "tassen",
-    "dose": "dosen", "flasche": "flaschen", "zehe": "zehen", "knolle": "knollen",
-    "kopf": "köpfe", "bund": "bünde", "blatt": "blätter", "tropf": "tropfen",
-    "prise": "prisen", "stück": "stücke", "stiel": "stiele", "stange": "stangen",
+    "peck": "pecks",
+    "bushel": "bushels",
+    "bucket": "buckets",
+    "slice": "slices",
+    "clove": "cloves",
+    "loaf": "loaves",
+    "pinch": "pinches",
+    "package": "packages",
+    "can": "cans",
+    "drop": "drops",
+    "bunch": "bunches",
+    "dash": "dashes",
+    "carton": "cartons",
+    "piece": "pieces",
+    "square": "squares",
+    "tube": "tubes",
+    "strip": "strips",
+    "stem": "stems",
+    "stalk": "stalks",
+    "sprig": "sprigs",
+    "spear": "spears",
+    "sprout": "sprouts",
+    "sheet": "sheets",
+    "scoop": "scoops",
+    "pouch": "pouches",
+    "packet": "packets",
+    "pack": "packs",
+    "leaf": "leaves",
+    "glass": "glasses",
+    "cube": "cubes",
+    "container": "containers",
+    "cone": "cones",
+    "box": "boxes",
+    "bottle": "bottles",
+    "block": "blocks",
+    "bag": "bags",
+    "part": "parts",
+    "stick": "sticks",
+    "head": "heads",
+    "bar": "bars",
+    "ear": "ears",
+    "jar": "jars",
+    "inch": "inches",
+    "tub": "tubs",
+    "cup": "cups",
+    "ounce": "ounces",
+    "gallon": "gallons",
+    "pint": "pints",
+    "pound": "pounds",
+    "quart": "quarts",
+    "tablespoon": "tablespoons",
+    "teaspoon": "teaspoons",
+    "gram": "grams",
+    "kilogram": "kilograms",
+    "milligram": "milligrams",
+    "liter": "liters",
+    "deciliter": "deciliters",
+    "milliliter": "milliliters",
+    "tasse": "tassen",
+    "dose": "dosen",
+    "flasche": "flaschen",
+    "zehe": "zehen",
+    "knolle": "knollen",
+    "kopf": "köpfe",
+    "bund": "bünde",
+    "blatt": "blätter",
+    "tropf": "tropfen",
+    "prise": "prisen",
+    "stück": "stücke",
+    "stiel": "stiele",
+    "stange": "stangen",
 }
 _PLURAL_SINGULAR = {v: k for k, v in _SINGULAR_PLURAL.items()}
 
@@ -220,6 +457,7 @@ def _numeric_atom_pattern() -> str:
     decimal = r"(?:\d+(?:,\d+)?(?:\.\d+)?|\.\d+)"
     return rf"(?:{mixed}|{decimal})"
 
+
 _NUM = _numeric_atom_pattern()
 _RANGE = re.compile(
     rf"^(?P<a>{_NUM})(?P<sep>(?:\s+(?:to|or)\s+)|(?:\s*[{_DASH_CLASS}]\s*))(?P<b>{_NUM})(?=$|\s|[A-Za-z(])",
@@ -228,7 +466,9 @@ _RANGE = re.compile(
 _SINGLE = re.compile(rf"^(?P<a>{_NUM})(?=$|\s|[A-Za-z(\-])", re.I)
 
 
-def parse_leading_amount(text: str, *, decimal_separator: str = ".") -> tuple[ParsedAmount | None, str]:
+def parse_leading_amount(
+    text: str, *, decimal_separator: str = "."
+) -> tuple[ParsedAmount | None, str]:
     value = normalize_digits(text.strip())
     # A hyphen between an integer and a *fractional* atom is AnyList's mixed-fraction
     # spelling (``2-1/2``), not a range.  Test this before the generic range regex,
@@ -240,7 +480,9 @@ def parse_leading_amount(text: str, *, decimal_separator: str = ".") -> tuple[Pa
     )
     if mixed_prefix:
         raw = mixed_prefix.group(0)
-        return ParsedAmount(raw, amount_as_float(raw, decimal_separator=decimal_separator)), value[mixed_prefix.end() :]
+        return ParsedAmount(raw, amount_as_float(raw, decimal_separator=decimal_separator)), value[
+            mixed_prefix.end() :
+        ]
     m = _RANGE.match(value)
     if m:
         raw_a, raw_b = m.group("a"), m.group("b")
@@ -260,7 +502,9 @@ def parse_leading_amount(text: str, *, decimal_separator: str = ".") -> tuple[Pa
     if not m:
         return None, value
     raw = m.group("a")
-    return ParsedAmount(raw, amount_as_float(raw, decimal_separator=decimal_separator)), value[m.end() :]
+    return ParsedAmount(raw, amount_as_float(raw, decimal_separator=decimal_separator)), value[
+        m.end() :
+    ]
 
 
 def normalize_unit(unit: str) -> str:
@@ -278,9 +522,7 @@ def _replace_unit_aliases(text: str, groups: dict[str, tuple[str, ...]]) -> str:
         # The web tables are applied sequentially with case-insensitive word-boundary regexes.
         for alias in aliases:
             pattern = re.escape(alias).replace(r"\ ", r"\s+")
-            value = re.sub(
-                rf"(?<!\w){pattern}\.?(?!\w)", canonical, value, flags=re.I
-            )
+            value = re.sub(rf"(?<!\w){pattern}\.?(?!\w)", canonical, value, flags=re.I)
     return value
 
 
@@ -311,7 +553,9 @@ def singularize_units_in_text(text: str) -> str:
     """
     value = text or ""
     # Longest forms first avoids a shorter token stealing a larger phrase.
-    for plural, singular in sorted(_PLURAL_SINGULAR.items(), key=lambda pair: len(pair[0]), reverse=True):
+    for plural, singular in sorted(
+        _PLURAL_SINGULAR.items(), key=lambda pair: len(pair[0]), reverse=True
+    ):
         value = re.sub(rf"(?<!\w){re.escape(plural)}(?!\w)", singular, value, flags=re.I)
     return value
 
@@ -406,24 +650,36 @@ def parse_quantity_and_package_size(
             )
 
         if parenthetical:
-            package = parse_package_size(parenthetical.group(1), require_unit=True, decimal_separator=decimal_separator)
+            package = parse_package_size(
+                parenthetical.group(1), require_unit=True, decimal_separator=decimal_separator
+            )
         elif is_container:
             # "2 12 ounce jars" / "4 6-inch sprigs": package size can precede the container.
             prefix_source = rest
-            inner_amount, _ = parse_leading_amount(prefix_source, decimal_separator=decimal_separator)
+            inner_amount, _ = parse_leading_amount(
+                prefix_source, decimal_separator=decimal_separator
+            )
             if inner_amount is not None:
-                package = parse_package_size(prefix_source, require_unit=True, decimal_separator=decimal_separator)
+                package = parse_package_size(
+                    prefix_source, require_unit=True, decimal_separator=decimal_separator
+                )
         else:
             # A second package expression may follow a quantity unit, e.g. 1 cup 8 oz package.
-            package = parse_package_size(tail, require_unit=True, decimal_separator=decimal_separator)
+            package = parse_package_size(
+                tail, require_unit=True, decimal_separator=decimal_separator
+            )
     else:
         # "1 (6-oz can)" or plain numeric quantity.
         if parenthetical:
             quantity = PB.PBItemQuantity(amount=amount.raw, rawQuantity=amount.raw)
-            package = parse_package_size(parenthetical.group(1), require_unit=True, decimal_separator=decimal_separator)
+            package = parse_package_size(
+                parenthetical.group(1), require_unit=True, decimal_separator=decimal_separator
+            )
         else:
             # Try to interpret the remainder as package size before falling back to bare quantity.
-            package_candidate = parse_package_size(rest, require_unit=True, decimal_separator=decimal_separator)
+            package_candidate = parse_package_size(
+                rest, require_unit=True, decimal_separator=decimal_separator
+            )
             if package_candidate is not None and rest:
                 quantity = PB.PBItemQuantity(amount=amount.raw, rawQuantity=amount.raw)
                 package = package_candidate
@@ -500,7 +756,9 @@ def scale_quantity_text(text: str, scale: float) -> str:
     else:
         replacement = decimal_to_friendly_fraction(parsed.value * scale)
     # Match the original consumed amount rather than parsed.raw's normalized range separator.
-    m = _RANGE.match(normalize_digits(text.strip())) or _SINGLE.match(normalize_digits(text.strip()))
+    m = _RANGE.match(normalize_digits(text.strip())) or _SINGLE.match(
+        normalize_digits(text.strip())
+    )
     if not m:
         return text
     return replacement + text.strip()[m.end() :]

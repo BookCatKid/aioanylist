@@ -143,9 +143,7 @@ class OperationQueue:
 
     async def enqueue(self, operation: Message, *, flush: bool = True) -> str:
         if operation.DESCRIPTOR.name != self.spec.operation_type:
-            raise TypeError(
-                f"Expected {self.spec.operation_type}, got {operation.DESCRIPTOR.name}"
-            )
+            raise TypeError(f"Expected {self.spec.operation_type}, got {operation.DESCRIPTOR.name}")
         # Serialize pending-list mutations with flush. Without this, a producer could append
         # while flush is replacing _pending after acknowledgements and lose a newly queued op.
         async with self._state_lock:
@@ -183,7 +181,9 @@ class OperationQueue:
             restored = decode(self.spec.operation_list_type, raw)
         except Exception:
             # ALArchivedOperations restore ignores an archive that cannot be decoded.
-            logger.exception("Failed to decode archived AnyList operations for %s", self.spec.queue_id)
+            logger.exception(
+                "Failed to decode archived AnyList operations for %s", self.spec.queue_id
+            )
             return 0
 
         # The browser archive has one top-level ALOperationsKey equal to the active AnyList
@@ -249,9 +249,7 @@ class OperationQueue:
                                 removed += 1
                             else:
                                 local_id = (
-                                    self._pending[0].metadata.operationId
-                                    if self._pending
-                                    else None
+                                    self._pending[0].metadata.operationId if self._pending else None
                                 )
                                 logger.error(
                                     "AnyList operation acknowledgement mismatch for %s: "

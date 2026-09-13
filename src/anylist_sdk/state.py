@@ -77,7 +77,9 @@ class AnyListState:
     list_store_filters: dict[str, dict[str, PBStoreFilter]] = field(default_factory=dict)
     list_category_groups: dict[str, dict[str, PBListCategoryGroup]] = field(default_factory=dict)
     list_categories: dict[str, dict[str, PBListCategory]] = field(default_factory=dict)
-    list_categorization_rules: dict[str, dict[str, PBListCategorizationRule]] = field(default_factory=dict)
+    list_categorization_rules: dict[str, dict[str, PBListCategorizationRule]] = field(
+        default_factory=dict
+    )
     list_folders: dict[str, PBListFolder] = field(default_factory=dict)
     root_folder_id: str | None = None
     list_data_id: str | None = None
@@ -93,7 +95,9 @@ class AnyListState:
     pending_recipe_link_requests: list[PBRecipeLinkRequest] = field(default_factory=list)
     recipe_link_requests_to_confirm: list[PBRecipeLinkRequest] = field(default_factory=list)
     linked_recipe_users: list[PBEmailUserIDPair] = field(default_factory=list)
-    system_recipe_collection_settings: dict[str, PBRecipeCollectionSettings] = field(default_factory=dict)
+    system_recipe_collection_settings: dict[str, PBRecipeCollectionSettings] = field(
+        default_factory=dict
+    )
 
     meal_plan_calendar_id: str | None = None
     meal_plan_logical_timestamp: int = 0
@@ -221,9 +225,7 @@ class AnyListState:
             if stored_group.identifier:
                 groups[str(stored_group.identifier)] = stored_group
 
-        self._merge_index(
-            rules, detail.categorizationRules, detail.deletedCategorizationRuleIds
-        )
+        self._merge_index(rules, detail.categorizationRules, detail.deletedCategorizationRuleIds)
         self.list_responses[list_id] = clone(detail)
 
     def apply_shopping_lists(self, response: ShoppingListsResponse) -> None:
@@ -295,7 +297,9 @@ class AnyListState:
 
         # These arrays are complete snapshots whenever recipe data is returned.
         self.pending_recipe_link_requests = [clone(x) for x in response.pendingRecipeLinkRequests]
-        self.recipe_link_requests_to_confirm = [clone(x) for x in response.recipeLinkRequestsToConfirm]
+        self.recipe_link_requests_to_confirm = [
+            clone(x) for x in response.recipeLinkRequestsToConfirm
+        ]
         self.linked_recipe_users = [clone(x) for x in response.linkedUsers]
 
         # Incremental responses may omit unchanged system-collection settings. FX merges
@@ -317,7 +321,9 @@ class AnyListState:
         self.recipes = by_identifier(response.recipes)
         self.recipe_collections = by_identifier(response.recipeCollections)
         self.pending_recipe_link_requests = [clone(x) for x in response.pendingRecipeLinkRequests]
-        self.recipe_link_requests_to_confirm = [clone(x) for x in response.recipeLinkRequestsToConfirm]
+        self.recipe_link_requests_to_confirm = [
+            clone(x) for x in response.recipeLinkRequestsToConfirm
+        ]
         self.linked_recipe_users = [clone(x) for x in response.linkedUsers]
 
     @staticmethod
@@ -349,19 +355,19 @@ class AnyListState:
         if response_version < supported_version:
             return
         full = bool(response.isFullSync)
-        if (
-            self.meal_plan_calendar_id
-            and self.meal_plan_calendar_id != calendar_id
-            and not full
-        ):
+        if self.meal_plan_calendar_id and self.meal_plan_calendar_id != calendar_id and not full:
             return
 
         self.meal_plan_calendar_id = calendar_id
         self.meal_plan_logical_timestamp = int(response.logicalTimestamp)
         # The web client records min(server response version, supported version).
         self.meal_plan_response_version = min(response_version, supported_version)
-        self._apply_delta(self.meal_plan_events, response.events, response.deletedEventIds, full=full)
-        self._apply_delta(self.meal_plan_labels, response.labels, response.deletedLabelIds, full=full)
+        self._apply_delta(
+            self.meal_plan_events, response.events, response.deletedEventIds, full=full
+        )
+        self._apply_delta(
+            self.meal_plan_labels, response.labels, response.deletedLabelIds, full=full
+        )
         self._apply_delta(
             self.meal_plan_templates, response.templates, response.deletedTemplateIds, full=full
         )
@@ -398,7 +404,9 @@ class AnyListState:
         self.user_category_data_id = str(response.identifier)
         self.user_categories_timestamp = float(response.timestamp)
         if response.HasField("requiresRefreshTimestamp"):
-            self.user_categories_requires_refresh_timestamp = float(response.requiresRefreshTimestamp)
+            self.user_categories_requires_refresh_timestamp = float(
+                response.requiresRefreshTimestamp
+            )
         if response.HasField("hasMigratedCategoryOrderings"):
             self.has_migrated_category_orderings = bool(response.hasMigratedCategoryOrderings)
         if response.identifier == "all":
@@ -432,7 +440,9 @@ class AnyListState:
             target[str(value.listId or "")] = clone(value)
 
     @staticmethod
-    def _apply_starter_batch(target: dict[str, StarterList], batch: StarterListBatchResponse) -> None:
+    def _apply_starter_batch(
+        target: dict[str, StarterList], batch: StarterListBatchResponse
+    ) -> None:
         if batch.includesAllLists:
             target.clear()
         for identifier in batch.unknownListIds:
@@ -550,7 +560,9 @@ class AnyListState:
         out.recentItemTimestamps.CopyFrom(self._starter_timestamps(self.recent_item_lists))
         out.favoriteItemTimestamps.CopyFrom(self._starter_timestamps(self.favorite_item_lists))
         if self.ordered_starter_list_ids_timestamp_id:
-            out.orderedStarterListIdsTimestamp.identifier = self.ordered_starter_list_ids_timestamp_id
+            out.orderedStarterListIdsTimestamp.identifier = (
+                self.ordered_starter_list_ids_timestamp_id
+            )
             out.orderedStarterListIdsTimestamp.timestamp = self.ordered_starter_list_ids_timestamp
         if self.mobile_app_settings is not None:
             out.mobileAppSettingsTimestamp.identifier = "mobile-app-settings-timestamp"
@@ -560,5 +572,7 @@ class AnyListState:
     def user_data_client_info(self) -> PBUserDataClientInfo:
         out = PB.PBUserDataClientInfo()
         out.mealPlanningCalendarClientInfo.supportedResponseVersion = 1
-        out.mealPlanningCalendarClientInfo.processedResponseVersion = self.meal_plan_response_version
+        out.mealPlanningCalendarClientInfo.processedResponseVersion = (
+            self.meal_plan_response_version
+        )
         return out

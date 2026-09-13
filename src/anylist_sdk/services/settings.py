@@ -71,8 +71,10 @@ def _mobile_effective_value(settings: Message, field: str) -> Any:
     if field == "webSelectedListId":
         return raw or (_present_value(settings, "defaultListId") or None)
     if field in {
-        "webSelectedRecipeId", "webSelectedRecipeCollectionId",
-        "webSelectedListFolderPath", "webSelectedTabId",
+        "webSelectedRecipeId",
+        "webSelectedRecipeCollectionId",
+        "webSelectedListFolderPath",
+        "webSelectedTabId",
     }:
         return raw or None
     if field == "webRecipeCollectionLayoutStyle":
@@ -103,27 +105,51 @@ def _mobile_effective_value(settings: Message, field: str) -> Any:
 
 
 class ListSettingsService(OperationService):
-    def __init__(self, transport: AnyListTransport, state: AnyListState, *, user_id: str,
-                 starter: bool = False, journal: OperationJournal | None = None) -> None:
+    def __init__(
+        self,
+        transport: AnyListTransport,
+        state: AnyListState,
+        *,
+        user_id: str,
+        starter: bool = False,
+        journal: OperationJournal | None = None,
+    ) -> None:
         self.starter = starter
         endpoint = "/data/starter-list-settings/update" if starter else "/data/list-settings/update"
-        self.read_endpoint = "/data/starter-list-settings/all" if starter else "/data/list-settings/all"
+        self.read_endpoint = (
+            "/data/starter-list-settings/all" if starter else "/data/list-settings/all"
+        )
         qid = "starter-list-settings" if starter else "list-settings"
-        super().__init__(transport, state, user_id=user_id,
-            spec=QueueSpec(f"{user_id}:{qid}", endpoint,
-                           "PBListSettingsOperation", "PBListSettingsOperationList"), journal=journal)
+        super().__init__(
+            transport,
+            state,
+            user_id=user_id,
+            spec=QueueSpec(
+                f"{user_id}:{qid}",
+                endpoint,
+                "PBListSettingsOperation",
+                "PBListSettingsOperationList",
+            ),
+            journal=journal,
+        )
         self.user_id = user_id
         self.queue.on_response = self._on_response
 
-    async def _on_response(self,response:Message)->None:
-        if not response.originalTimestamps or not response.newTimestamps:return
-        original=float(response.originalTimestamps[0].timestamp)
-        current=(self.state.starter_list_settings_timestamp if self.starter
-                 else self.state.list_settings_timestamp)
-        if original==float(current):
-            value=float(response.newTimestamps[0].timestamp)
-            if self.starter:self.state.starter_list_settings_timestamp=value
-            else:self.state.list_settings_timestamp=value
+    async def _on_response(self, response: Message) -> None:
+        if not response.originalTimestamps or not response.newTimestamps:
+            return
+        original = float(response.originalTimestamps[0].timestamp)
+        current = (
+            self.state.starter_list_settings_timestamp
+            if self.starter
+            else self.state.list_settings_timestamp
+        )
+        if original == float(current):
+            value = float(response.newTimestamps[0].timestamp)
+            if self.starter:
+                self.state.starter_list_settings_timestamp = value
+            else:
+                self.state.list_settings_timestamp = value
         else:
             await self.refresh()
 
@@ -137,11 +163,13 @@ class ListSettingsService(OperationService):
 
     def ensure(self, list_id: str = "") -> PBListSettings:
         value = self.get(list_id)
-        if value is not None: return value
+        if value is not None:
+            return value
         # Official JS identifies per-list settings with md5(userId + "-" + listId).
         identifier = hashlib.md5(f"{self.user_id}-{list_id}".encode()).hexdigest()
         value = PB.PBListSettings(identifier=identifier, userId=self.user_id)
-        if list_id: value.listId = list_id
+        if list_id:
+            value.listId = list_id
         self._store[list_id] = value
         return value
 
@@ -264,11 +292,19 @@ class ListSettingsService(OperationService):
             self.state.apply_list_settings(response, starter=self.starter)
         return response
 
-    async def set(self, list_id: str, field: str, value: Any, *, handler_id: str | None = None,
-                  flush: bool = True) -> PBListSettings:
+    async def set(
+        self,
+        list_id: str,
+        field: str,
+        value: Any,
+        *,
+        handler_id: str | None = None,
+        flush: bool = True,
+    ) -> PBListSettings:
         settings = self.ensure(list_id)
         desc = settings.DESCRIPTOR.fields_by_name.get(field)
-        if desc is None: raise TypeError(f"PBListSettings has no field {field!r}")
+        if desc is None:
+            raise TypeError(f"PBListSettings has no field {field!r}")
         official_handlers = {
             "shouldHideCategories": "set-should-hide-categories",
             "shouldHideCompletedItems": "set-should-hide-completed-items",
@@ -299,7 +335,8 @@ class ListSettingsService(OperationService):
                     "pass an explicitly proven handler_id only when reproducing an official operation"
                 )
         no_op_if_unchanged = field not in {
-            "customTheme", "shouldShowSharedListCategoryOrderHintBanner"
+            "customTheme",
+            "shouldShowSharedListCategoryOrderHintBanner",
         }
         if field == "icon":
             current_icon = _present_value(settings, field)
@@ -311,8 +348,10 @@ class ListSettingsService(OperationService):
             return settings
         _set_proto_field(settings, field, value)
         partial = PB.PBListSettings(identifier=settings.identifier)
-        if settings.userId: partial.userId = settings.userId
-        if settings.listId: partial.listId = settings.listId
+        if settings.userId:
+            partial.userId = settings.userId
+        if settings.listId:
+            partial.listId = settings.listId
         # The official qF() helper copies the per-settings timestamp into every partial
         # PBListSettings mutation.  Keep it even though the queue response also carries
         # the manager-level timestamp; the server uses the embedded value for conflict
@@ -359,7 +398,8 @@ class ListSettingsService(OperationService):
 
     async def remove(self, list_id: str, *, flush: bool = True) -> None:
         settings = self._store.pop(list_id, None)
-        if settings is None: return
+        if settings is None:
+            return
         # qI() sends qF(settings), not the complete settings object.  Only identity and the
         # per-object timestamp participate in the remove operation payload.
         partial = PB.PBListSettings(identifier=settings.identifier)
@@ -381,18 +421,31 @@ class MobileSettingsService(OperationService):
         user_id: str,
         journal: OperationJournal | None = None,
     ) -> None:
-        super().__init__(transport, state, user_id=user_id,
-            spec=QueueSpec(f"{user_id}:mobile-settings", "/data/mobile-app-settings/update",
-                           "PBMobileAppSettingsOperation", "PBMobileAppSettingsOperationList"), journal=journal)
+        super().__init__(
+            transport,
+            state,
+            user_id=user_id,
+            spec=QueueSpec(
+                f"{user_id}:mobile-settings",
+                "/data/mobile-app-settings/update",
+                "PBMobileAppSettingsOperation",
+                "PBMobileAppSettingsOperationList",
+            ),
+            journal=journal,
+        )
         self.queue.on_response = self._on_response
 
-    async def _on_response(self,response:Message)->None:
-        if not response.originalTimestamps or not response.newTimestamps:return
-        settings=self.state.mobile_app_settings
-        if settings is None:return
-        original=float(response.originalTimestamps[0].timestamp)
-        if original==float(settings.timestamp):settings.timestamp=response.newTimestamps[0].timestamp
-        else:await self.refresh()
+    async def _on_response(self, response: Message) -> None:
+        if not response.originalTimestamps or not response.newTimestamps:
+            return
+        settings = self.state.mobile_app_settings
+        if settings is None:
+            return
+        original = float(response.originalTimestamps[0].timestamp)
+        if original == float(settings.timestamp):
+            settings.timestamp = response.newTimestamps[0].timestamp
+        else:
+            await self.refresh()
 
     async def refresh(self) -> PBMobileAppSettings | None:
         # bp() returns immediately while mobile-settings operations are pending.
@@ -413,39 +466,43 @@ class MobileSettingsService(OperationService):
         self.state.apply_mobile_settings(response)
         return response
 
-    def get(self) -> PBMobileAppSettings | None: return self.state.mobile_app_settings
+    def get(self) -> PBMobileAppSettings | None:
+        return self.state.mobile_app_settings
 
-    async def set(self, field: str, value: Any, *, handler_id: str | None = None,
-                  flush: bool = True) -> PBMobileAppSettings:
+    async def set(
+        self, field: str, value: Any, *, handler_id: str | None = None, flush: bool = True
+    ) -> PBMobileAppSettings:
         settings = self.state.mobile_app_settings
-        if settings is None: raise RuntimeError("Mobile app settings have not been synchronized")
+        if settings is None:
+            raise RuntimeError("Mobile app settings have not been synchronized")
         desc = settings.DESCRIPTOR.fields_by_name.get(field)
-        if desc is None: raise TypeError(f"PBMobileAppSettings has no field {field!r}")
+        if desc is None:
+            raise TypeError(f"PBMobileAppSettings has no field {field!r}")
         # AnyList Web's UT() helper seeds every mobile-settings operation with both
         # identifier and the current timestamp before setting the changed field.
         names = {
-            "listIdForRecipeIngredients":"set-list-id-for-recipe-ingredients",
-            "webSelectedListId":"set-web-selected-list-id",
-            "webSelectedRecipeId":"set-web-selected-recipe-id",
-            "webSelectedRecipeCollectionId":"set-web-selected-recipe-collection-id",
-            "webSelectedRecipeCollectionType":"set-web-selected-recipe-collection-type",
-            "webRecipeCollectionLayoutStyle":"set-web-recipe-collection-layout-style",
-            "webSelectedListFolderPath":"set-web-selected-list-folder-path",
-            "webSelectedTabId":"set-web-selected-tab-id",
-            "webSelectedMealPlanTab":"set-web-selected-meal-plan-tab-v2",
-            "webSelectedMealPlanEventId":"set-web-selected-meal-plan-event-id",
-            "webMealPlanCalendarLayout":"set-web-meal-plan-calendar-layout",
-            "webMealPlanMonthEventListType":"set-web-meal-plan-month-event-list-type",
-            "webMealPlanWeekEventListType":"set-web-meal-plan-week-event-list-type",
-            "webMealPlanNotesSortOrder":"set-web-meal-plan-notes-sort-order",
-            "webHasHiddenStoresAndFiltersHelp":"set-web-has-hidden-stores-and-filters-help",
-            "webHasHiddenItemPricesHelp":"set-web-has-hidden-item-prices-help",
-            "didSuppressAccountNamePrompt":"set-did-suppress-account-name-prompt",
-            "recipeCookingStates":"save-recipe-cooking-states",
-            "hasMigratedUserCategoriesToListCategories":"set-has-migrated-user-categories-to-list-categories",
-            "shouldExcludeNewListsFromAlexaByDefault":"set-should-exclude-new-lists-from-alexa-by-default",
-            "webMealPlanAddEntriesScreenPinnedEntriesCollapsed":"set-web-meal-plan-add-entries-screen-pinned-entries-collapsed",
-            "webMealPlanAddEntriesScreenQueueEntriesCollapsed":"set-web-meal-plan-add-entries-screen-queue-entries-collapsed",
+            "listIdForRecipeIngredients": "set-list-id-for-recipe-ingredients",
+            "webSelectedListId": "set-web-selected-list-id",
+            "webSelectedRecipeId": "set-web-selected-recipe-id",
+            "webSelectedRecipeCollectionId": "set-web-selected-recipe-collection-id",
+            "webSelectedRecipeCollectionType": "set-web-selected-recipe-collection-type",
+            "webRecipeCollectionLayoutStyle": "set-web-recipe-collection-layout-style",
+            "webSelectedListFolderPath": "set-web-selected-list-folder-path",
+            "webSelectedTabId": "set-web-selected-tab-id",
+            "webSelectedMealPlanTab": "set-web-selected-meal-plan-tab-v2",
+            "webSelectedMealPlanEventId": "set-web-selected-meal-plan-event-id",
+            "webMealPlanCalendarLayout": "set-web-meal-plan-calendar-layout",
+            "webMealPlanMonthEventListType": "set-web-meal-plan-month-event-list-type",
+            "webMealPlanWeekEventListType": "set-web-meal-plan-week-event-list-type",
+            "webMealPlanNotesSortOrder": "set-web-meal-plan-notes-sort-order",
+            "webHasHiddenStoresAndFiltersHelp": "set-web-has-hidden-stores-and-filters-help",
+            "webHasHiddenItemPricesHelp": "set-web-has-hidden-item-prices-help",
+            "didSuppressAccountNamePrompt": "set-did-suppress-account-name-prompt",
+            "recipeCookingStates": "save-recipe-cooking-states",
+            "hasMigratedUserCategoriesToListCategories": "set-has-migrated-user-categories-to-list-categories",
+            "shouldExcludeNewListsFromAlexaByDefault": "set-should-exclude-new-lists-from-alexa-by-default",
+            "webMealPlanAddEntriesScreenPinnedEntriesCollapsed": "set-web-meal-plan-add-entries-screen-pinned-entries-collapsed",
+            "webMealPlanAddEntriesScreenQueueEntriesCollapsed": "set-web-meal-plan-add-entries-screen-queue-entries-collapsed",
         }
         if handler_id is None:
             handler_id = names.get(field)
@@ -455,12 +512,20 @@ class MobileSettingsService(OperationService):
                     "pass an explicitly proven handler_id only when reproducing an official operation"
                 )
         no_op_fields = {
-            "webSelectedListId", "webSelectedRecipeId", "webSelectedRecipeCollectionId",
-            "webSelectedRecipeCollectionType", "webRecipeCollectionLayoutStyle",
-            "webSelectedListFolderPath", "webSelectedTabId", "webSelectedMealPlanTab",
-            "webSelectedMealPlanEventId", "webMealPlanCalendarLayout",
-            "webMealPlanMonthEventListType", "webMealPlanWeekEventListType",
-            "webMealPlanNotesSortOrder", "webHasHiddenStoresAndFiltersHelp",
+            "webSelectedListId",
+            "webSelectedRecipeId",
+            "webSelectedRecipeCollectionId",
+            "webSelectedRecipeCollectionType",
+            "webRecipeCollectionLayoutStyle",
+            "webSelectedListFolderPath",
+            "webSelectedTabId",
+            "webSelectedMealPlanTab",
+            "webSelectedMealPlanEventId",
+            "webMealPlanCalendarLayout",
+            "webMealPlanMonthEventListType",
+            "webMealPlanWeekEventListType",
+            "webMealPlanNotesSortOrder",
+            "webHasHiddenStoresAndFiltersHelp",
             "webHasHiddenItemPricesHelp",
             "webMealPlanAddEntriesScreenPinnedEntriesCollapsed",
             "webMealPlanAddEntriesScreenQueueEntriesCollapsed",
@@ -474,10 +539,13 @@ class MobileSettingsService(OperationService):
             elif _mobile_effective_value(settings, field) == value:
                 return settings
         _set_proto_field(settings, field, value)
-        partial = PB.PBMobileAppSettings(identifier=settings.identifier, timestamp=settings.timestamp)
+        partial = PB.PBMobileAppSettings(
+            identifier=settings.identifier, timestamp=settings.timestamp
+        )
         _set_proto_field(partial, field, value)
         await self.operation(handler_id, updatedSettings=partial, flush=flush)
         return settings
+
     async def save_recipe_cooking_states(
         self, states: list[PBRecipeCookingState], *, flush: bool = True
     ) -> str:
@@ -494,7 +562,9 @@ class MobileSettingsService(OperationService):
         del settings.recipeCookingStates[:]
         for value in by_id.values():
             settings.recipeCookingStates.add().CopyFrom(value)
-        partial = PB.PBMobileAppSettings(identifier=settings.identifier, timestamp=settings.timestamp)
+        partial = PB.PBMobileAppSettings(
+            identifier=settings.identifier, timestamp=settings.timestamp
+        )
         for value in states:
             partial.recipeCookingStates.add().CopyFrom(value)
         return await self.operation(
@@ -507,9 +577,7 @@ class MobileSettingsService(OperationService):
         settings = self.state.mobile_app_settings
         if settings is None:
             raise RuntimeError("Mobile app settings have not been synchronized")
-        remove_ids = {
-            (str(x.recipeId or ""), str(x.eventId or "")) for x in states
-        }
+        remove_ids = {(str(x.recipeId or ""), str(x.eventId or "")) for x in states}
         kept = [
             clone_message(x)
             for x in settings.recipeCookingStates
@@ -518,7 +586,9 @@ class MobileSettingsService(OperationService):
         del settings.recipeCookingStates[:]
         for value in kept:
             settings.recipeCookingStates.add().CopyFrom(value)
-        partial = PB.PBMobileAppSettings(identifier=settings.identifier, timestamp=settings.timestamp)
+        partial = PB.PBMobileAppSettings(
+            identifier=settings.identifier, timestamp=settings.timestamp
+        )
         for value in states:
             partial.recipeCookingStates.add().CopyFrom(value)
         return await self.operation(

@@ -21,7 +21,9 @@ async def test_recipe_refresh_returns_before_http_while_edit_queue_pending(fake_
 
 
 @pytest.mark.asyncio
-async def test_new_recipe_gets_creation_timestamp_and_all_recipes_membership(fake_transport) -> None:
+async def test_new_recipe_gets_creation_timestamp_and_all_recipes_membership(
+    fake_transport,
+) -> None:
     state = AnyListState(user_id="user", recipe_data_id="recipe-data")
     state.all_recipes_collection = PB.PBRecipeCollection(identifier="all")
     service = RecipesService(fake_transport, state, user_id="user")
@@ -40,9 +42,7 @@ async def test_new_recipe_gets_creation_timestamp_and_all_recipes_membership(fak
 async def test_updating_existing_recipe_does_not_reset_creation_timestamp(fake_transport) -> None:
     state = AnyListState(user_id="user")
     state.all_recipes_collection = PB.PBRecipeCollection(identifier="all", recipeIds=["recipe"])
-    state.recipes["recipe"] = PB.PBRecipe(
-        identifier="recipe", name="Old", creationTimestamp=123.0
-    )
+    state.recipes["recipe"] = PB.PBRecipe(identifier="recipe", name="Old", creationTimestamp=123.0)
     service = RecipesService(fake_transport, state, user_id="user")
 
     updated = await service.save(
@@ -77,7 +77,9 @@ async def test_remove_many_prunes_all_recipe_collections(fake_transport) -> None
 
 
 @pytest.mark.asyncio
-async def test_remove_from_collection_matches_official_one_operation_per_recipe(fake_transport) -> None:
+async def test_remove_from_collection_matches_official_one_operation_per_recipe(
+    fake_transport,
+) -> None:
     state = AnyListState(user_id="user")
     state.recipe_collections["collection"] = PB.PBRecipeCollection(
         identifier="collection", recipeIds=["a", "b", "c"]
@@ -178,7 +180,9 @@ async def test_recipe_update_moves_identity_changed_provenance(fake_transport) -
 
 
 @pytest.mark.asyncio
-async def test_recipe_update_does_not_recreate_checked_identity_changed_item(fake_transport) -> None:
+async def test_recipe_update_does_not_recreate_checked_identity_changed_item(
+    fake_transport,
+) -> None:
     from anylist_sdk.derived import ingredient_to_item_ingredient, recipe_list_item_identifier
     from anylist_sdk.services.shopping import ShoppingListsService
 
@@ -204,44 +208,66 @@ async def test_recipe_update_does_not_recreate_checked_identity_changed_item(fak
     operations = fake_transport.calls[-1][1]["operations"].operations
     assert [x.metadata.handlerId for x in operations] == ["remove-ingredient-id-from-list-item"]
 
+
 @pytest.mark.asyncio
-async def test_recipe_item_inherits_favorite_properties_without_overwriting_recipe_quantity(fake_transport) -> None:
+async def test_recipe_item_inherits_favorite_properties_without_overwriting_recipe_quantity(
+    fake_transport,
+) -> None:
     from anylist_sdk.services.starter import favorite_list_id
-    state=AnyListState(user_id='u')
-    lst=PB.ShoppingList(identifier='0123456789abcdef0123456789abcdef')
-    state.shopping_lists[lst.identifier]=lst
-    favorite=PB.StarterList(identifier=favorite_list_id(lst.identifier))
-    saved=favorite.items.add(identifier='fav',name='Fresh Tomatoes',details='favorite note',productUpc='123')
-    saved.storeIds.append('store')
-    saved.quantityPb.amount='99'
-    saved.packageSizePb.rawPackageSize='28 oz'
-    saved.priceQuantityPb.amount='2'
-    saved.priceQuantityShouldOverrideItemQuantity=True
-    state.favorite_item_lists[favorite.identifier]=favorite
-    service=ShoppingListsService(fake_transport,state,user_id='u')
-    source=PB.PBItemIngredient(recipeId='r',recipeName='Recipe')
-    source.ingredient.identifier='ing';source.ingredient.name='fresh tomato'
-    source.quantityPb.amount='1';source.quantityPb.unit='can';source.quantityPb.rawQuantity='1 can'
-    source.packageSizePb.size='28';source.packageSizePb.unit='oz';source.packageSizePb.rawPackageSize='28 oz'
-    created=await service.add_recipe_ingredient(lst.identifier,source,flush=False)
-    assert created.details=='favorite note' and created.productUpc=='123' and list(created.storeIds)==['store']
-    assert created.priceQuantityPb.amount=='2' and created.priceQuantityShouldOverrideItemQuantity
-    assert created.packageSizePb.rawPackageSize=='28 oz'
-    assert created.ingredients[0].quantityPb.amount=='1'
+
+    state = AnyListState(user_id="u")
+    lst = PB.ShoppingList(identifier="0123456789abcdef0123456789abcdef")
+    state.shopping_lists[lst.identifier] = lst
+    favorite = PB.StarterList(identifier=favorite_list_id(lst.identifier))
+    saved = favorite.items.add(
+        identifier="fav", name="Fresh Tomatoes", details="favorite note", productUpc="123"
+    )
+    saved.storeIds.append("store")
+    saved.quantityPb.amount = "99"
+    saved.packageSizePb.rawPackageSize = "28 oz"
+    saved.priceQuantityPb.amount = "2"
+    saved.priceQuantityShouldOverrideItemQuantity = True
+    state.favorite_item_lists[favorite.identifier] = favorite
+    service = ShoppingListsService(fake_transport, state, user_id="u")
+    source = PB.PBItemIngredient(recipeId="r", recipeName="Recipe")
+    source.ingredient.identifier = "ing"
+    source.ingredient.name = "fresh tomato"
+    source.quantityPb.amount = "1"
+    source.quantityPb.unit = "can"
+    source.quantityPb.rawQuantity = "1 can"
+    source.packageSizePb.size = "28"
+    source.packageSizePb.unit = "oz"
+    source.packageSizePb.rawPackageSize = "28 oz"
+    created = await service.add_recipe_ingredient(lst.identifier, source, flush=False)
+    assert (
+        created.details == "favorite note"
+        and created.productUpc == "123"
+        and list(created.storeIds) == ["store"]
+    )
+    assert created.priceQuantityPb.amount == "2" and created.priceQuantityShouldOverrideItemQuantity
+    assert created.packageSizePb.rawPackageSize == "28 oz"
+    assert created.ingredients[0].quantityPb.amount == "1"
 
 
 @pytest.mark.asyncio
 async def test_recipe_item_prefers_favorite_over_newest_recent(fake_transport) -> None:
     from anylist_sdk.services.starter import favorite_list_id, recent_list_id
-    state=AnyListState(user_id='u');lid='0123456789abcdef0123456789abcdef'
-    state.shopping_lists[lid]=PB.ShoppingList(identifier=lid)
-    fav=PB.StarterList(identifier=favorite_list_id(lid));fav.items.add(identifier='f',name='milk',details='favorite')
-    rec=PB.StarterList(identifier=recent_list_id(lid));rec.items.add(identifier='r',name='milk',details='recent')
-    state.favorite_item_lists[fav.identifier]=fav;state.recent_item_lists[rec.identifier]=rec
-    service=ShoppingListsService(fake_transport,state,user_id='u')
-    source=PB.PBItemIngredient(recipeId='r');source.ingredient.identifier='i';source.ingredient.name='milk'
-    created=await service.add_recipe_ingredient(lid,source,flush=False)
-    assert created.details=='favorite'
+
+    state = AnyListState(user_id="u")
+    lid = "0123456789abcdef0123456789abcdef"
+    state.shopping_lists[lid] = PB.ShoppingList(identifier=lid)
+    fav = PB.StarterList(identifier=favorite_list_id(lid))
+    fav.items.add(identifier="f", name="milk", details="favorite")
+    rec = PB.StarterList(identifier=recent_list_id(lid))
+    rec.items.add(identifier="r", name="milk", details="recent")
+    state.favorite_item_lists[fav.identifier] = fav
+    state.recent_item_lists[rec.identifier] = rec
+    service = ShoppingListsService(fake_transport, state, user_id="u")
+    source = PB.PBItemIngredient(recipeId="r")
+    source.ingredient.identifier = "i"
+    source.ingredient.name = "milk"
+    created = await service.add_recipe_ingredient(lid, source, flush=False)
+    assert created.details == "favorite"
 
 
 @pytest.mark.asyncio
@@ -288,7 +314,9 @@ async def test_accept_link_uses_request_id_and_user_id_and_replaces_state(fake_t
 
 
 @pytest.mark.asyncio
-async def test_accept_link_does_not_replace_recipe_state_while_edit_queue_pending(fake_transport) -> None:
+async def test_accept_link_does_not_replace_recipe_state_while_edit_queue_pending(
+    fake_transport,
+) -> None:
     state = AnyListState(user_id="user", recipe_data_id="old")
     state.recipes["optimistic"] = PB.PBRecipe(identifier="optimistic", name="Local")
     service = RecipesService(fake_transport, state, user_id="user")
@@ -306,7 +334,9 @@ async def test_accept_link_does_not_replace_recipe_state_while_edit_queue_pendin
 
 
 @pytest.mark.asyncio
-async def test_cancel_link_posts_request_proto_and_receives_full_recipe_data(fake_transport) -> None:
+async def test_cancel_link_posts_request_proto_and_receives_full_recipe_data(
+    fake_transport,
+) -> None:
     state = AnyListState(user_id="user")
     service = RecipesService(fake_transport, state, user_id="user")
     response = PB.PBRecipeDataResponse(recipeDataId="rd2", timestamp=4.0)
@@ -341,8 +371,11 @@ async def test_recipe_email_can_include_meal_plan_event_context(fake_transport) 
     }
     assert response_type is None
 
+
 @pytest.mark.asyncio
-async def test_add_to_collection_sends_full_collection_clone_with_only_added_ids(fake_transport) -> None:
+async def test_add_to_collection_sends_full_collection_clone_with_only_added_ids(
+    fake_transport,
+) -> None:
     state = AnyListState(user_id="user")
     state.recipes["a"] = PB.PBRecipe(identifier="a")
     state.recipes["b"] = PB.PBRecipe(identifier="b")
@@ -364,7 +397,9 @@ async def test_add_to_collection_sends_full_collection_clone_with_only_added_ids
 
 
 @pytest.mark.asyncio
-async def test_first_collection_sort_matches_official_settings_initialization(fake_transport) -> None:
+async def test_first_collection_sort_matches_official_settings_initialization(
+    fake_transport,
+) -> None:
     state = AnyListState(user_id="user")
     state.recipe_collections["collection"] = PB.PBRecipeCollection(
         identifier="collection", name="Dinner"

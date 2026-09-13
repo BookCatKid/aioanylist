@@ -234,9 +234,7 @@ class StarterListsService(OperationService):
         """Return user starter lists using StarterListsManager.WG ordering semantics."""
         legacy_favorites_id = hashlib.md5(f"{self.user_id}-favorites".encode()).hexdigest()
         values = [
-            value
-            for key, value in self.state.starter_lists.items()
-            if key != legacy_favorites_id
+            value for key, value in self.state.starter_lists.items() if key != legacy_favorites_id
         ]
         if alphabetical:
             return sorted(values, key=lambda value: localized_sort_key(str(value.name)))
@@ -269,9 +267,7 @@ class StarterListsService(OperationService):
         response = await self.transport.post_proto(
             "/data/starter-lists/all-v2",
             fields={
-                "user_lists_timestamps": self.state._starter_timestamps(
-                    self.state.starter_lists
-                ),
+                "user_lists_timestamps": self.state._starter_timestamps(self.state.starter_lists),
                 "recent_item_lists_timestamps": self.state._starter_timestamps(
                     self.state.recent_item_lists
                 ),
@@ -314,9 +310,7 @@ class StarterListsService(OperationService):
         starter_type: int | None = None,
         flush: bool = True,
     ) -> StarterList:
-        lst = PB.StarterList(
-            identifier=list_id or uuid4_hex(), name=name, userId=self.user_id
-        )
+        lst = PB.StarterList(identifier=list_id or uuid4_hex(), name=name, userId=self.user_id)
         if user_list_id:
             lst.listId = user_list_id
         if starter_type is not None:
@@ -409,9 +403,7 @@ class StarterListsService(OperationService):
             self.state.ordered_starter_list_ids.remove(list_id)
         await self.operation("remove-starter-list", listId=list_id, flush=flush)
 
-    async def add_item(
-        self, list_id: str, item: ListItem, *, flush: bool = True
-    ) -> ListItem:
+    async def add_item(self, list_id: str, item: ListItem, *, flush: bool = True) -> ListItem:
         lst = self._require(list_id)
         await self._trim_recents_for_add(lst, 1, flush=False)
         x = clone_message(item)
@@ -502,9 +494,7 @@ class StarterListsService(OperationService):
             return []
         return await self.bulk_add_items(str(recent.identifier), to_add, flush=flush)
 
-    async def remove_item(
-        self, list_id: str, item_id: str, *, flush: bool = True
-    ) -> None:
+    async def remove_item(self, list_id: str, item_id: str, *, flush: bool = True) -> None:
         lst = self._require(list_id)
         original = None
         for i, x in enumerate(lst.items):
@@ -537,9 +527,7 @@ class StarterListsService(OperationService):
         partial = PB.StarterList(identifier=list_id)
         for item in removed:
             partial.items.add().CopyFrom(item)
-        await self.operation(
-            "bulk-remove-list-items", listId=list_id, list=partial, flush=flush
-        )
+        await self.operation("bulk-remove-list-items", listId=list_id, list=partial, flush=flush)
 
     async def clear(self, list_id: str, *, flush: bool = True) -> None:
         lst = self._require(list_id)
@@ -549,9 +537,7 @@ class StarterListsService(OperationService):
     async def rename(self, list_id: str, name: str, *, flush: bool = True) -> None:
         lst = self._require(list_id)
         lst.name = name
-        await self.operation(
-            "rename-list", listId=list_id, updatedValue=name, flush=flush
-        )
+        await self.operation("rename-list", listId=list_id, updatedValue=name, flush=flush)
 
     async def set_item_name(
         self, list_id: str, item_id: str, name: str, *, flush: bool = True
@@ -751,7 +737,11 @@ class StarterListsService(OperationService):
         self, list_id: str, item_id: str, package_size: PBItemPackageSize, *, flush: bool = True
     ) -> ListItem:
         item = self._require_item(list_id, item_id)
-        current = item.pricePackageSizePb if item.HasField("pricePackageSizePb") else PB.PBItemPackageSize()
+        current = (
+            item.pricePackageSizePb
+            if item.HasField("pricePackageSizePb")
+            else PB.PBItemPackageSize()
+        )
         if package_size_equal(current, package_size):
             return item
         item.pricePackageSizePb.CopyFrom(package_size)
@@ -845,9 +835,7 @@ class StarterListsService(OperationService):
         for item_id in item_ids:
             item = partial.items.add(identifier=item_id, listId=list_id)
             item.storeIds.extend(store_ids)
-        await self.operation(
-            "add-store-ids-to-items", listId=list_id, list=partial, flush=flush
-        )
+        await self.operation("add-store-ids-to-items", listId=list_id, list=partial, flush=flush)
 
     async def remove_store_ids_from_items(
         self,
@@ -901,7 +889,9 @@ class StarterListsService(OperationService):
     ) -> ListItem:
         item = self._require_item(list_id, item_id)
         store_id = str(getattr(price, "storeId", "") or "")
-        empty = (not price.HasField("amount") or float(price.amount) == 0.0) and not (price.details or "")
+        empty = (not price.HasField("amount") or float(price.amount) == 0.0) and not (
+            price.details or ""
+        )
         existing_index = next(
             (idx for idx, value in enumerate(item.prices) if (value.storeId or "") == store_id),
             -1,
@@ -943,13 +933,9 @@ class StarterListsService(OperationService):
         )
         return item
 
-    async def reorder_lists(
-        self, ids: Sequence[str], *, flush: bool = True
-    ) -> str:
+    async def reorder_lists(self, ids: Sequence[str], *, flush: bool = True) -> str:
         self.state.ordered_starter_list_ids = list(ids)
-        op = self.order_queue.new_operation(
-            "set-ordered-list-ids", orderedListIds=list(ids)
-        )
+        op = self.order_queue.new_operation("set-ordered-list-ids", orderedListIds=list(ids))
         return await self.order_queue.enqueue(op, flush=flush)
 
     async def flush(self) -> OperationAck | None:
@@ -960,9 +946,7 @@ class StarterListsService(OperationService):
     async def restore(self) -> int:
         return await super().restore() + await self.order_queue.restore()
 
-    async def _trim_recents_for_add(
-        self, lst: StarterList, count: int, *, flush: bool
-    ) -> None:
+    async def _trim_recents_for_add(self, lst: StarterList, count: int, *, flush: bool) -> None:
         if not self._is_recent(lst) or count <= 0:
             return
         excess = len(lst.items) + count - _RECENT_LIMIT
@@ -981,9 +965,7 @@ class StarterListsService(OperationService):
         price_quantity = (
             item.priceQuantityPb if item.HasField("priceQuantityPb") else PB.PBItemQuantity()
         )
-        package = (
-            item.packageSizePb if item.HasField("packageSizePb") else PB.PBItemPackageSize()
-        )
+        package = item.packageSizePb if item.HasField("packageSizePb") else PB.PBItemPackageSize()
         price_package = (
             item.pricePackageSizePb
             if item.HasField("pricePackageSizePb")

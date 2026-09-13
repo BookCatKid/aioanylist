@@ -9,7 +9,12 @@ from urllib.parse import urlparse
 from uuid import UUID
 
 from .identifiers import uuid4_hex, uuid5_hex
-from .normalization import collapse_whitespace, localized_sort_key, normalized_for_search, remove_diacritics
+from .normalization import (
+    collapse_whitespace,
+    localized_sort_key,
+    normalized_for_search,
+    remove_diacritics,
+)
 from .parsing.quantity import (
     abbreviate_units_in_text,
     amount_as_float,
@@ -149,7 +154,9 @@ def recipes_not_in_collection(
     assigned: set[str] = set()
     for collection in collections:
         # Ignore client-derived smart collections when computing the synthetic bucket.
-        if collection.HasField("collectionSettings") and collection.collectionSettings.HasField("smartFilter"):
+        if collection.HasField("collectionSettings") and collection.collectionSettings.HasField(
+            "smartFilter"
+        ):
             continue
         assigned.update(collection.recipeIds)
     return [recipe for recipe in recipes if recipe.identifier not in assigned]
@@ -193,9 +200,6 @@ def duplicate_recipe_ids(collection: PBRecipeCollection) -> list[str]:
     return dupes
 
 
-
-
-
 def _recipe_name_compare(a: PBRecipe, b: PBRecipe) -> int:
     ka = localized_sort_key((getattr(a, "name", "") or "").lower())
     kb = localized_sort_key((getattr(b, "name", "") or "").lower())
@@ -213,7 +217,9 @@ def _meal_history_for_recipe(
             continue
         # The official index includes legacy events where eventType was absent alongside
         # explicit MealPlanCalendarEvent values.
-        has_type = event.HasField("eventType") if "eventType" in event.DESCRIPTOR.fields_by_name else False
+        has_type = (
+            event.HasField("eventType") if "eventType" in event.DESCRIPTOR.fields_by_name else False
+        )
         if has_type and int(event.eventType) != int(calendar_type):
             continue
         event_date = getattr(event, "date", "") or ""
@@ -249,9 +255,7 @@ def sort_recipes(
     def history(recipe: PBRecipe) -> tuple[str, int]:
         rid = str(getattr(recipe, "identifier", "") or "")
         if rid not in history_cache:
-            history_cache[rid] = _meal_history_for_recipe(
-                rid, meal_plan_events, today=today_value
-            )
+            history_cache[rid] = _meal_history_for_recipe(rid, meal_plan_events, today=today_value)
         return history_cache[rid]
 
     def cmp(a: PBRecipe, b: PBRecipe) -> int:
@@ -353,7 +357,11 @@ def ingredient_to_item_ingredient(
         out.eventId = str(getattr(event, "identifier", "") or "")
         out.eventDate = str(getattr(event, "date", "") or "")
 
-    factor = effective_event_scale_factor(event) if event is not None else effective_recipe_scale_factor(recipe)
+    factor = (
+        effective_event_scale_factor(event)
+        if event is not None
+        else effective_recipe_scale_factor(recipe)
+    )
     original_quantity = getattr(ingredient, "quantity", "") or ""
 
     if factor == 1:
@@ -400,6 +408,7 @@ def ingredient_to_item_ingredient(
         out.packageSizePb.CopyFrom(package)
     return out
 
+
 def normalized_raw_package_size(package: PBItemPackageSize | None) -> str:
     if package is None:
         return ""
@@ -419,9 +428,19 @@ def normalized_raw_package_size(package: PBItemPackageSize | None) -> str:
 
 
 def recipe_list_item_identifier(item_ingredient: PBItemIngredient, list_id: str) -> str:
-    package = item_ingredient.packageSizePb if item_ingredient.HasField("packageSizePb") else PB.PBItemPackageSize()
-    quantity = item_ingredient.quantityPb if item_ingredient.HasField("quantityPb") else PB.PBItemQuantity()
-    ingredient = item_ingredient.ingredient if item_ingredient.HasField("ingredient") else PB.PBIngredient()
+    package = (
+        item_ingredient.packageSizePb
+        if item_ingredient.HasField("packageSizePb")
+        else PB.PBItemPackageSize()
+    )
+    quantity = (
+        item_ingredient.quantityPb
+        if item_ingredient.HasField("quantityPb")
+        else PB.PBItemQuantity()
+    )
+    ingredient = (
+        item_ingredient.ingredient if item_ingredient.HasField("ingredient") else PB.PBIngredient()
+    )
     package_key = normalized_raw_package_size(package).lower()
     unit_key = normalize_unit(quantity.unit or "").lower()
     name = (ingredient.name or "").lower()
@@ -476,24 +495,46 @@ def total_ingredient_quantity(item: ListItem) -> PBItemQuantity | None:
         amount = amount_as_float(q.amount or "")
         if amount:
             total += amount
-        elif source.HasField("packageSizePb") and any(
-            getattr(source.packageSizePb, field, "") for field in ("size", "unit", "packageType", "rawPackageSize")
-        ) and len(item.ingredients) > 1:
+        elif (
+            source.HasField("packageSizePb")
+            and any(
+                getattr(source.packageSizePb, field, "")
+                for field in ("size", "unit", "packageType", "rawPackageSize")
+            )
+            and len(item.ingredients) > 1
+        ):
             total += 1
     if total > 0:
         out.amount = decimal_to_friendly_fraction(total, unicode=True)
-    first_q = item.ingredients[0].quantityPb if item.ingredients[0].HasField("quantityPb") else PB.PBItemQuantity()
+    first_q = (
+        item.ingredients[0].quantityPb
+        if item.ingredients[0].HasField("quantityPb")
+        else PB.PBItemQuantity()
+    )
     if first_q.unit:
         abbreviated = abbreviate_units_in_text(first_q.unit)
         out.unit = singularize_unit(abbreviated) if total == 1 else pluralize_unit(abbreviated)
     package_empty = not any(
-        getattr(ingredient_package_size(item), f, "") for f in ("size", "unit", "packageType", "rawPackageSize")
+        getattr(ingredient_package_size(item), f, "")
+        for f in ("size", "unit", "packageType", "rawPackageSize")
     )
     if len(item.ingredients) == 1 and package_empty:
-        out.rawQuantity = item.ingredients[0].ingredient.quantity if item.ingredients[0].HasField("ingredient") else ""
+        out.rawQuantity = (
+            item.ingredients[0].ingredient.quantity
+            if item.ingredients[0].HasField("ingredient")
+            else ""
+        )
     elif not out.amount and package_empty:
-        first = (item.ingredients[0].ingredient.quantity if item.ingredients[0].HasField("ingredient") else "") or ""
-        if all(((x.ingredient.quantity if x.HasField("ingredient") else "") or "").lower() == first.lower() for x in item.ingredients):
+        first = (
+            item.ingredients[0].ingredient.quantity
+            if item.ingredients[0].HasField("ingredient")
+            else ""
+        ) or ""
+        if all(
+            ((x.ingredient.quantity if x.HasField("ingredient") else "") or "").lower()
+            == first.lower()
+            for x in item.ingredients
+        ):
             out.rawQuantity = first
     else:
         raw = out.amount or ""
@@ -505,7 +546,9 @@ def total_ingredient_quantity(item: ListItem) -> PBItemQuantity | None:
 
 
 def list_quantity(item: ListItem) -> PBItemQuantity:
-    if item.ingredients and not bool(getattr(item, "itemQuantityShouldOverrideIngredientQuantity", False)):
+    if item.ingredients and not bool(
+        getattr(item, "itemQuantityShouldOverrideIngredientQuantity", False)
+    ):
         return total_ingredient_quantity(item) or PB.PBItemQuantity()
     return item_quantity(item)
 
@@ -525,7 +568,11 @@ def total_cost(item: ListItem, price: PBItemPrice) -> float:
 
 def active_package_size(item: ListItem) -> PBItemPackageSize:
     if bool(getattr(item, "pricePackageSizeShouldOverrideItemPackageSize", False)):
-        return item.pricePackageSizePb if item.HasField("pricePackageSizePb") else PB.PBItemPackageSize()
+        return (
+            item.pricePackageSizePb
+            if item.HasField("pricePackageSizePb")
+            else PB.PBItemPackageSize()
+        )
     return item.packageSizePb if item.HasField("packageSizePb") else PB.PBItemPackageSize()
 
 
@@ -538,7 +585,9 @@ def unit_price(item: ListItem, price: PBItemPrice) -> float:
     return amount / divisor
 
 
-def display_quantity_and_package_size(quantity: PBItemQuantity | None, package: PBItemPackageSize | None) -> str:
+def display_quantity_and_package_size(
+    quantity: PBItemQuantity | None, package: PBItemPackageSize | None
+) -> str:
     """Plain-text form used by AnyList when a meal-plan list item becomes an ingredient."""
     q = (getattr(quantity, "rawQuantity", "") or "") if quantity is not None else ""
     p = (getattr(package, "rawPackageSize", "") or "") if package is not None else ""
@@ -547,7 +596,9 @@ def display_quantity_and_package_size(quantity: PBItemQuantity | None, package: 
     return q or p
 
 
-def event_list_item_to_item_ingredient(item: PBCalendarEventListItem, event: PBCalendarEvent) -> PBItemIngredient:
+def event_list_item_to_item_ingredient(
+    item: PBCalendarEventListItem, event: PBCalendarEvent
+) -> PBItemIngredient:
     """Port PBCalendarEventListItem.toItemIngredientWithEvent from AnyList Web."""
     quantity = item.quantityPb if item.HasField("quantityPb") else PB.PBItemQuantity()
     package = item.packageSizePb if item.HasField("packageSizePb") else PB.PBItemPackageSize()
@@ -601,7 +652,9 @@ def recipe_servings_after_scaling(recipe: PBRecipe, event: PBCalendarEvent | Non
     return servings[:first_digit] + scaled if first_digit > 0 else scaled
 
 
-def recipe_ingredients_excluding_headings(recipe: PBRecipe, enabled: bool = True) -> list[PBIngredient] | None:
+def recipe_ingredients_excluding_headings(
+    recipe: PBRecipe, enabled: bool = True
+) -> list[PBIngredient] | None:
     """Port PBRecipe.ingredientsExcludingHeadings's intentionally gated behavior."""
     if not enabled:
         return None
@@ -616,7 +669,9 @@ def recipe_heading_text(value: str) -> str:
     return value[2:] if is_recipe_heading(value) else value
 
 
-def recipe_prep_steps_excluding_headings(recipe: PBRecipe, enabled: bool = True) -> list[str] | None:
+def recipe_prep_steps_excluding_headings(
+    recipe: PBRecipe, enabled: bool = True
+) -> list[str] | None:
     if not enabled:
         return None
     return [step for step in recipe.preparationSteps if not is_recipe_heading(step)]
@@ -705,9 +760,7 @@ def event_descriptor(event: PBCalendarEvent) -> PBCalendarEventDescriptor:
     return calendar_event_descriptor(str(event.identifier), int(event.eventType))
 
 
-def descriptors_equal(
-    a: PBCalendarEventDescriptor, b: PBCalendarEventDescriptor | None
-) -> bool:
+def descriptors_equal(a: PBCalendarEventDescriptor, b: PBCalendarEventDescriptor | None) -> bool:
     return b is not None and a.eventId == b.eventId and int(a.eventType) == int(b.eventType)
 
 
@@ -739,7 +792,9 @@ def template_group_item_for_group(group_id: str) -> PBMealPlanTemplateGroupItem:
     )
 
 
-def template_group_items_equal(a: PBMealPlanTemplateGroupItem, b: PBMealPlanTemplateGroupItem) -> bool:
+def template_group_items_equal(
+    a: PBMealPlanTemplateGroupItem, b: PBMealPlanTemplateGroupItem
+) -> bool:
     return int(a.itemType) == int(b.itemType) and a.identifier == b.identifier
 
 
@@ -768,6 +823,7 @@ def event_list_items_equal(
     ap = a.packageSizePb if a.HasField("packageSizePb") else PB.PBItemPackageSize()
     bp = b.packageSizePb if b.HasField("packageSizePb") else PB.PBItemPackageSize()
     from .item_semantics import package_size_equal, quantity_equal
+
     return quantity_equal(aq, bq) and package_size_equal(ap, bp)
 
 

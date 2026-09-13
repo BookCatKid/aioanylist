@@ -7,11 +7,26 @@ from .stemming import english_stem
 from .tag_data import TagData, TagDataManager
 
 _SYSTEM_ROOT_CATEGORIES = {
-    "baby", "bakery", "beverages", "breakfast-and-cereal",
-    "condiments-oils-and-salad-dressings", "cooking-and-baking", "dairy", "deli",
-    "frozen-foods", "grains-pasta-and-side-dishes", "health-and-personal-care",
-    "household-and-cleaning", "meat", "pet-supplies", "produce", "seafood",
-    "snacks-cookies-and-candy", "soups-and-canned-goods", "wine-beer-spirits", "other",
+    "baby",
+    "bakery",
+    "beverages",
+    "breakfast-and-cereal",
+    "condiments-oils-and-salad-dressings",
+    "cooking-and-baking",
+    "dairy",
+    "deli",
+    "frozen-foods",
+    "grains-pasta-and-side-dishes",
+    "health-and-personal-care",
+    "household-and-cleaning",
+    "meat",
+    "pet-supplies",
+    "produce",
+    "seafood",
+    "snacks-cookies-and-candy",
+    "soups-and-canned-goods",
+    "wine-beer-spirits",
+    "other",
 }
 
 
@@ -105,7 +120,11 @@ class Categorizer:
         specific = []
         for tag in candidates:
             root = data.tags.get(tag, {}).get("rootCategory")
-            if root and root != "produce" and not Categorizer._implies(data, tag, "spices-and-herbs"):
+            if (
+                root
+                and root != "produce"
+                and not Categorizer._implies(data, tag, "spices-and-herbs")
+            ):
                 specific.append(tag)
         if len(specific) == 1:
             return specific[0]

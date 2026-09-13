@@ -37,6 +37,7 @@ class _PBCalendarEventTypeWrapper(_EnumWrapper):
     MealPlanQueueEvent: int
     MealPlanTemplateEvent: int
     MealPlanFavoriteEvent: int
+
 PBCalendarEventType: _PBCalendarEventTypeWrapper
 
 class User(Message):
@@ -85,7 +86,9 @@ class User(Message):
     DEPRECATEDPreferredStoreIds: MutableSequence[str]
     DEPRECATEDFavoriteProductsTimestamp: float
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         id: str = ...,
         email: str = ...,
         created: int = ...,
@@ -138,6 +141,7 @@ class Tag(Message):
         TAG_TYPE_PRODUCT: int
         TAG_TYPE_CATEGORY: int
         TAG_TYPE_ATTRIBUTE: int
+
     TagType: _TagTypeWrapper
 
     name: str
@@ -153,7 +157,9 @@ class Tag(Message):
     priceStats: bytes
     tagType: int
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         name: str = ...,
         displayName: str = ...,
         imageName: str = ...,
@@ -178,7 +184,9 @@ class PBDeletedUserInfo(Message):
     supportTicketUrl: str
     ipAddress: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         timestamp: float = ...,
         deletionTimestamp: float = ...,
@@ -193,7 +201,9 @@ class PBIcon(Message):
     iconName: str
     tintHexColor: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         iconName: str = ...,
         tintHexColor: str = ...,
     ) -> None: ...
@@ -211,7 +221,9 @@ class PBUserListData(Message):
     categorizedItemsRequireRefreshTimestamp: float
     hasMigratedListOrdering: bool
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         timestamp: float = ...,
         userIds: Iterable[str] = ...,
@@ -229,10 +241,12 @@ class ShoppingList(Message):
     class _ListItemSortOrderWrapper(_EnumWrapper):
         Manual: int
         Alphabetical: int
+
     ListItemSortOrder: _ListItemSortOrderWrapper
     class _NewListItemPositionWrapper(_EnumWrapper):
         Bottom: int
         Top: int
+
     NewListItemPosition: _NewListItemPositionWrapper
 
     identifier: str
@@ -250,7 +264,9 @@ class ShoppingList(Message):
     listItemSortOrder: int
     newListItemPosition: int
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         timestamp: float = ...,
         name: str = ...,
@@ -272,7 +288,9 @@ class PBItemQuantity(Message):
     unit: str
     rawQuantity: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         amount: str = ...,
         unit: str = ...,
         rawQuantity: str = ...,
@@ -284,7 +302,9 @@ class PBItemPackageSize(Message):
     packageType: str
     rawPackageSize: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         size: str = ...,
         unit: str = ...,
         packageType: str = ...,
@@ -295,7 +315,9 @@ class PBItemQuantityAndPackageSize(Message):
     quantityPb: PBItemQuantity
     packageSizePb: PBItemPackageSize
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         quantityPb: PBItemQuantity = ...,
         packageSizePb: PBItemPackageSize = ...,
     ) -> None: ...
@@ -309,7 +331,9 @@ class PBItemIngredient(Message):
     recipeName: str
     eventDate: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         ingredient: PBIngredient = ...,
         quantityPb: PBItemQuantity = ...,
         packageSizePb: PBItemPackageSize = ...,
@@ -351,7 +375,9 @@ class ListItem(Message):
     manualSortIndex: int
     deprecatedQuantity: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         serverModTime: float = ...,
         listId: str = ...,
@@ -390,7 +416,9 @@ class PBItemPrice(Message):
     storeId: str
     date: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         amount: float = ...,
         details: str = ...,
         storeId: str = ...,
@@ -401,12 +429,15 @@ class PBListFolderItem(Message):
     class _ItemTypeWrapper(_EnumWrapper):
         ListType: int
         FolderType: int
+
     ItemType: _ItemTypeWrapper
 
     identifier: str
     itemType: int
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         itemType: int = ...,
     ) -> None: ...
@@ -415,11 +446,13 @@ class PBListFolderSettings(Message):
     class _SortOrderWrapper(_EnumWrapper):
         ManualSortOrder: int
         AlphabeticalSortOrder: int
+
     SortOrder: _SortOrderWrapper
     class _FolderSortPositionWrapper(_EnumWrapper):
         FolderSortPositionAfterLists: int
         FolderSortPositionBeforeLists: int
         FolderSortPositionWithLists: int
+
     FolderSortPosition: _FolderSortPositionWrapper
 
     listsSortOrder: int
@@ -427,7 +460,9 @@ class PBListFolderSettings(Message):
     folderHexColor: str
     icon: PBIcon
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         listsSortOrder: int = ...,
         folderSortPosition: int = ...,
         folderHexColor: str = ...,
@@ -441,7 +476,9 @@ class PBListFolder(Message):
     items: _RepeatedComposite[PBListFolderItem]
     folderSettings: PBListFolderSettings
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         timestamp: float = ...,
         name: str = ...,
@@ -459,7 +496,9 @@ class PBShoppingListArchive(Message):
     favoriteItems: StarterList
     recentItems: StarterList
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         shoppingList: ShoppingList = ...,
         listSettings: PBListSettings = ...,
         listCategoryGroups: Iterable[PBListCategoryGroup] = ...,
@@ -474,7 +513,9 @@ class PBListFolderItemArchive(Message):
     listArchive: PBShoppingListArchive
     folderArchive: PBListFolderArchive
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         listArchive: PBShoppingListArchive = ...,
         folderArchive: PBListFolderArchive = ...,
     ) -> None: ...
@@ -484,7 +525,9 @@ class PBListFolderArchive(Message):
     folderSettings: PBListFolderSettings
     items: _RepeatedComposite[PBListFolderItemArchive]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         name: str = ...,
         folderSettings: PBListFolderSettings = ...,
         items: Iterable[PBListFolderItemArchive] = ...,
@@ -498,7 +541,9 @@ class PBListFoldersResponse(Message):
     deletedFolderIds: MutableSequence[str]
     hasMigratedListOrdering: bool
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         listDataId: str = ...,
         rootFolderId: str = ...,
         includesAllFolders: bool = ...,
@@ -511,7 +556,9 @@ class PBListFolderTimestamps(Message):
     rootFolderId: str
     folderTimestamps: _RepeatedComposite[PBTimestamp]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         rootFolderId: str = ...,
         folderTimestamps: Iterable[PBTimestamp] = ...,
     ) -> None: ...
@@ -520,7 +567,9 @@ class PBListCategoryGroupResponse(Message):
     categoryGroup: PBListCategoryGroup
     deletedCategoryIds: MutableSequence[str]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         categoryGroup: PBListCategoryGroup = ...,
         deletedCategoryIds: Iterable[str] = ...,
     ) -> None: ...
@@ -533,7 +582,9 @@ class ShoppingListsResponse(Message):
     orderedIds: MutableSequence[str]
     listResponses: _RepeatedComposite[PBListResponse]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         newLists: Iterable[ShoppingList] = ...,
         modifiedLists: Iterable[ShoppingList] = ...,
         unmodifiedIds: Iterable[str] = ...,
@@ -555,7 +606,9 @@ class PBListResponse(Message):
     storeFilters: _RepeatedComposite[PBStoreFilter]
     deletedStoreFilterIds: MutableSequence[str]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         listId: str = ...,
         isFullSync: bool = ...,
         logicalTimestamp: int = ...,
@@ -574,6 +627,7 @@ class StarterList(Message):
         UserType: int
         RecentItemsType: int
         FavoriteItemsType: int
+
     Type: _TypeWrapper
 
     identifier: str
@@ -584,7 +638,9 @@ class StarterList(Message):
     listId: str
     starterListType: int
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         timestamp: float = ...,
         name: str = ...,
@@ -597,7 +653,9 @@ class StarterList(Message):
 class StarterListResponse(Message):
     starterList: StarterList
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         starterList: StarterList = ...,
     ) -> None: ...
 
@@ -606,7 +664,9 @@ class StarterListBatchResponse(Message):
     includesAllLists: bool
     unknownListIds: MutableSequence[str]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         listResponses: Iterable[StarterListResponse] = ...,
         includesAllLists: bool = ...,
         unknownListIds: Iterable[str] = ...,
@@ -618,7 +678,9 @@ class StarterListsResponseV2(Message):
     favoriteItemListsResponse: StarterListBatchResponse
     hasMigratedUserFavorites: bool
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         userListsResponse: StarterListBatchResponse = ...,
         recentItemListsResponse: StarterListBatchResponse = ...,
         favoriteItemListsResponse: StarterListBatchResponse = ...,
@@ -632,7 +694,9 @@ class StarterListsResponse(Message):
     unknownIds: MutableSequence[str]
     orderedIds: MutableSequence[str]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         newLists: Iterable[StarterList] = ...,
         modifiedLists: Iterable[StarterList] = ...,
         unmodifiedIds: Iterable[str] = ...,
@@ -647,7 +711,9 @@ class PBStore(Message):
     name: str
     sortIndex: int
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         logicalTimestamp: int = ...,
         listId: str = ...,
@@ -666,7 +732,9 @@ class PBStoreFilter(Message):
     listCategoryGroupId: str
     showsAllItems: bool
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         logicalTimestamp: int = ...,
         listId: str = ...,
@@ -688,7 +756,9 @@ class PBListCategory(Message):
     systemCategory: str
     sortIndex: int
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         logicalTimestamp: int = ...,
         categoryGroupId: str = ...,
@@ -709,7 +779,9 @@ class PBListCategoryGroup(Message):
     categoriesLogicalTimestamp: int
     deletedCategoriesLogicalTimestamp: int
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         logicalTimestamp: int = ...,
         listId: str = ...,
@@ -728,7 +800,9 @@ class PBListCategorizationRule(Message):
     itemName: str
     categoryId: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         logicalTimestamp: int = ...,
         listId: str = ...,
@@ -745,7 +819,9 @@ class PBListCategorizationRuleList(Message):
     categorizationRulesLogicalTimestamp: int
     deletedCategorizationRulesLogicalTimestamp: int
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         logicalTimestamp: int = ...,
         listId: str = ...,
@@ -759,7 +835,9 @@ class PBListItemCategoryAssignment(Message):
     categoryGroupId: str
     categoryId: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         categoryGroupId: str = ...,
         categoryId: str = ...,
@@ -788,7 +866,9 @@ class PBRecipe(Message):
     paprikaIdentifier: str
     recipeDataId: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         timestamp: float = ...,
         name: str = ...,
@@ -820,7 +900,9 @@ class PBRecipeCookingState(Message):
     checkedIngredientIds: MutableSequence[str]
     selectedStepNumber: int
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         recipeId: str = ...,
         eventId: str = ...,
         lastOpenedTimestamp: float = ...,
@@ -847,7 +929,9 @@ class PBXRecipe(Message):
     prepTime: int
     servings: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         name: str = ...,
         icon: str = ...,
@@ -869,7 +953,9 @@ class PBXRecipe(Message):
 class PBXRecipeArchive(Message):
     recipes: _RepeatedComposite[PBXRecipe]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         recipes: Iterable[PBXRecipe] = ...,
     ) -> None: ...
 
@@ -881,7 +967,9 @@ class PBIngredient(Message):
     note: str
     isHeading: bool
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         rawIngredient: str = ...,
         name: str = ...,
@@ -897,7 +985,9 @@ class PBXIngredient(Message):
     note: str
     isHeading: bool
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         rawIngredient: str = ...,
         name: str = ...,
         quantity: str = ...,
@@ -916,6 +1006,7 @@ class PBRecipeCollectionSettings(Message):
         DatePreparedSortOrder: int
         TimesPreparedSortOrder: int
         RecipeCountSortOrder: int
+
     SortOrder: _SortOrderWrapper
 
     timestamp: float
@@ -927,7 +1018,9 @@ class PBRecipeCollectionSettings(Message):
     icon: PBIcon
     showOnlyRecipesWithNoCollection: bool
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         timestamp: float = ...,
         recipesSortOrder: int = ...,
         useReversedSortDirection: bool = ...,
@@ -945,7 +1038,9 @@ class PBRecipeCollection(Message):
     recipeIds: MutableSequence[str]
     collectionSettings: PBRecipeCollectionSettings
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         timestamp: float = ...,
         name: str = ...,
@@ -970,7 +1065,9 @@ class PBUserRecipeData(Message):
     allRecipesTimestamp: float
     recipesTimestamp: float
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         timestamp: float = ...,
         recipeCollectionsTimestamp: float = ...,
@@ -997,7 +1094,9 @@ class PBRecipeLinkRequest(Message):
     confirmingEmail: str
     confirmingName: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         requestingUserId: str = ...,
         requestingEmail: str = ...,
@@ -1013,7 +1112,9 @@ class PBRecipeLinkRequestResponse(Message):
     errorTitle: str
     errorMessage: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         statusCode: int = ...,
         recipeDataResponse: PBRecipeDataResponse = ...,
         errorTitle: str = ...,
@@ -1035,7 +1136,9 @@ class PBRecipeDataResponse(Message):
     maxRecipeCount: int
     settingsMapForSystemCollections: MutableMapping[str, PBRecipeCollectionSettings]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         timestamp: float = ...,
         allRecipesCollection: PBRecipeCollection = ...,
         recipes: Iterable[PBRecipe] = ...,
@@ -1064,7 +1167,9 @@ class PBRecipeOperation(Message):
     recipeEventIds: MutableSequence[str]
     maxRecipeCount: int
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         metadata: PBOperationMetadata = ...,
         recipeDataId: str = ...,
         recipe: PBRecipe = ...,
@@ -1081,14 +1186,18 @@ class PBRecipeOperation(Message):
 class PBRecipeOperationList(Message):
     operations: _RepeatedComposite[PBRecipeOperation]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         operations: Iterable[PBRecipeOperation] = ...,
     ) -> None: ...
 
 class PBRecipeList(Message):
     recipes: _RepeatedComposite[PBRecipe]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         recipes: Iterable[PBRecipe] = ...,
     ) -> None: ...
 
@@ -1096,7 +1205,9 @@ class PBRecipeDataArchive(Message):
     recipes: _RepeatedComposite[PBRecipe]
     recipeCollections: _RepeatedComposite[PBRecipeCollection]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         recipes: Iterable[PBRecipe] = ...,
         recipeCollections: Iterable[PBRecipeCollection] = ...,
     ) -> None: ...
@@ -1108,7 +1219,9 @@ class PBRecipeWebImportResponse(Message):
     siteSpecificHelpText: str
     freeRecipeImportsRemainingCount: int
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         statusCode: int = ...,
         recipe: PBRecipe = ...,
         isPremiumUser: bool = ...,
@@ -1120,7 +1233,9 @@ class PBCalendar(Message):
     identifier: str
     logicalClockTime: int
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         logicalClockTime: int = ...,
     ) -> None: ...
@@ -1132,7 +1247,9 @@ class PBCalendarEventListItem(Message):
     quantityPb: PBItemQuantity
     packageSizePb: PBItemPackageSize
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         name: str = ...,
         details: str = ...,
@@ -1159,7 +1276,9 @@ class PBCalendarEvent(Message):
     templateId: str
     templateDayId: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         logicalTimestamp: int = ...,
         calendarId: str = ...,
@@ -1183,7 +1302,9 @@ class PBCalendarEventDescriptor(Message):
     eventId: str
     eventType: int
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         eventId: str = ...,
         eventType: int = ...,
     ) -> None: ...
@@ -1196,7 +1317,9 @@ class PBCalendarLabel(Message):
     name: str
     sortIndex: int
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         logicalTimestamp: int = ...,
         calendarId: str = ...,
@@ -1214,7 +1337,9 @@ class PBMealPlanTemplate(Message):
     dayIds: MutableSequence[str]
     sortIndex: int
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         logicalTimestamp: int = ...,
         calendarId: str = ...,
@@ -1232,7 +1357,9 @@ class PBMealPlanTemplateGroup(Message):
     items: _RepeatedComposite[PBMealPlanTemplateGroupItem]
     groupSettings: PBMealPlanTemplateGroupSettings
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         logicalTimestamp: int = ...,
         calendarId: str = ...,
@@ -1245,12 +1372,15 @@ class PBMealPlanTemplateGroupItem(Message):
     class _TypeWrapper(_EnumWrapper):
         Template: int
         Group: int
+
     Type: _TypeWrapper
 
     identifier: str
     itemType: int
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         itemType: int = ...,
     ) -> None: ...
@@ -1259,18 +1389,22 @@ class PBMealPlanTemplateGroupSettings(Message):
     class _SortOrderWrapper(_EnumWrapper):
         Manual: int
         Alphabetical: int
+
     SortOrder: _SortOrderWrapper
     class _GroupsSortPositionWrapper(_EnumWrapper):
         AfterTemplates: int
         BeforeTemplates: int
         WithTemplates: int
+
     GroupsSortPosition: _GroupsSortPositionWrapper
 
     itemsSortOrder: int
     groupsSortPosition: int
     icon: PBIcon
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         itemsSortOrder: int = ...,
         groupsSortPosition: int = ...,
         icon: PBIcon = ...,
@@ -1292,7 +1426,9 @@ class PBCalendarResponse(Message):
     templateGroups: _RepeatedComposite[PBMealPlanTemplateGroup]
     deletedTemplateGroupIds: MutableSequence[str]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         calendarId: str = ...,
         isFullSync: bool = ...,
         logicalTimestamp: int = ...,
@@ -1332,7 +1468,9 @@ class PBCalendarOperation(Message):
     originalParentTemplateGroupId: str
     updatedParentTemplateGroupId: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         metadata: PBOperationMetadata = ...,
         calendarId: str = ...,
         updatedEvent: PBCalendarEvent = ...,
@@ -1359,14 +1497,18 @@ class PBCalendarOperation(Message):
 class PBCalendarOperationList(Message):
     operations: _RepeatedComposite[PBCalendarOperation]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         operations: Iterable[PBCalendarOperation] = ...,
     ) -> None: ...
 
 class PBMealPlanSetICalendarEnabledRequest(Message):
     shouldEnableIcalendarGeneration: bool
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         shouldEnableIcalendarGeneration: bool = ...,
     ) -> None: ...
 
@@ -1376,7 +1518,9 @@ class PBMealPlanSetICalendarEnabledRequestResponse(Message):
     errorTitle: str
     errorMessage: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         statusCode: int = ...,
         accountInfo: PBAccountInfoResponse = ...,
         errorTitle: str = ...,
@@ -1388,7 +1532,9 @@ class PBSmartCondition(Message):
     operatorID: str
     value: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         fieldID: str = ...,
         operatorID: str = ...,
         value: str = ...,
@@ -1401,7 +1547,9 @@ class PBSmartFilter(Message):
     requiresMatchingAllConditions: bool
     conditions: _RepeatedComposite[PBSmartCondition]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         logicalTimestamp: int = ...,
         name: str = ...,
@@ -1417,6 +1565,7 @@ class PBOperationMetadata(Message):
         ListCategoryOperation: int
         ListCategoryGroupOperation: int
         ListCategorizationRuleOperation: int
+
     OperationClass: _OperationClassWrapper
 
     operationId: str
@@ -1425,7 +1574,9 @@ class PBOperationMetadata(Message):
     operationClass: int
     operationVersion: int
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         operationId: str = ...,
         handlerId: str = ...,
         userId: str = ...,
@@ -1437,7 +1588,9 @@ class PBFavoriteProductOperation(Message):
     metadata: PBOperationMetadata
     productId: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         metadata: PBOperationMetadata = ...,
         productId: str = ...,
     ) -> None: ...
@@ -1445,7 +1598,9 @@ class PBFavoriteProductOperation(Message):
 class PBFavoriteProductOperationList(Message):
     operations: _RepeatedComposite[PBFavoriteProductOperation]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         operations: Iterable[PBFavoriteProductOperation] = ...,
     ) -> None: ...
 
@@ -1453,7 +1608,9 @@ class PBSavedRecipeOperation(Message):
     metadata: PBOperationMetadata
     recipeId: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         metadata: PBOperationMetadata = ...,
         recipeId: str = ...,
     ) -> None: ...
@@ -1461,7 +1618,9 @@ class PBSavedRecipeOperation(Message):
 class PBSavedRecipeOperationList(Message):
     operations: _RepeatedComposite[PBSavedRecipeOperation]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         operations: Iterable[PBSavedRecipeOperation] = ...,
     ) -> None: ...
 
@@ -1469,7 +1628,9 @@ class PBOrderedShoppingListIDsOperation(Message):
     metadata: PBOperationMetadata
     orderedListIds: MutableSequence[str]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         metadata: PBOperationMetadata = ...,
         orderedListIds: Iterable[str] = ...,
     ) -> None: ...
@@ -1477,7 +1638,9 @@ class PBOrderedShoppingListIDsOperation(Message):
 class PBOrderedShoppingListIDsOperationList(Message):
     operations: _RepeatedComposite[PBOrderedShoppingListIDsOperation]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         operations: Iterable[PBOrderedShoppingListIDsOperation] = ...,
     ) -> None: ...
 
@@ -1485,7 +1648,9 @@ class PBOrderedStarterListIDsOperation(Message):
     metadata: PBOperationMetadata
     orderedListIds: MutableSequence[str]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         metadata: PBOperationMetadata = ...,
         orderedListIds: Iterable[str] = ...,
     ) -> None: ...
@@ -1493,7 +1658,9 @@ class PBOrderedStarterListIDsOperation(Message):
 class PBOrderedStarterListIDsOperationList(Message):
     operations: _RepeatedComposite[PBOrderedStarterListIDsOperation]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         operations: Iterable[PBOrderedStarterListIDsOperation] = ...,
     ) -> None: ...
 
@@ -1522,7 +1689,9 @@ class PBListOperation(Message):
     originalCategorizationRule: PBListCategorizationRule
     updatedCategorizationRules: _RepeatedComposite[PBListCategorizationRule]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         metadata: PBOperationMetadata = ...,
         listId: str = ...,
         listItemId: str = ...,
@@ -1551,7 +1720,9 @@ class PBListOperation(Message):
 class PBListOperationList(Message):
     operations: _RepeatedComposite[PBListOperation]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         operations: Iterable[PBListOperation] = ...,
     ) -> None: ...
 
@@ -1563,7 +1734,9 @@ class PBShareListOperationResponse(Message):
     errorTitle: str
     errorMessage: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         sharedUser: PBEmailUserIDPair = ...,
         originalListTimestamp: float = ...,
         updatedListTimestamp: float = ...,
@@ -1580,7 +1753,9 @@ class PBListFolderOperation(Message):
     originalParentFolderId: str
     updatedParentFolderId: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         metadata: PBOperationMetadata = ...,
         listDataId: str = ...,
         listFolder: PBListFolder = ...,
@@ -1592,7 +1767,9 @@ class PBListFolderOperation(Message):
 class PBListFolderOperationList(Message):
     operations: _RepeatedComposite[PBListFolderOperation]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         operations: Iterable[PBListFolderOperation] = ...,
     ) -> None: ...
 
@@ -1606,7 +1783,9 @@ class PBStarterListOperation(Message):
     list: StarterList
     itemPrice: PBItemPrice
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         metadata: PBOperationMetadata = ...,
         listId: str = ...,
         listItemId: str = ...,
@@ -1620,7 +1799,9 @@ class PBStarterListOperation(Message):
 class PBStarterListOperationList(Message):
     operations: _RepeatedComposite[PBStarterListOperation]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         operations: Iterable[PBStarterListOperation] = ...,
     ) -> None: ...
 
@@ -1628,7 +1809,9 @@ class PBCategorizeItemOperation(Message):
     metadata: PBOperationMetadata
     listItem: ListItem
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         metadata: PBOperationMetadata = ...,
         listItem: ListItem = ...,
     ) -> None: ...
@@ -1636,7 +1819,9 @@ class PBCategorizeItemOperation(Message):
 class PBCategorizeItemOperationList(Message):
     operations: _RepeatedComposite[PBCategorizeItemOperation]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         operations: Iterable[PBCategorizeItemOperation] = ...,
     ) -> None: ...
 
@@ -1644,7 +1829,9 @@ class PBCategorizedItemsList(Message):
     timestamp: PBTimestamp
     categorizedItems: _RepeatedComposite[ListItem]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         timestamp: PBTimestamp = ...,
         categorizedItems: Iterable[ListItem] = ...,
     ) -> None: ...
@@ -1654,7 +1841,9 @@ class PBCategoryOrdering(Message):
     name: str
     categories: MutableSequence[str]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         name: str = ...,
         categories: Iterable[str] = ...,
@@ -1696,7 +1885,9 @@ class PBListSettings(Message):
     selectedCategoryOrdering: str
     categoryOrderings: _RepeatedComposite[PBCategoryOrdering]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         userId: str = ...,
         listId: str = ...,
@@ -1737,7 +1928,9 @@ class PBListSettingsList(Message):
     timestamp: PBTimestamp
     settings: _RepeatedComposite[PBListSettings]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         timestamp: PBTimestamp = ...,
         settings: Iterable[PBListSettings] = ...,
     ) -> None: ...
@@ -1746,7 +1939,9 @@ class PBListSettingsOperation(Message):
     metadata: PBOperationMetadata
     updatedSettings: PBListSettings
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         metadata: PBOperationMetadata = ...,
         updatedSettings: PBListSettings = ...,
     ) -> None: ...
@@ -1754,7 +1949,9 @@ class PBListSettingsOperation(Message):
 class PBListSettingsOperationList(Message):
     operations: _RepeatedComposite[PBListSettingsOperation]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         operations: Iterable[PBListSettingsOperation] = ...,
     ) -> None: ...
 
@@ -1779,7 +1976,9 @@ class PBListTheme(Message):
     backgroundImage: str
     selectionHexColor: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         timestamp: float = ...,
         userId: str = ...,
@@ -1805,7 +2004,9 @@ class PBListThemeList(Message):
     timestamp: PBTimestamp
     themes: _RepeatedComposite[PBListTheme]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         timestamp: PBTimestamp = ...,
         themes: Iterable[PBListTheme] = ...,
     ) -> None: ...
@@ -1815,6 +2016,7 @@ class PBMobileAppSettings(Message):
         Never: int
         Always: int
         WhileCooking: int
+
     KeepScreenOnBehavior: _KeepScreenOnBehaviorWrapper
 
     identifier: str
@@ -1873,7 +2075,9 @@ class PBMobileAppSettings(Message):
     isActiveGoogleAssistantProvider: bool
     webSelectedMealPlanTabDeprecated: int
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         timestamp: float = ...,
         defaultListId: str = ...,
@@ -1945,7 +2149,9 @@ class PBAppNotice(Message):
     maxUserCreationTime: float
     localizedNotices: MutableMapping[str, PBAppNotice]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         timestamp: float = ...,
         title: str = ...,
@@ -1966,7 +2172,9 @@ class PBAppNoticesUserData(Message):
     readNoticeIds: MutableSequence[str]
     dismissedGlobalNoticeIds: MutableSequence[str]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         timestamp: float = ...,
         readNoticeIds: Iterable[str] = ...,
@@ -1977,7 +2185,9 @@ class PBAppNoticeOperation(Message):
     metadata: PBOperationMetadata
     noticeIds: MutableSequence[str]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         metadata: PBOperationMetadata = ...,
         noticeIds: Iterable[str] = ...,
     ) -> None: ...
@@ -1985,14 +2195,18 @@ class PBAppNoticeOperation(Message):
 class PBAppNoticeOperationList(Message):
     operations: _RepeatedComposite[PBAppNoticeOperation]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         operations: Iterable[PBAppNoticeOperation] = ...,
     ) -> None: ...
 
 class PBAppNoticeList(Message):
     notices: _RepeatedComposite[PBAppNotice]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         notices: Iterable[PBAppNotice] = ...,
     ) -> None: ...
 
@@ -2000,7 +2214,9 @@ class PBHintBannerDisplayStats(Message):
     identifier: str
     displayTimestamps: MutableSequence[float]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         displayTimestamps: Iterable[float] = ...,
     ) -> None: ...
@@ -2009,7 +2225,9 @@ class PBMobileAppSettingsOperation(Message):
     metadata: PBOperationMetadata
     updatedSettings: PBMobileAppSettings
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         metadata: PBOperationMetadata = ...,
         updatedSettings: PBMobileAppSettings = ...,
     ) -> None: ...
@@ -2017,7 +2235,9 @@ class PBMobileAppSettingsOperation(Message):
 class PBMobileAppSettingsOperationList(Message):
     operations: _RepeatedComposite[PBMobileAppSettingsOperation]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         operations: Iterable[PBMobileAppSettingsOperation] = ...,
     ) -> None: ...
 
@@ -2031,7 +2251,9 @@ class PBUserCategory(Message):
     fromSharedList: bool
     timestamp: float
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         userId: str = ...,
         name: str = ...,
@@ -2051,7 +2273,9 @@ class PBCategoryGrouping(Message):
     categoryIds: MutableSequence[str]
     shouldHideFromBrowseListCategoryGroupsScreen: bool
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         userId: str = ...,
         name: str = ...,
@@ -2069,7 +2293,9 @@ class PBUserCategoryData(Message):
     groupings: _RepeatedComposite[PBCategoryGrouping]
     hasMigratedCategoryOrderings: bool
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         timestamp: float = ...,
         requiresRefreshTimestamp: float = ...,
@@ -2083,7 +2309,9 @@ class PBUserCategoryOperation(Message):
     category: PBUserCategory
     grouping: PBCategoryGrouping
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         metadata: PBOperationMetadata = ...,
         category: PBUserCategory = ...,
         grouping: PBCategoryGrouping = ...,
@@ -2092,7 +2320,9 @@ class PBUserCategoryOperation(Message):
 class PBUserCategoryOperationList(Message):
     operations: _RepeatedComposite[PBUserCategoryOperation]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         operations: Iterable[PBUserCategoryOperation] = ...,
     ) -> None: ...
 
@@ -2100,7 +2330,9 @@ class PBTimestamp(Message):
     identifier: str
     timestamp: float
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         timestamp: float = ...,
     ) -> None: ...
@@ -2108,7 +2340,9 @@ class PBTimestamp(Message):
 class PBTimestampList(Message):
     timestamps: _RepeatedComposite[PBTimestamp]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         timestamps: Iterable[PBTimestamp] = ...,
     ) -> None: ...
 
@@ -2117,7 +2351,9 @@ class PBLogicalTimestamp(Message):
     logicalTimestamp: int
     description: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         logicalTimestamp: int = ...,
         description: str = ...,
@@ -2126,7 +2362,9 @@ class PBLogicalTimestamp(Message):
 class PBLogicalTimestampList(Message):
     timestamps: _RepeatedComposite[PBLogicalTimestamp]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         timestamps: Iterable[PBLogicalTimestamp] = ...,
     ) -> None: ...
 
@@ -2134,7 +2372,9 @@ class PBDataRequestClientInfo(Message):
     processedResponseVersion: int
     supportedResponseVersion: int
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         processedResponseVersion: int = ...,
         supportedResponseVersion: int = ...,
     ) -> None: ...
@@ -2147,7 +2387,9 @@ class PBEditOperationResponse(Message):
     currentLogicalTimestamps: _RepeatedComposite[PBLogicalTimestamp]
     fullRefreshTimestampIds: MutableSequence[str]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         originalTimestamps: Iterable[PBTimestamp] = ...,
         newTimestamps: Iterable[PBTimestamp] = ...,
         processedOperations: Iterable[str] = ...,
@@ -2185,7 +2427,9 @@ class PBUserSubscriptionInfo(Message):
     stripePaymentMethodExpirationYear: int
     stripePaymentMethodBrand: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         subscriptionIsActive: bool = ...,
         subscriptionManagementSystem: int = ...,
@@ -2220,7 +2464,9 @@ class PBIAPReceipt(Message):
     receiptData: bytes
     parsedReceipt: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         transactionId: str = ...,
         receiptData: bytes = ...,
         parsedReceipt: str = ...,
@@ -2230,7 +2476,9 @@ class PBStripeCharge(Message):
     chargeId: str
     charge: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         chargeId: str = ...,
         charge: str = ...,
     ) -> None: ...
@@ -2240,7 +2488,9 @@ class PBGooglePlayPurchase(Message):
     purchaseToken: str
     purchaseInfo: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         orderId: str = ...,
         purchaseToken: str = ...,
         purchaseInfo: str = ...,
@@ -2251,7 +2501,9 @@ class PBStripeSubscriptionInvoice(Message):
     invoiceId: str
     subscription: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         subscriptionId: str = ...,
         invoiceId: str = ...,
         subscription: str = ...,
@@ -2265,7 +2517,9 @@ class PBUserEmailInfo(Message):
     shouldSendOnboardingTips: bool
     shouldSendSubscriptionLifecycleMessages: bool
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         unsubscribeId: str = ...,
         sentMessageIdentifiers: Iterable[str] = ...,
@@ -2280,7 +2534,9 @@ class PBEmailSuppressionInfo(Message):
     shouldSuppressAllMessages: bool
     emailEvents: _RepeatedComposite[PBEmailEvent]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         emailAddress: str = ...,
         shouldSuppressAllMessages: bool = ...,
@@ -2292,7 +2548,9 @@ class PBEmailEvent(Message):
     eventData: str
     description: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         eventType: str = ...,
         eventData: str = ...,
         description: str = ...,
@@ -2314,7 +2572,9 @@ class PBAccountInfoResponse(Message):
     subscriptionIsPendingDowngrade: bool
     icalendarId: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         statusCode: int = ...,
         firstName: str = ...,
         lastName: str = ...,
@@ -2340,7 +2600,9 @@ class PBAppNoticesResponse(Message):
     removedUserNoticeIds: MutableSequence[str]
     userData: PBAppNoticesUserData
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         newGlobalNotices: Iterable[PBAppNotice] = ...,
         updatedGlobalNotices: Iterable[PBAppNotice] = ...,
         removedGlobalNoticeIds: Iterable[str] = ...,
@@ -2357,7 +2619,9 @@ class PBAccountChangePasswordResponse(Message):
     refreshToken: str
     accessToken: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         statusCode: int = ...,
         errorTitle: str = ...,
         errorMessage: str = ...,
@@ -2375,7 +2639,9 @@ class PBRedemptionCodeInfo(Message):
     creationTimestamp: float
     wasPurchased: bool
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         redemptionCode: str = ...,
         purchasingUserId: str = ...,
@@ -2392,7 +2658,9 @@ class PBRedemptionCodeResponse(Message):
     errorTitle: str
     errorMessage: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         statusCode: int = ...,
         accountInfo: PBAccountInfoResponse = ...,
         errorTitle: str = ...,
@@ -2412,7 +2680,9 @@ class PBAuthTokenInfo(Message):
     replacementTokenGenerationTimestamp: int
     clientPlatform: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         isBlacklisted: bool = ...,
         userId: str = ...,
@@ -2430,7 +2700,9 @@ class PBIdentifierList(Message):
     timestamp: float
     identifiers: MutableSequence[str]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         timestamp: float = ...,
         identifiers: Iterable[str] = ...,
     ) -> None: ...
@@ -2440,7 +2712,9 @@ class PBEmailUserIDPair(Message):
     userId: str
     fullName: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         email: str = ...,
         userId: str = ...,
         fullName: str = ...,
@@ -2453,7 +2727,9 @@ class PBNotificationLocation(Message):
     name: str
     address: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         latitude: float = ...,
         longitude: float = ...,
@@ -2477,7 +2753,9 @@ class PBUserDataClientTimestamps(Message):
     mobileAppSettingsTimestamp: PBTimestamp
     shoppingListLogicalTimestamps: PBLogicalTimestampList
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         shoppingListTimestamps: PBTimestampList = ...,
         listFolderTimestamps: PBListFolderTimestamps = ...,
         userRecipeDataTimestamp: PBTimestamp = ...,
@@ -2497,7 +2775,9 @@ class PBUserDataClientTimestamps(Message):
 class PBUserDataClientInfo(Message):
     mealPlanningCalendarClientInfo: PBDataRequestClientInfo
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         mealPlanningCalendarClientInfo: PBDataRequestClientInfo = ...,
     ) -> None: ...
 
@@ -2514,7 +2794,9 @@ class PBUserDataResponse(Message):
     starterListSettingsResponse: PBListSettingsList
     mobileAppSettingsResponse: PBMobileAppSettings
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         shoppingListsResponse: ShoppingListsResponse = ...,
         listFoldersResponse: PBListFoldersResponse = ...,
         recipeDataResponse: PBRecipeDataResponse = ...,
@@ -2540,7 +2822,9 @@ class PBValue(Message):
     logicalTimestampValue: int
     recipeCollectionSettingsMap: MutableMapping[str, PBRecipeCollectionSettings]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         stringValue: Iterable[str] = ...,
         boolValue: bool = ...,
@@ -2556,7 +2840,9 @@ class PBValue(Message):
 class PBValueList(Message):
     values: _RepeatedComposite[PBValue]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         values: Iterable[PBValue] = ...,
     ) -> None: ...
 
@@ -2564,7 +2850,9 @@ class PBDeletedObjectID(Message):
     identifier: str
     logicalTimestamp: int
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         logicalTimestamp: int = ...,
     ) -> None: ...
@@ -2577,7 +2865,9 @@ class PBDeletedObjectIDList(Message):
     logicalTimestamp: int
     deletedObjectIds: _RepeatedComposite[PBDeletedObjectID]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         containerId: str = ...,
         logicalClockId: str = ...,
@@ -2589,14 +2879,18 @@ class PBDeletedObjectIDList(Message):
 class PBEmailUserIDPairList(Message):
     emailUserIdPair: _RepeatedComposite[PBEmailUserIDPair]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         emailUserIdPair: Iterable[PBEmailUserIDPair] = ...,
     ) -> None: ...
 
 class PBRecipeLinkRequestList(Message):
     recipeLinkRequest: _RepeatedComposite[PBRecipeLinkRequest]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         recipeLinkRequest: Iterable[PBRecipeLinkRequest] = ...,
     ) -> None: ...
 
@@ -2606,7 +2900,9 @@ class PBSyncOperation(Message):
     operationClassName: str
     encodedOperation: bytes
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         operationQueueId: str = ...,
         operationClassName: str = ...,
@@ -2644,7 +2940,9 @@ class PBWatchSyncResponse(Message):
     deletedListFolderIds: MutableSequence[str]
     processedOperationIds: MutableSequence[str]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         watchId: str = ...,
         userId: str = ...,
         isPremiumUser: bool = ...,
@@ -2682,7 +2980,9 @@ class PBWatchSyncMultipartResponsePart(Message):
     partsCount: int
     responsePart: bytes
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         fullResponseHash: str = ...,
         partIndex: int = ...,
         partsCount: int = ...,
@@ -2694,7 +2994,9 @@ class PBWatchSyncMultipartResponse(Message):
     fullResponseHash: str
     responseLogicalTimestamp: int
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         reponsePart: Iterable[PBWatchSyncMultipartResponsePart] = ...,
         fullResponseHash: str = ...,
         responseLogicalTimestamp: int = ...,
@@ -2713,7 +3015,9 @@ class PBAlexaUser(Message):
     alexaApiEndpoint: str
     didHearWelcomeMessage: bool
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         alexaUserId: str = ...,
         anylistUserId: str = ...,
@@ -2737,7 +3041,9 @@ class PBAlexaList(Message):
     state: str
     version: int
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         alexaListId: str = ...,
         anylistListId: str = ...,
@@ -2758,7 +3064,9 @@ class PBAlexaListItem(Message):
     itemValue: str
     status: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         alexaItemId: str = ...,
         anylistItemId: str = ...,
@@ -2776,7 +3084,9 @@ class PBAlexaListOperation(Message):
     operationItems: _RepeatedComposite[PBAlexaListItem]
     operationLists: _RepeatedComposite[PBAlexaList]
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         operationType: str = ...,
         alexaUserId: str = ...,
@@ -2790,7 +3100,9 @@ class PBAlexaTask(Message):
     eventJson: str
     listOperation: PBAlexaListOperation
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         alexaUserId: str = ...,
         eventJson: str = ...,
@@ -2806,7 +3118,9 @@ class PBGoogleAssistantUser(Message):
     anylistAccessToken: str
     isActiveGoogleAssistantProvider: bool
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         anylistUserId: str = ...,
         listActionsApiRefreshToken: str = ...,
@@ -2827,7 +3141,9 @@ class PBGoogleAssistantList(Message):
     createTime: str
     updateTime: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         googleAssistantCreateToken: str = ...,
         anylistListId: str = ...,
@@ -2850,7 +3166,9 @@ class PBGoogleAssistantListItem(Message):
     createTime: str
     updateTime: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         googleAssistantCreateToken: str = ...,
         anylistItemId: str = ...,
@@ -2870,7 +3188,9 @@ class PBGoogleAssistantListOperation(Message):
     operationLists: _RepeatedComposite[PBGoogleAssistantList]
     googleAssistantListId: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         operationType: str = ...,
         anylistUserId: str = ...,
@@ -2884,7 +3204,9 @@ class PBGoogleAssistantTask(Message):
     anylistUserId: str
     listOperation: PBGoogleAssistantListOperation
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         anylistUserId: str = ...,
         listOperation: PBGoogleAssistantListOperation = ...,
@@ -2894,7 +3216,9 @@ class PBProductLookupResponse(Message):
     listItem: ListItem
     productThumbnailUrl: str
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         listItem: ListItem = ...,
         productThumbnailUrl: str = ...,
     ) -> None: ...
@@ -2902,6 +3226,7 @@ class PBProductLookupResponse(Message):
 class PBRetailProductSubmission(Message):
     class _SubmissionStatusWrapper(_EnumWrapper):
         Submitted: int
+
     SubmissionStatus: _SubmissionStatusWrapper
 
     identifier: str
@@ -2914,7 +3239,9 @@ class PBRetailProductSubmission(Message):
     productRootTag: str
     submissionStatus: int
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         identifier: str = ...,
         timestamp: float = ...,
         userId: str = ...,

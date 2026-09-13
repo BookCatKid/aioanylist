@@ -8,8 +8,11 @@ from anylist_sdk.tag_data import TagData
 
 
 class DataManager:
-    def __init__(self, data): self.data=data
-    async def get(self, *args, **kwargs): return self.data
+    def __init__(self, data):
+        self.data = data
+
+    async def get(self, *args, **kwargs):
+        return self.data
 
 
 def _data(language="en"):
@@ -76,7 +79,9 @@ def test_generic_candidates_preserve_official_raw_token_position() -> None:
 async def test_add_row_does_not_dedupe_equal_item_row() -> None:
     engine = AutocompleteEngine(DataManager(_data()))
     suggestions = await engine.suggestions(
-        "Milk", current_items=[PB.ListItem(identifier="current", name="Milk")], include_generic=False
+        "Milk",
+        current_items=[PB.ListItem(identifier="current", name="Milk")],
+        include_generic=False,
     )
     assert [(x.text, x.source) for x in suggestions] == [
         ("Milk", "add"),

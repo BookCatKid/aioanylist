@@ -51,8 +51,12 @@ def test_implied_parent_is_removed_when_specific_child_survives() -> None:
 
 
 class Manager:
-    def __init__(self, active, english): self.active=active;self.english=english
-    async def active_and_english(self): return self.active,self.english
+    def __init__(self, active, english):
+        self.active = active
+        self.english = english
+
+    async def active_and_english(self):
+        return self.active, self.english
 
 
 @pytest.mark.asyncio

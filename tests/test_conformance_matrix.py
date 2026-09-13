@@ -44,9 +44,7 @@ def test_conformance_matrix_accounts_for_every_public_callable() -> None:
             name = token[:-2]
             # Top-level helpers are commonly written with a module/service prefix in the
             # matrix (for example ``normalization.remove_diacritics()``).
-            present = bool(
-                re.search(rf"`(?:[A-Za-z0-9_]+\.)*{re.escape(name)}\(\)`", text)
-            )
+            present = bool(re.search(rf"`(?:[A-Za-z0-9_]+\.)*{re.escape(name)}\(\)`", text))
         if not present:
             missing.append(token)
 

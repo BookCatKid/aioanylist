@@ -14,7 +14,9 @@ class FakeTransport:
     responses: list[Any] = field(default_factory=list)
     calls: list[tuple[str, dict[str, Any], str | None]] = field(default_factory=list)
 
-    async def post_proto(self, endpoint: str, *, fields: dict[str, Any], response_type: str | None = None):
+    async def post_proto(
+        self, endpoint: str, *, fields: dict[str, Any], response_type: str | None = None
+    ):
         self.calls.append((endpoint, fields, response_type))
         if self.responses:
             response = self.responses.pop(0)
@@ -24,7 +26,11 @@ class FakeTransport:
         if response_type == "PBEditOperationResponse":
             response = PB.PBEditOperationResponse()
             operation_list = next(
-                (v for v in fields.values() if isinstance(v, Message) and "operations" in v.DESCRIPTOR.fields_by_name),
+                (
+                    v
+                    for v in fields.values()
+                    if isinstance(v, Message) and "operations" in v.DESCRIPTOR.fields_by_name
+                ),
                 None,
             )
             if operation_list is not None:

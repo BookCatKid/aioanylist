@@ -56,9 +56,7 @@ async def test_starter_order_refresh_returns_before_http_while_order_queue_pendi
     assert result is None
     assert fake_transport.calls == []
     await service.order_queue.resume()
-    assert [call[0] for call in fake_transport.calls] == [
-        "/data/starter-lists/update-ordered-ids"
-    ]
+    assert [call[0] for call in fake_transport.calls] == ["/data/starter-lists/update-ordered-ids"]
 
 
 @pytest.mark.asyncio
@@ -249,9 +247,7 @@ async def test_bulk_store_mutations_send_partial_items_and_mutate_local_state():
     lst.items.add(identifier="b")
     state.starter_lists[lst.identifier] = lst
 
-    await service.add_store_ids_to_items(
-        "starter1", ["a", "b"], ["y", "z"], flush=False
-    )
+    await service.add_store_ids_to_items("starter1", ["a", "b"], ["y", "z"], flush=False)
     assert list(lst.items[0].storeIds) == ["x", "y", "z"]
     assert list(lst.items[1].storeIds) == ["y", "z"]
     op = service.queue._pending[-1]
@@ -259,9 +255,7 @@ async def test_bulk_store_mutations_send_partial_items_and_mutate_local_state():
     assert [x.identifier for x in op.list.items] == ["a", "b"]
     assert list(op.list.items[0].storeIds) == ["y", "z"]
 
-    await service.remove_store_ids_from_items(
-        "starter1", ["a", "b"], ["z"], flush=False
-    )
+    await service.remove_store_ids_from_items("starter1", ["a", "b"], ["z"], flush=False)
     assert list(lst.items[0].storeIds) == ["x", "y"]
     assert list(lst.items[1].storeIds) == ["y"]
     assert service.queue._pending[-1].metadata.handlerId == "remove-store-ids-from-items"
@@ -286,6 +280,7 @@ async def test_starter_price_save_and_remove_mutate_local_price_array():
     assert op.metadata.handlerId == "save-item-price"
     assert op.itemPrice.storeId == "store1"
     assert op.itemPrice.amount == 0
+
 
 @pytest.mark.asyncio
 async def test_record_recent_items_replaces_equivalent_entry_with_fresh_unchecked_clone():
@@ -330,6 +325,7 @@ async def test_record_recent_items_can_leave_existing_equivalent_entry_in_place(
     assert added == []
     assert [x.identifier for x in rec.items] == ["old-id"]
     assert service.queue._pending == []
+
 
 @pytest.mark.asyncio
 async def test_starter_quantity_and_package_setters_suppress_equal_noops():

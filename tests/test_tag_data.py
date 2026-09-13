@@ -24,7 +24,9 @@ def payload(tag: str = "milk") -> dict:
 
 
 def test_language_and_paths_match_web_client() -> None:
-    class T: base_url="https://www.anylist.com"
+    class T:
+        base_url = "https://www.anylist.com"
+
     for locale, expected in [("en-US", "en"), ("de_DE", "de"), ("fr-FR", "en")]:
         manager = TagDataManager(T(), locale=locale)
         assert manager.language == expected
@@ -52,41 +54,54 @@ def test_german_tag_data_allows_missing_english_keyword_index() -> None:
 
 @pytest.mark.asyncio
 async def test_active_and_english_loads_german_plus_english() -> None:
-    paths=[]
+    paths = []
+
     async def handler(request):
         paths.append(request.path)
         return web.json_response(payload("milch" if request.path.endswith("_de.json") else "milk"))
-    app=web.Application()
-    app.router.add_get('/static/webapp/data/tag_data.json', handler)
-    app.router.add_get('/static/webapp/data/tag_data_de.json', handler)
+
+    app = web.Application()
+    app.router.add_get("/static/webapp/data/tag_data.json", handler)
+    app.router.add_get("/static/webapp/data/tag_data_de.json", handler)
     async with server(app) as base:
         async with AnyListTransport(base_url=base) as transport:
             active, english = await TagDataManager(transport, locale="de-DE").active_and_english()
     assert active.language == "de" and english.language == "en"
-    assert paths == ['/static/webapp/data/tag_data_de.json','/static/webapp/data/tag_data.json']
+    assert paths == ["/static/webapp/data/tag_data_de.json", "/static/webapp/data/tag_data.json"]
 
 
 @pytest.mark.asyncio
 async def test_fresh_disk_cache_avoids_network(tmp_path) -> None:
-    path=tmp_path/'tag_data_en.json'
-    path.write_text(json.dumps(payload()), 'utf-8')
+    path = tmp_path / "tag_data_en.json"
+    path.write_text(json.dumps(payload()), "utf-8")
+
     class Session:
-        def get(self, url): raise AssertionError("network should not be used")
+        def get(self, url):
+            raise AssertionError("network should not be used")
+
     class T:
-        base_url='https://www.anylist.com';session=Session()
-    value=await TagDataManager(T(), cache_dir=tmp_path).get('en')
-    assert 'milk' in value.tags
+        base_url = "https://www.anylist.com"
+        session = Session()
+
+    value = await TagDataManager(T(), cache_dir=tmp_path).get("en")
+    assert "milk" in value.tags
 
 
 @pytest.mark.asyncio
 async def test_stale_cache_falls_back_when_official_resource_fails(tmp_path) -> None:
-    path=tmp_path/'tag_data_en.json'
-    path.write_text(json.dumps(payload()), 'utf-8')
-    old=time.time()-100
-    os.utime(path,(old,old))
-    async def handler(request): return web.Response(status=503)
-    app=web.Application();app.router.add_get('/static/webapp/data/tag_data.json',handler)
+    path = tmp_path / "tag_data_en.json"
+    path.write_text(json.dumps(payload()), "utf-8")
+    old = time.time() - 100
+    os.utime(path, (old, old))
+
+    async def handler(request):
+        return web.Response(status=503)
+
+    app = web.Application()
+    app.router.add_get("/static/webapp/data/tag_data.json", handler)
     async with server(app) as base:
         async with AnyListTransport(base_url=base) as transport:
-            value=await TagDataManager(transport,cache_dir=tmp_path,cache_ttl=0.01,allow_stale=True).get('en')
-    assert 'milk' in value.tags
+            value = await TagDataManager(
+                transport, cache_dir=tmp_path, cache_ttl=0.01, allow_stale=True
+            ).get("en")
+    assert "milk" in value.tags

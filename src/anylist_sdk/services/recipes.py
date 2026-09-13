@@ -35,9 +35,18 @@ class RecipesService(OperationService):
         user_id: str,
         journal: OperationJournal | None = None,
     ) -> None:
-        super().__init__(transport, state, user_id=user_id,
-            spec=QueueSpec(f"{user_id}:recipes", "/data/user-recipe-data/update",
-                           "PBRecipeOperation", "PBRecipeOperationList"), journal=journal)
+        super().__init__(
+            transport,
+            state,
+            user_id=user_id,
+            spec=QueueSpec(
+                f"{user_id}:recipes",
+                "/data/user-recipe-data/update",
+                "PBRecipeOperation",
+                "PBRecipeOperationList",
+            ),
+            journal=journal,
+        )
         self.user_id = user_id
         self.queue.on_response = self._on_response
         self.on_recipe_removed: Callable[[str, bool], Awaitable[None]] | None = None
@@ -103,7 +112,9 @@ class RecipesService(OperationService):
             today=today,
         )
 
-    async def refresh(self, *, desktop_import_extension: bool = False) -> PBRecipeDataResponse | None:
+    async def refresh(
+        self, *, desktop_import_extension: bool = False
+    ) -> PBRecipeDataResponse | None:
         # RecipeManager.Sp returns before issuing either recipe-data read when the edit queue
         # has pending operations.
         if self.queue.pending_count:
@@ -132,7 +143,9 @@ class RecipesService(OperationService):
             fields["recipeDataId"] = self.state.recipe_data_id
         return await super().operation(handler_id, flush=flush, **fields)
 
-    async def save(self, recipe: PBRecipe, *, from_web_import: bool = False, flush: bool = True) -> PBRecipe:
+    async def save(
+        self, recipe: PBRecipe, *, from_web_import: bool = False, flush: bool = True
+    ) -> PBRecipe:
         recipe = clone_message(recipe)
         if not recipe.identifier:
             recipe.identifier = uuid4_hex()
@@ -153,23 +166,34 @@ class RecipesService(OperationService):
             if all_recipes is not None and recipe.identifier not in all_recipes.recipeIds:
                 all_recipes.recipeIds.append(recipe.identifier)
         self.state.recipes[recipe.identifier] = clone(recipe)
-        await self.operation("save-recipe", recipe=recipe,
-                             isNewRecipeFromWebImport=from_web_import, flush=flush)
+        await self.operation(
+            "save-recipe", recipe=recipe, isNewRecipeFromWebImport=from_web_import, flush=flush
+        )
         if previous is not None and self.on_recipe_updated is not None:
             await self.on_recipe_updated(recipe, previous, flush)
         return self.state.recipes[recipe.identifier]
 
-    async def create(self, name: str, *, ingredients: Sequence[PBIngredient] = (),
-                     preparation_steps: Sequence[str] = (), servings: str | None = None,
-                     source_name: str | None = None, source_url: str | None = None,
-                     flush: bool = True) -> PBRecipe:
+    async def create(
+        self,
+        name: str,
+        *,
+        ingredients: Sequence[PBIngredient] = (),
+        preparation_steps: Sequence[str] = (),
+        servings: str | None = None,
+        source_name: str | None = None,
+        source_url: str | None = None,
+        flush: bool = True,
+    ) -> PBRecipe:
         recipe = PB.PBRecipe(identifier=uuid4_hex(), name=name)
         for ingredient in ingredients:
             recipe.ingredients.add().CopyFrom(ingredient)
         recipe.preparationSteps.extend(preparation_steps)
-        if servings is not None: recipe.servings = servings
-        if source_name is not None: recipe.sourceName = source_name
-        if source_url is not None: recipe.sourceUrl = source_url
+        if servings is not None:
+            recipe.servings = servings
+        if source_name is not None:
+            recipe.sourceName = source_name
+        if source_url is not None:
+            recipe.sourceUrl = source_url
         return await self.save(recipe, flush=flush)
 
     async def remove(self, recipe_id: str, *, flush: bool = True) -> None:
@@ -206,8 +230,9 @@ class RecipesService(OperationService):
             all_recipes.recipeIds.extend(kept)
         await self.operation("remove-recipe-ids", recipeIds=ids, flush=flush)
 
-    async def create_collection(self, name: str, *, collection_id: str | None = None,
-                                flush: bool = True) -> PBRecipeCollection:
+    async def create_collection(
+        self, name: str, *, collection_id: str | None = None, flush: bool = True
+    ) -> PBRecipeCollection:
         collection = PB.PBRecipeCollection(identifier=collection_id or uuid4_hex(), name=name)
         self.state.recipe_collections[collection.identifier] = clone(collection)
         self.state.recipe_collection_ids.append(collection.identifier)
@@ -216,7 +241,8 @@ class RecipesService(OperationService):
 
     async def remove_collection(self, collection_id: str, *, flush: bool = True) -> None:
         collection = self.state.recipe_collections.pop(collection_id, None)
-        if collection is None: raise KeyError(collection_id)
+        if collection is None:
+            raise KeyError(collection_id)
         if collection_id in self.state.recipe_collection_ids:
             self.state.recipe_collection_ids.remove(collection_id)
         await self.operation("remove-recipe-collection", recipeCollection=collection, flush=flush)
@@ -224,14 +250,19 @@ class RecipesService(OperationService):
     async def rename_collection(self, collection_id: str, name: str, *, flush: bool = True) -> None:
         collection = self._collection(collection_id)
         collection.name = name
-        await self.operation("set-recipe-collection-name", recipeCollection=clone_message(collection), flush=flush)
+        await self.operation(
+            "set-recipe-collection-name", recipeCollection=clone_message(collection), flush=flush
+        )
 
-    async def add_to_collection(self, collection_id: str, recipe_ids: Sequence[str], *, flush: bool = True) -> None:
+    async def add_to_collection(
+        self, collection_id: str, recipe_ids: Sequence[str], *, flush: bool = True
+    ) -> None:
         collection = self._collection(collection_id)
         added = []
         for rid in recipe_ids:
             if rid in self.state.recipes and rid not in collection.recipeIds:
-                collection.recipeIds.append(rid); added.append(rid)
+                collection.recipeIds.append(rid)
+                added.append(rid)
         # AnyList Web sends a clone of the complete collection so metadata/settings are
         # retained, but narrows recipeIds to only IDs newly added by this mutation.
         partial = clone_message(collection)
@@ -239,7 +270,9 @@ class RecipesService(OperationService):
         partial.recipeIds.extend(added)
         await self.operation("add-recipes-to-collection", recipeCollection=partial, flush=flush)
 
-    async def remove_from_collection(self, collection_id: str, recipe_ids: Sequence[str], *, flush: bool = True) -> None:
+    async def remove_from_collection(
+        self, collection_id: str, recipe_ids: Sequence[str], *, flush: bool = True
+    ) -> None:
         collection = self._collection(collection_id)
         ids = list(recipe_ids)
         # The official web method queues one remove operation per recipe ID.  Preserve that
@@ -260,23 +293,41 @@ class RecipesService(OperationService):
         if flush and queued:
             await self.flush()
 
-    async def reorder_collections(self, collection_ids: Sequence[str], *, flush: bool = True) -> None:
+    async def reorder_collections(
+        self, collection_ids: Sequence[str], *, flush: bool = True
+    ) -> None:
         self.state.recipe_collection_ids = list(collection_ids)
-        await self.operation("set-ordered-recipe-collection-ids", recipeCollectionIds=list(collection_ids), flush=flush)
+        await self.operation(
+            "set-ordered-recipe-collection-ids",
+            recipeCollectionIds=list(collection_ids),
+            flush=flush,
+        )
 
-    async def reorder_recipes(self, collection_id: str, recipe_ids: Sequence[str], *, flush: bool = True) -> None:
+    async def reorder_recipes(
+        self, collection_id: str, recipe_ids: Sequence[str], *, flush: bool = True
+    ) -> None:
         collection = self._collection(collection_id)
-        del collection.recipeIds[:]; collection.recipeIds.extend(recipe_ids)
-        await self.operation("set-ordered-recipe-ids-for-collection", recipeCollection=clone_message(collection), flush=flush)
+        del collection.recipeIds[:]
+        collection.recipeIds.extend(recipe_ids)
+        await self.operation(
+            "set-ordered-recipe-ids-for-collection",
+            recipeCollection=clone_message(collection),
+            flush=flush,
+        )
 
-    async def set_collection_icon(self, collection_id: str, icon: str | PBIcon, *, flush: bool = True) -> None:
+    async def set_collection_icon(
+        self, collection_id: str, icon: str | PBIcon, *, flush: bool = True
+    ) -> None:
         c = self._collection(collection_id)
         value = icon if isinstance(icon, Message) else PB.PBIcon(iconName=icon)
         c.collectionSettings.icon.CopyFrom(value)
-        await self.operation("set-recipe-collection-icon", recipeCollection=clone_message(c), flush=flush)
+        await self.operation(
+            "set-recipe-collection-icon", recipeCollection=clone_message(c), flush=flush
+        )
 
-    async def set_collection_sort(self, collection_id: str, sort_order: int, *, reversed: bool = False,
-                                  flush: bool = True) -> None:
+    async def set_collection_sort(
+        self, collection_id: str, sort_order: int, *, reversed: bool = False, flush: bool = True
+    ) -> None:
         c = self._collection(collection_id)
         if c.HasField("collectionSettings"):
             c.collectionSettings.recipesSortOrder = sort_order
@@ -289,7 +340,9 @@ class RecipesService(OperationService):
                 recipesSortOrder=sort_order, showOnlyRecipesWithNoCollection=False
             )
             c.collectionSettings.CopyFrom(settings)
-        await self.operation("set-recipe-collection-sort-order", recipeCollection=clone_message(c), flush=flush)
+        await self.operation(
+            "set-recipe-collection-sort-order", recipeCollection=clone_message(c), flush=flush
+        )
 
     async def set_max_recipe_count(self, count: int, *, flush: bool = True) -> None:
         self.state.recipe_max_count = count
@@ -333,7 +386,8 @@ class RecipesService(OperationService):
 
     async def web_import(self, url: str, *, html: str | None = None) -> PBRecipeWebImportResponse:
         fields: dict[str, bytes | str] = {"url": url}
-        if html is not None: fields["html"] = html
+        if html is not None:
+            fields["html"] = html
         response = await self.transport.post_proto(
             "/data/recipes/web-import", fields=fields, response_type="PBRecipeWebImportResponse"
         )
@@ -354,14 +408,14 @@ class RecipesService(OperationService):
         if event_id is not None:
             fields["event_id"] = event_id
             if event_type is None:
-                event = self.state.meal_plan_events.get(event_id) or self.state.meal_plan_template_events.get(event_id)
+                event = self.state.meal_plan_events.get(
+                    event_id
+                ) or self.state.meal_plan_template_events.get(event_id)
                 if event is not None:
                     event_type = int(event.eventType)
         if event_type is not None:
             fields["event_type"] = event_type
-        return await self.transport.request(
-            "POST", "/data/recipes/send-as-email", fields=fields
-        )
+        return await self.transport.request("POST", "/data/recipes/send-as-email", fields=fields)
 
     async def request_link(self, email: str) -> PBRecipeLinkRequestResponse:
         req = PB.PBRecipeLinkRequest(
@@ -438,7 +492,10 @@ class RecipesService(OperationService):
         self.state.apply_recipes_full(response)
 
     def _collection(self, cid: str) -> PBRecipeCollection:
-        if self.state.all_recipes_collection is not None and self.state.all_recipes_collection.identifier == cid:
+        if (
+            self.state.all_recipes_collection is not None
+            and self.state.all_recipes_collection.identifier == cid
+        ):
             return self.state.all_recipes_collection
         c = self.state.recipe_collections.get(cid)
         if c is None:

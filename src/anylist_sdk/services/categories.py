@@ -61,20 +61,35 @@ class UserCategoriesService(OperationService):
         user_id: str,
         journal: OperationJournal | None = None,
     ) -> None:
-        super().__init__(transport,state,user_id=user_id,
-            spec=QueueSpec(f"{user_id}:user-categories", "/data/user-categories/update",
-                           "PBUserCategoryOperation","PBUserCategoryOperationList"),journal=journal)
-        self.user_id=user_id
+        super().__init__(
+            transport,
+            state,
+            user_id=user_id,
+            spec=QueueSpec(
+                f"{user_id}:user-categories",
+                "/data/user-categories/update",
+                "PBUserCategoryOperation",
+                "PBUserCategoryOperationList",
+            ),
+            journal=journal,
+        )
+        self.user_id = user_id
         self.queue.on_response = self._on_response
-    async def _on_response(self,response:Message)->None:
-        if not response.originalTimestamps or not response.newTimestamps:return
-        original=float(response.originalTimestamps[0].timestamp)
-        if original==float(self.state.user_categories_timestamp):
-            self.state.user_categories_timestamp=float(response.newTimestamps[0].timestamp)
+
+    async def _on_response(self, response: Message) -> None:
+        if not response.originalTimestamps or not response.newTimestamps:
+            return
+        original = float(response.originalTimestamps[0].timestamp)
+        if original == float(self.state.user_categories_timestamp):
+            self.state.user_categories_timestamp = float(response.newTimestamps[0].timestamp)
         else:
             await self.refresh()
-    def all(self) -> list[PBUserCategory]: return list(self.state.user_categories.values())
-    def groupings(self) -> list[PBCategoryGrouping]: return list(self.state.category_groupings.values())
+
+    def all(self) -> list[PBUserCategory]:
+        return list(self.state.user_categories.values())
+
+    def groupings(self) -> list[PBCategoryGrouping]:
+        return list(self.state.category_groupings.values())
 
     async def refresh(self) -> PBUserCategoryData | None:
         # CategoryManager.wp returns before HTTP while its edit queue is non-empty.
@@ -92,56 +107,113 @@ class UserCategoriesService(OperationService):
         self.state.apply_user_categories(response)
         return response
 
-    async def add_category(self,name:str,icon:str="",*,flush:bool=True)->PBUserCategory:
-        c=PB.PBUserCategory(identifier=uuid4_hex(),userId=self.user_id,name=name,
-                            categoryMatchId=canonical_category_match_id(name),icon=icon)
-        self.state.user_categories[c.identifier]=clone(c)
-        await self.operation("add-category",category=c,flush=flush); return self.state.user_categories[c.identifier]
-    async def remove_category(self,cid:str,*,flush:bool=True)->None:
-        c=self.state.user_categories.pop(cid,None)
-        if c is None: raise KeyError(cid)
-        await self.operation("remove-category",category=c,flush=flush)
-    async def rename_category(self,cid:str,name:str,*,flush:bool=True)->PBUserCategory:
-        c=self._cat(cid); c.name=name
-        if not getattr(c,"systemCategory",""): c.categoryMatchId=canonical_category_match_id(name)
-        await self.operation("set-category-name",category=clone_message(c),flush=flush); return c
-    async def set_category_icon(self,cid:str,icon:str,*,flush:bool=True)->PBUserCategory:
-        c=self._cat(cid); c.icon=icon
-        await self.operation("set-category-icon",category=clone_message(c),flush=flush); return c
-    async def add_grouping(self,name:str,category_ids:Sequence[str]=(),*,flush:bool=True)->PBCategoryGrouping:
-        g=PB.PBCategoryGrouping(identifier=uuid4_hex(),userId=self.user_id,name=name,sharingId=uuid4_hex())
-        g.categoryIds.extend(category_ids); self.state.category_groupings[g.identifier]=clone(g)
-        await self.operation("add-grouping",grouping=g,flush=flush); return self.state.category_groupings[g.identifier]
-    async def remove_grouping(self,gid:str,*,flush:bool=True)->None:
-        g=self.state.category_groupings.pop(gid,None)
-        if g is None: raise KeyError(gid)
-        p=clone_message(g); del p.categoryIds[:]
-        await self.operation("remove-grouping",grouping=p,flush=flush)
-    async def set_grouping_categories(self,gid:str,category_ids:Sequence[str],*,ordering_only:bool=False,flush:bool=True)->PBCategoryGrouping:
-        g=self._group(gid); del g.categoryIds[:]; g.categoryIds.extend(category_ids)
-        await self.operation("set-grouping-category-order" if ordering_only else "set-grouping-categories",
-                             grouping=clone_message(g),flush=flush); return g
-    async def rename_grouping(self,gid:str,name:str,*,flush:bool=True)->PBCategoryGrouping:
-        g=self._group(gid);g.name=name;p=clone_message(g);del p.categoryIds[:]
-        await self.operation("set-grouping-name",grouping=p,flush=flush);return g
-    async def hide_grouping_from_browse(self,gid:str,*,flush:bool=True)->PBCategoryGrouping:
-        g=self._group(gid)
-        if g.shouldHideFromBrowseListCategoryGroupsScreen:
-            return g
-        g.shouldHideFromBrowseListCategoryGroupsScreen=True
-        p=clone_message(g);del p.categoryIds[:]
+    async def add_category(
+        self, name: str, icon: str = "", *, flush: bool = True
+    ) -> PBUserCategory:
+        c = PB.PBUserCategory(
+            identifier=uuid4_hex(),
+            userId=self.user_id,
+            name=name,
+            categoryMatchId=canonical_category_match_id(name),
+            icon=icon,
+        )
+        self.state.user_categories[c.identifier] = clone(c)
+        await self.operation("add-category", category=c, flush=flush)
+        return self.state.user_categories[c.identifier]
+
+    async def remove_category(self, cid: str, *, flush: bool = True) -> None:
+        c = self.state.user_categories.pop(cid, None)
+        if c is None:
+            raise KeyError(cid)
+        await self.operation("remove-category", category=c, flush=flush)
+
+    async def rename_category(self, cid: str, name: str, *, flush: bool = True) -> PBUserCategory:
+        c = self._cat(cid)
+        c.name = name
+        if not getattr(c, "systemCategory", ""):
+            c.categoryMatchId = canonical_category_match_id(name)
+        await self.operation("set-category-name", category=clone_message(c), flush=flush)
+        return c
+
+    async def set_category_icon(self, cid: str, icon: str, *, flush: bool = True) -> PBUserCategory:
+        c = self._cat(cid)
+        c.icon = icon
+        await self.operation("set-category-icon", category=clone_message(c), flush=flush)
+        return c
+
+    async def add_grouping(
+        self, name: str, category_ids: Sequence[str] = (), *, flush: bool = True
+    ) -> PBCategoryGrouping:
+        g = PB.PBCategoryGrouping(
+            identifier=uuid4_hex(), userId=self.user_id, name=name, sharingId=uuid4_hex()
+        )
+        g.categoryIds.extend(category_ids)
+        self.state.category_groupings[g.identifier] = clone(g)
+        await self.operation("add-grouping", grouping=g, flush=flush)
+        return self.state.category_groupings[g.identifier]
+
+    async def remove_grouping(self, gid: str, *, flush: bool = True) -> None:
+        g = self.state.category_groupings.pop(gid, None)
+        if g is None:
+            raise KeyError(gid)
+        p = clone_message(g)
+        del p.categoryIds[:]
+        await self.operation("remove-grouping", grouping=p, flush=flush)
+
+    async def set_grouping_categories(
+        self,
+        gid: str,
+        category_ids: Sequence[str],
+        *,
+        ordering_only: bool = False,
+        flush: bool = True,
+    ) -> PBCategoryGrouping:
+        g = self._group(gid)
+        del g.categoryIds[:]
+        g.categoryIds.extend(category_ids)
         await self.operation(
-            "set-should-hide-category-group-from-browse-list-category-groups-screen",
-            grouping=p,flush=flush
+            "set-grouping-category-order" if ordering_only else "set-grouping-categories",
+            grouping=clone_message(g),
+            flush=flush,
         )
         return g
+
+    async def rename_grouping(
+        self, gid: str, name: str, *, flush: bool = True
+    ) -> PBCategoryGrouping:
+        g = self._group(gid)
+        g.name = name
+        p = clone_message(g)
+        del p.categoryIds[:]
+        await self.operation("set-grouping-name", grouping=p, flush=flush)
+        return g
+
+    async def hide_grouping_from_browse(
+        self, gid: str, *, flush: bool = True
+    ) -> PBCategoryGrouping:
+        g = self._group(gid)
+        if g.shouldHideFromBrowseListCategoryGroupsScreen:
+            return g
+        g.shouldHideFromBrowseListCategoryGroupsScreen = True
+        p = clone_message(g)
+        del p.categoryIds[:]
+        await self.operation(
+            "set-should-hide-category-group-from-browse-list-category-groups-screen",
+            grouping=p,
+            flush=flush,
+        )
+        return g
+
     def _cat(self, cid: str) -> PBUserCategory:
-        c=self.state.user_categories.get(cid)
-        if c is None: raise KeyError(cid)
+        c = self.state.user_categories.get(cid)
+        if c is None:
+            raise KeyError(cid)
         return c
+
     def _group(self, gid: str) -> PBCategoryGrouping:
-        g=self.state.category_groupings.get(gid)
-        if g is None: raise KeyError(gid)
+        g = self.state.category_groupings.get(gid)
+        if g is None:
+            raise KeyError(gid)
         return g
 
 
@@ -154,18 +226,30 @@ class CategorizedItemsService(OperationService):
         user_id: str,
         journal: OperationJournal | None = None,
     ) -> None:
-        super().__init__(transport,state,user_id=user_id,
-            spec=QueueSpec(f"{user_id}:categorized-items","/data/categorized-items/update",
-                           "PBCategorizeItemOperation","PBCategorizeItemOperationList"),journal=journal)
+        super().__init__(
+            transport,
+            state,
+            user_id=user_id,
+            spec=QueueSpec(
+                f"{user_id}:categorized-items",
+                "/data/categorized-items/update",
+                "PBCategorizeItemOperation",
+                "PBCategorizeItemOperationList",
+            ),
+            journal=journal,
+        )
         self.user_id = user_id
         self.queue.on_response = self._on_response
-    async def _on_response(self,response:Message)->None:
-        if not response.originalTimestamps or not response.newTimestamps:return
-        original=float(response.originalTimestamps[0].timestamp)
-        if original==float(self.state.categorized_items_timestamp):
-            self.state.categorized_items_timestamp=float(response.newTimestamps[0].timestamp)
+
+    async def _on_response(self, response: Message) -> None:
+        if not response.originalTimestamps or not response.newTimestamps:
+            return
+        original = float(response.originalTimestamps[0].timestamp)
+        if original == float(self.state.categorized_items_timestamp):
+            self.state.categorized_items_timestamp = float(response.newTimestamps[0].timestamp)
         else:
             await self.refresh()
+
     async def refresh(self) -> PBCategorizedItemsList | None:
         # CategorizedListItemsManager.cp has the same pre-request queue guard.
         if self.queue.pending_count:
@@ -184,6 +268,7 @@ class CategorizedItemsService(OperationService):
         assert isinstance(response, PB.PBCategorizedItemsList)
         self.state.apply_categorized_items(response)
         return response
+
     @staticmethod
     def _category_id(item: Message) -> str:
         # Official ListItem.categoryID(): categoryMatchId -> category -> "other".
@@ -224,9 +309,7 @@ class CategorizedItemsService(OperationService):
 
         operation_id = ""
         if changed:
-            operation_id = await self.operation(
-                "categorize-item", listItem=learned, flush=flush
-            )
+            operation_id = await self.operation("categorize-item", listItem=learned, flush=flush)
 
         # Global learning replaces a previously remembered value for this concrete list.
         if global_scope and source_list_id:
@@ -241,14 +324,10 @@ class CategorizedItemsService(OperationService):
                     categoryMatchId=self._category_id(local),
                     category=_wire_category(self._category_id(local)),
                 )
-                await self.operation(
-                    "remove-categorized-item", listItem=removal, flush=flush
-                )
+                await self.operation("remove-categorized-item", listItem=removal, flush=flush)
         return operation_id
 
-    async def remove(
-        self, item: Message, *, global_scope: bool = False, flush: bool = True
-    ) -> str:
+    async def remove(self, item: Message, *, global_scope: bool = False, flush: bool = True) -> str:
         list_id = "" if global_scope else str(getattr(item, "listId", "") or "")
         identifier = self.memory_id(str(getattr(item, "name", "") or ""), list_id)
         existing = self.state.categorized_items.pop(identifier, None)
@@ -261,9 +340,7 @@ class CategorizedItemsService(OperationService):
             categoryMatchId=self._category_id(source),
             category=_wire_category(self._category_id(source)),
         )
-        return await self.operation(
-            "remove-categorized-item", listItem=removal, flush=flush
-        )
+        return await self.operation("remove-categorized-item", listItem=removal, flush=flush)
 
     async def migrate_category(
         self,

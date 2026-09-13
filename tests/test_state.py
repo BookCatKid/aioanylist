@@ -49,7 +49,9 @@ def test_user_data_timestamps_include_incremental_domains() -> None:
     assert ts.orderedStarterListIdsTimestamp.timestamp == 6
 
 
-def test_recipe_incremental_prunes_deleted_recipes_and_collections_and_merges_system_settings() -> None:
+def test_recipe_incremental_prunes_deleted_recipes_and_collections_and_merges_system_settings() -> (
+    None
+):
     state = AnyListState(user_id="user", recipe_data_id="rd", recipe_timestamp=1)
     state.recipes["keep"] = PB.PBRecipe(identifier="keep")
     state.recipes["gone"] = PB.PBRecipe(identifier="gone")
@@ -115,10 +117,18 @@ def test_shopping_list_response_applies_full_list_local_state_and_clock() -> Non
     state = AnyListState()
     state.shopping_lists["list"] = PB.ShoppingList(identifier="list", logicalClockTime=1)
     state.list_stores["list"] = {"stale-store": PB.PBStore(identifier="stale-store", listId="list")}
-    state.list_store_filters["list"] = {"stale-filter": PB.PBStoreFilter(identifier="stale-filter", listId="list")}
-    state.list_category_groups["list"] = {"stale-group": PB.PBListCategoryGroup(identifier="stale-group", listId="list")}
-    state.list_categories["list"] = {"stale-category": PB.PBListCategory(identifier="stale-category", listId="list")}
-    state.list_categorization_rules["list"] = {"stale-rule": PB.PBListCategorizationRule(identifier="stale-rule", listId="list")}
+    state.list_store_filters["list"] = {
+        "stale-filter": PB.PBStoreFilter(identifier="stale-filter", listId="list")
+    }
+    state.list_category_groups["list"] = {
+        "stale-group": PB.PBListCategoryGroup(identifier="stale-group", listId="list")
+    }
+    state.list_categories["list"] = {
+        "stale-category": PB.PBListCategory(identifier="stale-category", listId="list")
+    }
+    state.list_categorization_rules["list"] = {
+        "stale-rule": PB.PBListCategorizationRule(identifier="stale-rule", listId="list")
+    }
 
     detail = PB.PBListResponse(listId="list", isFullSync=True, logicalTimestamp=9)
     detail.stores.add(identifier="store", listId="list", name="Market")
@@ -201,9 +211,13 @@ def test_shopping_response_empty_order_and_unknown_list_clear_local_subdomains()
     state.shopping_lists["gone"] = PB.ShoppingList(identifier="gone")
     state.list_stores["gone"] = {"s": PB.PBStore(identifier="s", listId="gone")}
     state.list_store_filters["gone"] = {"f": PB.PBStoreFilter(identifier="f", listId="gone")}
-    state.list_category_groups["gone"] = {"g": PB.PBListCategoryGroup(identifier="g", listId="gone")}
+    state.list_category_groups["gone"] = {
+        "g": PB.PBListCategoryGroup(identifier="g", listId="gone")
+    }
     state.list_categories["gone"] = {"c": PB.PBListCategory(identifier="c", listId="gone")}
-    state.list_categorization_rules["gone"] = {"r": PB.PBListCategorizationRule(identifier="r", listId="gone")}
+    state.list_categorization_rules["gone"] = {
+        "r": PB.PBListCategorizationRule(identifier="r", listId="gone")
+    }
 
     response = PB.ShoppingListsResponse()
     response.unknownIds.append("gone")
@@ -251,7 +265,9 @@ def test_folder_response_without_required_identity_is_ignored_wholesale() -> Non
 
 def test_meal_plan_rejects_old_response_version_and_cross_calendar_delta() -> None:
     state = AnyListState(meal_plan_calendar_id="calendar-a", meal_plan_logical_timestamp=4)
-    state.meal_plan_events["existing"] = PB.PBCalendarEvent(identifier="existing", calendarId="calendar-a")
+    state.meal_plan_events["existing"] = PB.PBCalendarEvent(
+        identifier="existing", calendarId="calendar-a"
+    )
 
     old = PB.PBCalendarResponse(
         calendarId="calendar-a", logicalTimestamp=99, responseVersion=0, isFullSync=True

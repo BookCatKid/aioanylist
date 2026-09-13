@@ -342,9 +342,7 @@ async def test_live_service_views_match_synchronized_state(live_client: Any) -> 
     )
 
     assert live_client.lists is not None
-    assert {str(value.identifier) for value in live_client.lists.all()} == set(
-        state.shopping_lists
-    )
+    assert {str(value.identifier) for value in live_client.lists.all()} == set(state.shopping_lists)
     for identifier, value in state.shopping_lists.items():
         assert live_client.lists.get(identifier) is value
 
@@ -368,9 +366,7 @@ async def test_live_service_views_match_synchronized_state(live_client: Any) -> 
     )
 
     assert live_client.folders is not None
-    assert {str(value.identifier) for value in live_client.folders.all()} == set(
-        state.list_folders
-    )
+    assert {str(value.identifier) for value in live_client.folders.all()} == set(state.list_folders)
     for identifier, value in state.list_folders.items():
         assert live_client.folders.get(identifier) is value
 
@@ -395,13 +391,9 @@ async def test_live_service_views_match_synchronized_state(live_client: Any) -> 
     assert aggregate.starterListType == PB.StarterList.Type.FavoriteItemsType
     ordered = live_client.starter_lists.ordered_user_lists()
     assert state.user_id is not None
-    legacy_favorites_id = hashlib.md5(
-        f"{state.user_id}-favorites".encode()
-    ).hexdigest()
+    legacy_favorites_id = hashlib.md5(f"{state.user_id}-favorites".encode()).hexdigest()
     assert {str(value.identifier) for value in ordered} == {
-        identifier
-        for identifier in state.starter_lists
-        if identifier != legacy_favorites_id
+        identifier for identifier in state.starter_lists if identifier != legacy_favorites_id
     }
 
     assert live_client.recipes is not None

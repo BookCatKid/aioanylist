@@ -10,19 +10,33 @@ from .types import MatchRange
 _APOSTROPHES = re.compile(r"['‘’‚‛]")
 _QUOTES = re.compile(r'["“”„‟〝〞]')
 _DASHES = re.compile(r"[\-֊־᐀᠆‐‑‒–—―⸗⸚⸺⸻〜〰゠︱︲﹘﹣－]")
-_WHITESPACE_RUN = re.compile(
-    r"[\t \u00a0\u1680\u2000-\u200b\u202f\u205f\u3000]{2,}", re.I
-)
+_WHITESPACE_RUN = re.compile(r"[\t \u00a0\u1680\u2000-\u200b\u202f\u205f\u3000]{2,}", re.I)
 _BOUNDARY = re.compile(r"[\W_]", re.UNICODE)
 
 # Characters for which NFKD does not provide the same useful ASCII-like folding as AnyList's
 # explicit table in app.js.
 _EXTRA_DIACRITIC_FOLD = str.maketrans(
     {
-        "Æ": "AE", "æ": "ae", "Œ": "OE", "œ": "oe", "Ø": "O", "ø": "o",
-        "Đ": "D", "đ": "d", "Ł": "L", "ł": "l", "Þ": "TH", "þ": "th",
-        "Ð": "D", "ð": "d", "ß": "s", "ẞ": "S", "Ƶ": "Z", "ƶ": "z",
-        "ı": "i", "ſ": "l",
+        "Æ": "AE",
+        "æ": "ae",
+        "Œ": "OE",
+        "œ": "oe",
+        "Ø": "O",
+        "ø": "o",
+        "Đ": "D",
+        "đ": "d",
+        "Ł": "L",
+        "ł": "l",
+        "Þ": "TH",
+        "þ": "th",
+        "Ð": "D",
+        "ð": "d",
+        "ß": "s",
+        "ẞ": "S",
+        "Ƶ": "Z",
+        "ƶ": "z",
+        "ı": "i",
+        "ſ": "l",
     }
 )
 
@@ -74,7 +88,9 @@ def _boundary(text: str, index: int, *, before: bool) -> bool:
     return end == len(text) - 1 or bool(_BOUNDARY.match(text[end + 1]))
 
 
-def _equivalent_consumption(text: str, ti: int, pattern: str, pi: int, *, language: str) -> tuple[int, int]:
+def _equivalent_consumption(
+    text: str, ti: int, pattern: str, pi: int, *, language: str
+) -> tuple[int, int]:
     if text[ti] == pattern[pi]:
         return 1, 1
     # Official English search makes '&' equivalent to 'and', plus its partial stop-word forms

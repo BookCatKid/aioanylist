@@ -171,6 +171,7 @@ async def test_folder_operation_contracts(fake_transport) -> None:
         ("list-b", 0),
     ]
 
+
 @pytest.mark.asyncio
 async def test_delete_folder_recurses_lists_children_and_parent(fake_transport) -> None:
     state = AnyListState(user_id="user", list_data_id="data", root_folder_id="root")
@@ -195,7 +196,10 @@ async def test_delete_folder_recurses_lists_children_and_parent(fake_transport) 
     assert set(state.list_folders) == {"root"}
     assert list(state.list_folders["root"].items) == []
     operations = fake_transport.calls[-1][1]["operations"].operations
-    assert [(op.metadata.handlerId, op.originalParentFolderId, op.folderItems[0].identifier) for op in operations] == [
+    assert [
+        (op.metadata.handlerId, op.originalParentFolderId, op.folderItems[0].identifier)
+        for op in operations
+    ] == [
         ("delete-folder-items", "parent", "list-a"),
         ("delete-folder-items", "child", "list-b"),
         ("delete-folder-items", "parent", "child"),

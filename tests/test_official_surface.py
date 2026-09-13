@@ -19,8 +19,12 @@ def test_official_schema_shape() -> None:
     assert len(surface["protobuf_messages"]) == 156
     assert len(surface["protobuf_enums"]) == 1
     assert PB.ListItem.DESCRIPTOR.fields_by_name["productUpc"].number == 30
-    assert PB.PBDataRequestClientInfo.DESCRIPTOR.fields_by_name["supportedResponseVersion"].number == 2
-    assert message_class("PBUserDataResponse").DESCRIPTOR.full_name == "pcov.proto.PBUserDataResponse"
+    assert (
+        PB.PBDataRequestClientInfo.DESCRIPTOR.fields_by_name["supportedResponseVersion"].number == 2
+    )
+    assert (
+        message_class("PBUserDataResponse").DESCRIPTOR.full_name == "pcov.proto.PBUserDataResponse"
+    )
 
 
 def _service_handler_literals(root: Path, official_handlers: set[str]) -> set[str]:

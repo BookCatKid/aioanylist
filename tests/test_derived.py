@@ -34,9 +34,7 @@ def test_recipe_item_identifier_uses_official_unit_and_package_normalization() -
     ingredient.packageSizePb.rawPackageSize = "12 ounces jars"
     list_id = "11111111111141118111111111111111"
     # aP normalizes Dosen -> can and raw package "12 ounces jars" -> "12 oz jar".
-    expected = uuid5_hex(
-        "ALName::bean::ALQuantityUnit::can::ALPackageSize::12 oz jar", list_id
-    )
+    expected = uuid5_hex("ALName::bean::ALQuantityUnit::can::ALPackageSize::12 oz jar", list_id)
     assert recipe_list_item_identifier(ingredient, list_id) == expected
 
 
@@ -135,7 +133,11 @@ def test_recipe_sorting_matches_official_rating_and_tie_break_rules() -> None:
     settings = PB.PBRecipeCollectionSettings(
         recipesSortOrder=PB.PBRecipeCollectionSettings.SortOrder.RatingSortOrder
     )
-    recipes = [_recipe("a", "Zeta", rating=5), _recipe("b", "Alpha", rating=5), _recipe("c", "Beta", rating=2)]
+    recipes = [
+        _recipe("a", "Zeta", rating=5),
+        _recipe("b", "Alpha", rating=5),
+        _recipe("c", "Beta", rating=2),
+    ]
     assert [x.identifier for x in sort_recipes(recipes, settings)] == ["b", "a", "c"]
     settings.useReversedSortDirection = True
     # Reversal applies to rating, while ties remain alphabetical in the web client.
@@ -148,7 +150,11 @@ def test_recipe_sorting_prep_time_missing_semantics_match_web() -> None:
     settings = PB.PBRecipeCollectionSettings(
         recipesSortOrder=PB.PBRecipeCollectionSettings.SortOrder.PrepTimeSortOrder
     )
-    recipes = [_recipe("a", "Missing"), _recipe("b", "Slow", prepTime=30), _recipe("c", "Fast", prepTime=10)]
+    recipes = [
+        _recipe("a", "Missing"),
+        _recipe("b", "Slow", prepTime=30),
+        _recipe("c", "Fast", prepTime=10),
+    ]
     assert [x.identifier for x in sort_recipes(recipes, settings)] == ["c", "b", "a"]
     settings.useReversedSortDirection = True
     assert [x.identifier for x in sort_recipes(recipes, settings)] == ["a", "b", "c"]
@@ -169,9 +175,15 @@ def test_recipe_sorting_uses_past_meal_history_for_date_and_count() -> None:
     settings = PB.PBRecipeCollectionSettings(
         recipesSortOrder=PB.PBRecipeCollectionSettings.SortOrder.DatePreparedSortOrder
     )
-    assert [x.identifier for x in sort_recipes([a, b], settings, meal_plan_events=events, today="2026-09-08")] == ["b", "a"]
+    assert [
+        x.identifier
+        for x in sort_recipes([a, b], settings, meal_plan_events=events, today="2026-09-08")
+    ] == ["b", "a"]
     settings.recipesSortOrder = PB.PBRecipeCollectionSettings.SortOrder.TimesPreparedSortOrder
-    assert [x.identifier for x in sort_recipes([a, b], settings, meal_plan_events=events, today="2026-09-08")] == ["a", "b"]
+    assert [
+        x.identifier
+        for x in sort_recipes([a, b], settings, meal_plan_events=events, today="2026-09-08")
+    ] == ["a", "b"]
 
 
 def test_recipe_servings_scaling_preserves_text_prefix() -> None:
@@ -223,7 +235,9 @@ def test_recipe_duplicate_copies_only_official_user_fields_with_fresh_compact_id
     )
     recipe.photoIds.append("photo")
     recipe.preparationSteps.append("Cook")
-    recipe.ingredients.add(identifier="old-ing", rawIngredient="1 cup beans", name="beans", quantity="1 cup")
+    recipe.ingredients.add(
+        identifier="old-ing", rawIngredient="1 cup beans", name="beans", quantity="1 cup"
+    )
 
     duplicate = duplicate_recipe(recipe)
 
@@ -253,8 +267,12 @@ def test_cooking_state_icon_descriptor_and_template_group_helpers() -> None:
     )
 
     a = PB.PBRecipeCookingState(
-        recipeId="r", eventId="e", lastOpenedTimestamp=1, selectedTabId=2,
-        checkedIngredientIds=["a", "b"], selectedStepNumber=3,
+        recipeId="r",
+        eventId="e",
+        lastOpenedTimestamp=1,
+        selectedTabId=2,
+        checkedIngredientIds=["a", "b"],
+        selectedStepNumber=3,
     )
     b = PB.PBRecipeCookingState()
     b.CopyFrom(a)

@@ -5,7 +5,14 @@ from .categories import UserCategoriesService, CategorizedItemsService
 from .settings import ListSettingsService, MobileSettingsService
 from .starter import StarterListsService, recent_list_id
 from .meal_plan import MealPlanService
-from .http_api import AccountService, PhotosService, SharingService, AlexaService, WebStateService, RawAPI
+from .http_api import (
+    AccountService,
+    PhotosService,
+    SharingService,
+    AlexaService,
+    WebStateService,
+    RawAPI,
+)
 from .generic import GenericDomainService
 
 __all__ = [

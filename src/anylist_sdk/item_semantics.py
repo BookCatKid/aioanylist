@@ -59,7 +59,10 @@ def _array_matches(
 def quantity_equal(a: Message | None, b: Message | None) -> bool:
     if a is None or b is None:
         return False
-    return all((getattr(a, f, "") or "") == (getattr(b, f, "") or "") for f in ("amount", "unit", "rawQuantity"))
+    return all(
+        (getattr(a, f, "") or "") == (getattr(b, f, "") or "")
+        for f in ("amount", "unit", "rawQuantity")
+    )
 
 
 def package_size_equal(a: Message | None, b: Message | None) -> bool:
@@ -80,7 +83,11 @@ def _package(item: Message, field: str) -> Message:
 
 
 def price_empty(price: Message) -> bool:
-    has_amount = price.HasField("amount") if "amount" in price.DESCRIPTOR.fields_by_name else bool(getattr(price, "amount", 0))
+    has_amount = (
+        price.HasField("amount")
+        if "amount" in price.DESCRIPTOR.fields_by_name
+        else bool(getattr(price, "amount", 0))
+    )
     return not has_amount and not (getattr(price, "details", "") or "")
 
 
@@ -136,15 +143,12 @@ def item_ingredient_identical(a: Message, b: Message) -> bool:
         return False
     if not package_size_equal(_package(a, "packageSizePb"), _package(b, "packageSizePb")):
         return False
-    return (
-        (getattr(a, "recipeName", "") or "") == (getattr(b, "recipeName", "") or "")
-        and (getattr(a, "eventDate", "") or "") == (getattr(b, "eventDate", "") or "")
-    )
+    return (getattr(a, "recipeName", "") or "") == (getattr(b, "recipeName", "") or "") and (
+        getattr(a, "eventDate", "") or ""
+    ) == (getattr(b, "eventDate", "") or "")
 
 
-def item_ingredients_identical(
-    a: Iterable[Message] | None, b: Iterable[Message] | None
-) -> bool:
+def item_ingredients_identical(a: Iterable[Message] | None, b: Iterable[Message] | None) -> bool:
     left = list(a or ())
     remaining = list(b or ())
     if len(left) != len(remaining):
@@ -184,20 +188,32 @@ def items_equal(a: Message, b: Message, excluding_fields: int = 0) -> bool:
             return False
         if not quantity_equal(_quantity(a, "priceQuantityPb"), _quantity(b, "priceQuantityPb")):
             return False
-        if bool(getattr(a, "priceQuantityShouldOverrideItemQuantity", False)) != bool(getattr(b, "priceQuantityShouldOverrideItemQuantity", False)):
+        if bool(getattr(a, "priceQuantityShouldOverrideItemQuantity", False)) != bool(
+            getattr(b, "priceQuantityShouldOverrideItemQuantity", False)
+        ):
             return False
-        if bool(getattr(a, "itemQuantityShouldOverrideIngredientQuantity", False)) != bool(getattr(b, "itemQuantityShouldOverrideIngredientQuantity", False)):
+        if bool(getattr(a, "itemQuantityShouldOverrideIngredientQuantity", False)) != bool(
+            getattr(b, "itemQuantityShouldOverrideIngredientQuantity", False)
+        ):
             return False
     if not (excluding_fields & EXCLUDE_PACKAGE_SIZE):
         if not package_size_equal(_package(a, "packageSizePb"), _package(b, "packageSizePb")):
             return False
-        if not package_size_equal(_package(a, "pricePackageSizePb"), _package(b, "pricePackageSizePb")):
+        if not package_size_equal(
+            _package(a, "pricePackageSizePb"), _package(b, "pricePackageSizePb")
+        ):
             return False
-        if bool(getattr(a, "pricePackageSizeShouldOverrideItemPackageSize", False)) != bool(getattr(b, "pricePackageSizeShouldOverrideItemPackageSize", False)):
+        if bool(getattr(a, "pricePackageSizeShouldOverrideItemPackageSize", False)) != bool(
+            getattr(b, "pricePackageSizeShouldOverrideItemPackageSize", False)
+        ):
             return False
-        if bool(getattr(a, "itemPackageSizeShouldOverrideIngredientPackageSize", False)) != bool(getattr(b, "itemPackageSizeShouldOverrideIngredientPackageSize", False)):
+        if bool(getattr(a, "itemPackageSizeShouldOverrideIngredientPackageSize", False)) != bool(
+            getattr(b, "itemPackageSizeShouldOverrideIngredientPackageSize", False)
+        ):
             return False
-    if not (excluding_fields & EXCLUDE_DETAILS) and not _localized_equal(a.details or "", b.details or ""):
+    if not (excluding_fields & EXCLUDE_DETAILS) and not _localized_equal(
+        a.details or "", b.details or ""
+    ):
         return False
     if not (excluding_fields & EXCLUDE_PHOTOS) and not _array_matches(a.photoIds, b.photoIds):
         return False
@@ -215,9 +231,13 @@ def items_equal(a: Message, b: Message, excluding_fields: int = 0) -> bool:
         return False
     if not (excluding_fields & EXCLUDE_PRICES) and not prices_match(a.prices, b.prices):
         return False
-    if not (excluding_fields & EXCLUDE_INGREDIENTS) and not item_ingredients_identical(a.ingredients, b.ingredients):
+    if not (excluding_fields & EXCLUDE_INGREDIENTS) and not item_ingredients_identical(
+        a.ingredients, b.ingredients
+    ):
         return False
-    if not (excluding_fields & EXCLUDE_PRODUCT_UPC) and not _localized_equal(a.productUpc or "", b.productUpc or ""):
+    if not (excluding_fields & EXCLUDE_PRODUCT_UPC) and not _localized_equal(
+        a.productUpc or "", b.productUpc or ""
+    ):
         return False
     return True
 
@@ -259,12 +279,16 @@ def apply_properties_from_item(target: Message, source: Message, excluding_field
             target.ClearField("deprecatedQuantity")
     if not (excluding_fields & EXCLUDE_PRICE_QUANTITY):
         _copy_optional_message(target, source, "priceQuantityPb")
-        target.priceQuantityShouldOverrideItemQuantity = bool(source.priceQuantityShouldOverrideItemQuantity)
+        target.priceQuantityShouldOverrideItemQuantity = bool(
+            source.priceQuantityShouldOverrideItemQuantity
+        )
     if not (excluding_fields & EXCLUDE_PACKAGE_SIZE):
         _copy_optional_message(target, source, "packageSizePb")
     if not (excluding_fields & EXCLUDE_PRICE_PACKAGE_SIZE):
         _copy_optional_message(target, source, "pricePackageSizePb")
-        target.pricePackageSizeShouldOverrideItemPackageSize = bool(source.pricePackageSizeShouldOverrideItemPackageSize)
+        target.pricePackageSizeShouldOverrideItemPackageSize = bool(
+            source.pricePackageSizeShouldOverrideItemPackageSize
+        )
     if not (excluding_fields & EXCLUDE_PRODUCT_UPC):
         target.productUpc = source.productUpc
 

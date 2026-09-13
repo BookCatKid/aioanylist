@@ -38,14 +38,26 @@ class MealPlanService(OperationService):
         user_id: str,
         journal: OperationJournal | None = None,
     ) -> None:
-        super().__init__(transport,state,user_id=user_id,
-            spec=QueueSpec(f"{user_id}:meal-plan","/data/meal-planning-calendar/update",
-                           "PBCalendarOperation","PBCalendarOperationList"),journal=journal)
-        self.queue.on_response=self._on_response
-        self.on_event_updated: Callable[
-            [PBCalendarEvent, PBCalendarEvent, bool], Awaitable[None] | None
-        ] | None = None
-        self.on_event_removed: Callable[[PBCalendarEvent, bool], Awaitable[None] | None] | None = None
+        super().__init__(
+            transport,
+            state,
+            user_id=user_id,
+            spec=QueueSpec(
+                f"{user_id}:meal-plan",
+                "/data/meal-planning-calendar/update",
+                "PBCalendarOperation",
+                "PBCalendarOperationList",
+            ),
+            journal=journal,
+        )
+        self.queue.on_response = self._on_response
+        self.on_event_updated: (
+            Callable[[PBCalendarEvent, PBCalendarEvent, bool], Awaitable[None] | None] | None
+        ) = None
+        self.on_event_removed: Callable[[PBCalendarEvent, bool], Awaitable[None] | None] | None = (
+            None
+        )
+
     async def _notify_event_updated(
         self, new: PBCalendarEvent, old: PBCalendarEvent, flush: bool
     ) -> None:
@@ -62,23 +74,32 @@ class MealPlanService(OperationService):
         if result is not None:
             await result
 
-    async def _on_response(self,response:Message)->None:
-        calendar_id=self.state.meal_plan_calendar_id
-        if not calendar_id:return
+    async def _on_response(self, response: Message) -> None:
+        calendar_id = self.state.meal_plan_calendar_id
+        if not calendar_id:
+            return
         if calendar_id in {str(x) for x in response.fullRefreshTimestampIds}:
-            self.state.meal_plan_logical_timestamp=0
-            await self.refresh();return
-        mismatch=False
+            self.state.meal_plan_logical_timestamp = 0
+            await self.refresh()
+            return
+        mismatch = False
         for original in response.originalLogicalTimestamps:
-            if str(original.identifier)==calendar_id and int(original.logicalTimestamp)!=int(self.state.meal_plan_logical_timestamp):
-                mismatch=True;break
-        if mismatch:
-            await self.refresh();return
-        for current in response.currentLogicalTimestamps:
-            if str(current.identifier)==calendar_id:
-                if int(current.logicalTimestamp)==0:await self.refresh()
-                else:self.state.meal_plan_logical_timestamp=int(current.logicalTimestamp)
+            if str(original.identifier) == calendar_id and int(original.logicalTimestamp) != int(
+                self.state.meal_plan_logical_timestamp
+            ):
+                mismatch = True
                 break
+        if mismatch:
+            await self.refresh()
+            return
+        for current in response.currentLogicalTimestamps:
+            if str(current.identifier) == calendar_id:
+                if int(current.logicalTimestamp) == 0:
+                    await self.refresh()
+                else:
+                    self.state.meal_plan_logical_timestamp = int(current.logicalTimestamp)
+                break
+
     async def operation(
         self,
         handler_id: str,
@@ -88,12 +109,22 @@ class MealPlanService(OperationService):
         **fields: Any,
     ) -> str:
         if self.state.meal_plan_calendar_id and "calendarId" not in fields:
-            fields["calendarId"]=self.state.meal_plan_calendar_id
-        return await super().operation(handler_id,flush=flush,operation_version=operation_version,**fields)
-    def events(self) -> list[PBCalendarEvent]:return list(self.state.meal_plan_events.values())
-    def labels(self) -> list[PBCalendarLabel]:return list(self.state.meal_plan_labels.values())
-    def templates(self) -> list[PBMealPlanTemplate]:return list(self.state.meal_plan_templates.values())
-    def template_groups(self) -> list[PBMealPlanTemplateGroup]:return list(self.state.meal_plan_template_groups.values())
+            fields["calendarId"] = self.state.meal_plan_calendar_id
+        return await super().operation(
+            handler_id, flush=flush, operation_version=operation_version, **fields
+        )
+
+    def events(self) -> list[PBCalendarEvent]:
+        return list(self.state.meal_plan_events.values())
+
+    def labels(self) -> list[PBCalendarLabel]:
+        return list(self.state.meal_plan_labels.values())
+
+    def templates(self) -> list[PBMealPlanTemplate]:
+        return list(self.state.meal_plan_templates.values())
+
+    def template_groups(self) -> list[PBMealPlanTemplateGroup]:
+        return list(self.state.meal_plan_template_groups.values())
 
     async def refresh(self) -> PBCalendarResponse | None:
         # CalendarManager.xp returns before issuing /get while calendar edits are queued.
@@ -114,92 +145,174 @@ class MealPlanService(OperationService):
         self.state.apply_meal_plan(response)
         return response
 
-    async def save_event(self,event:PBCalendarEvent,*,event_type:int|None=None,is_new:bool|None=None,handler_id:str|None=None,flush:bool=True)->PBCalendarEvent:
-        e=clone_message(event)
-        if not e.identifier:e.identifier=uuid4_hex()
+    async def save_event(
+        self,
+        event: PBCalendarEvent,
+        *,
+        event_type: int | None = None,
+        is_new: bool | None = None,
+        handler_id: str | None = None,
+        flush: bool = True,
+    ) -> PBCalendarEvent:
+        e = clone_message(event)
+        if not e.identifier:
+            e.identifier = uuid4_hex()
         if event_type is not None:
-            e.eventType=event_type
-        if self.state.meal_plan_calendar_id:e.calendarId=self.state.meal_plan_calendar_id
+            e.eventType = event_type
+        if self.state.meal_plan_calendar_id:
+            e.calendarId = self.state.meal_plan_calendar_id
         store = self._event_store(int(e.eventType))
-        previous=store.get(e.identifier)
-        old=clone_message(previous) if previous is not None else None
-        existed=previous is not None
+        previous = store.get(e.identifier)
+        old = clone_message(previous) if previous is not None else None
+        existed = previous is not None
         self._refresh_event_sort_index(e, old)
-        store[e.identifier]=clone(e)
-        h=handler_id or ("new-event" if (is_new if is_new is not None else not existed) else "update-event")
-        await self.operation(h,updatedEvent=e,eventType=int(e.eventType),flush=flush)
+        store[e.identifier] = clone(e)
+        h = handler_id or (
+            "new-event" if (is_new if is_new is not None else not existed) else "update-event"
+        )
+        await self.operation(h, updatedEvent=e, eventType=int(e.eventType), flush=flush)
         if old is not None:
-            await self._notify_event_updated(store[e.identifier],old,flush)
+            await self._notify_event_updated(store[e.identifier], old, flush)
         return store[e.identifier]
-    async def delete_event(self,event_id:str,*,flush:bool=True)->None:
-        e=self.state.meal_plan_events.pop(event_id,None)
+
+    async def delete_event(self, event_id: str, *, flush: bool = True) -> None:
+        e = self.state.meal_plan_events.pop(event_id, None)
         if e is None:
-            e=self.state.meal_plan_template_events.pop(event_id,None)
-        if e is None:raise KeyError(event_id)
+            e = self.state.meal_plan_template_events.pop(event_id, None)
+        if e is None:
+            raise KeyError(event_id)
         fields: dict[str, Any] = {"updatedEvent": e}
         if int(e.eventType) == int(PB.PBCalendarEventType.MealPlanTemplateEvent):
             fields["eventType"] = int(e.eventType)
-        await self.operation("delete-event",flush=flush,**fields)
-        await self._notify_event_removed(e,flush)
-    async def save_events(self,events:Sequence[PBCalendarEvent],*,flush:bool=True)->None:
-        vals=[]
+        await self.operation("delete-event", flush=flush, **fields)
+        await self._notify_event_removed(e, flush)
+
+    async def save_events(self, events: Sequence[PBCalendarEvent], *, flush: bool = True) -> None:
+        vals = []
         for e in events:
-            x=clone_message(e)
-            if not x.identifier:x.identifier=uuid4_hex()
-            if self.state.meal_plan_calendar_id:x.calendarId=self.state.meal_plan_calendar_id
-            self.state.meal_plan_events[x.identifier]=clone(x);vals.append(x)
-        await self.operation("save-new-events",updatedEvents=vals,operation_version=1,flush=flush)
-    async def set_event_date(self,event_ids:Sequence[str],date:str|None,*,flush:bool=True)->None:
-        vals=[];changes=[]
+            x = clone_message(e)
+            if not x.identifier:
+                x.identifier = uuid4_hex()
+            if self.state.meal_plan_calendar_id:
+                x.calendarId = self.state.meal_plan_calendar_id
+            self.state.meal_plan_events[x.identifier] = clone(x)
+            vals.append(x)
+        await self.operation(
+            "save-new-events", updatedEvents=vals, operation_version=1, flush=flush
+        )
+
+    async def set_event_date(
+        self, event_ids: Sequence[str], date: str | None, *, flush: bool = True
+    ) -> None:
+        vals = []
+        changes = []
         for eid in event_ids:
-            e=self.state.meal_plan_events[eid];old=clone_message(e)
+            e = self.state.meal_plan_events[eid]
+            old = clone_message(e)
             if date is None:
                 e.ClearField("date")
                 e.ClearField("labelSortIndex")
-                e.eventType=PB.PBCalendarEventType.MealPlanQueueEvent
+                e.eventType = PB.PBCalendarEventType.MealPlanQueueEvent
             else:
-                e.date=date
+                e.date = date
                 e.ClearField("labelSortIndex")
-                if int(e.eventType)==int(PB.PBCalendarEventType.MealPlanQueueEvent):
-                    e.eventType=PB.PBCalendarEventType.MealPlanCalendarEvent
-            self._refresh_event_sort_index(e, old);vals.append(clone_message(e));changes.append((e,old))
-        await self.operation("set-date-for-events",updatedEvents=vals,flush=flush)
-        for current,old in changes:
-            await self._notify_event_updated(current,old,flush)
-    async def add_event_list_item(self,event_id:str,item:PBCalendarEventListItem,*,flush:bool=True)->PBCalendarEventListItem:
-        e=self.state.meal_plan_events.get(event_id) or self.state.meal_plan_template_events.get(event_id)
-        if e is None: raise KeyError(event_id)
-        old_event=clone_message(e);x=clone_message(item)
-        if not x.identifier:x.identifier=uuid4_hex()
+                if int(e.eventType) == int(PB.PBCalendarEventType.MealPlanQueueEvent):
+                    e.eventType = PB.PBCalendarEventType.MealPlanCalendarEvent
+            self._refresh_event_sort_index(e, old)
+            vals.append(clone_message(e))
+            changes.append((e, old))
+        await self.operation("set-date-for-events", updatedEvents=vals, flush=flush)
+        for current, old in changes:
+            await self._notify_event_updated(current, old, flush)
+
+    async def add_event_list_item(
+        self, event_id: str, item: PBCalendarEventListItem, *, flush: bool = True
+    ) -> PBCalendarEventListItem:
+        e = self.state.meal_plan_events.get(event_id) or self.state.meal_plan_template_events.get(
+            event_id
+        )
+        if e is None:
+            raise KeyError(event_id)
+        old_event = clone_message(e)
+        x = clone_message(item)
+        if not x.identifier:
+            x.identifier = uuid4_hex()
         e.eventListItems.add().CopyFrom(x)
-        await self.operation("add-event-list-item",updatedEventListItem=x,updatedEvent=clone_message(e),eventType=int(e.eventType),flush=flush)
-        await self._notify_event_updated(e,old_event,flush)
+        await self.operation(
+            "add-event-list-item",
+            updatedEventListItem=x,
+            updatedEvent=clone_message(e),
+            eventType=int(e.eventType),
+            flush=flush,
+        )
+        await self._notify_event_updated(e, old_event, flush)
         return e.eventListItems[-1]
-    async def update_event_list_item(self,event_id:str,item_id:str,updated:PBCalendarEventListItem,*,handler_id:str="set-event-list-item-name",flush:bool=True)->None:
-        e=self.state.meal_plan_events.get(event_id) or self.state.meal_plan_template_events.get(event_id)
-        if e is None: raise KeyError(event_id)
-        old_event=clone_message(e)
-        original=None
-        for i,x in enumerate(e.eventListItems):
-            if x.identifier==item_id:
-                original=clone_message(x);e.eventListItems[i].CopyFrom(updated);break
-        if original is None:raise KeyError(item_id)
-        await self.operation(handler_id,originalEventListItem=original,updatedEventListItem=updated,
-                             updatedEvent=clone_message(e),eventType=int(e.eventType),flush=flush)
-        await self._notify_event_updated(e,old_event,flush)
-    async def remove_event_list_item(self,event_id:str,item_id:str,*,flush:bool=True)->None:
-        e=self.state.meal_plan_events.get(event_id) or self.state.meal_plan_template_events.get(event_id)
-        if e is None: raise KeyError(event_id)
-        old_event=clone_message(e);original=None
-        for i,x in enumerate(e.eventListItems):
-            if x.identifier==item_id:original=clone_message(x);del e.eventListItems[i];break
-        if original is None:raise KeyError(item_id)
-        await self.operation("remove-event-list-item",originalEventListItem=original,updatedEvent=clone_message(e),eventType=int(e.eventType),flush=flush)
-        await self._notify_event_updated(e,old_event,flush)
+
+    async def update_event_list_item(
+        self,
+        event_id: str,
+        item_id: str,
+        updated: PBCalendarEventListItem,
+        *,
+        handler_id: str = "set-event-list-item-name",
+        flush: bool = True,
+    ) -> None:
+        e = self.state.meal_plan_events.get(event_id) or self.state.meal_plan_template_events.get(
+            event_id
+        )
+        if e is None:
+            raise KeyError(event_id)
+        old_event = clone_message(e)
+        original = None
+        for i, x in enumerate(e.eventListItems):
+            if x.identifier == item_id:
+                original = clone_message(x)
+                e.eventListItems[i].CopyFrom(updated)
+                break
+        if original is None:
+            raise KeyError(item_id)
+        await self.operation(
+            handler_id,
+            originalEventListItem=original,
+            updatedEventListItem=updated,
+            updatedEvent=clone_message(e),
+            eventType=int(e.eventType),
+            flush=flush,
+        )
+        await self._notify_event_updated(e, old_event, flush)
+
+    async def remove_event_list_item(
+        self, event_id: str, item_id: str, *, flush: bool = True
+    ) -> None:
+        e = self.state.meal_plan_events.get(event_id) or self.state.meal_plan_template_events.get(
+            event_id
+        )
+        if e is None:
+            raise KeyError(event_id)
+        old_event = clone_message(e)
+        original = None
+        for i, x in enumerate(e.eventListItems):
+            if x.identifier == item_id:
+                original = clone_message(x)
+                del e.eventListItems[i]
+                break
+        if original is None:
+            raise KeyError(item_id)
+        await self.operation(
+            "remove-event-list-item",
+            originalEventListItem=original,
+            updatedEvent=clone_message(e),
+            eventType=int(e.eventType),
+            flush=flush,
+        )
+        await self._notify_event_updated(e, old_event, flush)
+
     async def reorder_event_list_items(
         self, event_id: str, ids: Sequence[str], *, flush: bool = True
     ) -> None:
-        event = self.state.meal_plan_events.get(event_id) or self.state.meal_plan_template_events.get(event_id)
+        event = self.state.meal_plan_events.get(
+            event_id
+        ) or self.state.meal_plan_template_events.get(event_id)
         if event is None:
             raise KeyError(event_id)
         by_id = {str(item.identifier): clone_message(item) for item in event.eventListItems}
@@ -247,6 +360,7 @@ class MealPlanService(OperationService):
             "new-label" if creating else "update-label", updatedLabel=x, flush=flush
         )
         return self.state.meal_plan_labels[x.identifier]
+
     async def delete_label(self, label_id: str, *, flush: bool = True) -> None:
         label = self.state.meal_plan_labels.pop(label_id, None)
         if label is None:
@@ -266,17 +380,14 @@ class MealPlanService(OperationService):
             eventIds=affected_ids,
             flush=flush,
         )
-    async def reorder_labels(
-        self, ids: Sequence[str], *, flush: bool = True
-    ) -> None:
+
+    async def reorder_labels(self, ids: Sequence[str], *, flush: bool = True) -> None:
         # jR rewrites each selected label's local sortIndex before queuing the IDs.
         for index, label_id in enumerate(ids):
             label = self.state.meal_plan_labels.get(label_id)
             if label is not None:
                 label.sortIndex = index
-        await self.operation(
-            "set-sorted-label-ids", sortedLabelIds=list(ids), flush=flush
-        )
+        await self.operation("set-sorted-label-ids", sortedLabelIds=list(ids), flush=flush)
 
     async def save_template(
         self,
@@ -314,6 +425,7 @@ class MealPlanService(OperationService):
             "new-template" if creating else "update-template", flush=flush, **fields
         )
         return self.state.meal_plan_templates[x.identifier]
+
     async def delete_template(self, template_id: str, *, flush: bool = True) -> None:
         template = self.state.meal_plan_templates.get(template_id)
         if template is None:
@@ -323,7 +435,9 @@ class MealPlanService(OperationService):
         for group in self.state.meal_plan_template_groups.values():
             if any(item.identifier == template_id for item in group.items):
                 parent_group_id = str(group.identifier)
-                kept = [clone_message(item) for item in group.items if item.identifier != template_id]
+                kept = [
+                    clone_message(item) for item in group.items if item.identifier != template_id
+                ]
                 del group.items[:]
                 for item in kept:
                     group.items.add().CopyFrom(item)
@@ -357,7 +471,9 @@ class MealPlanService(OperationService):
         *,
         flush: bool = True,
     ) -> PBCalendarEvent:
-        event = self.state.meal_plan_events.get(event_id) or self.state.meal_plan_template_events.get(event_id)
+        event = self.state.meal_plan_events.get(
+            event_id
+        ) or self.state.meal_plan_template_events.get(event_id)
         if event is None:
             raise KeyError(event_id)
         old_event = clone_message(event)
@@ -375,12 +491,16 @@ class MealPlanService(OperationService):
         await self._notify_event_updated(event, old_event, flush)
         return event
 
-    async def set_event_title(self, event_id: str, title: str, *, flush: bool = True) -> PBCalendarEvent:
+    async def set_event_title(
+        self, event_id: str, title: str, *, flush: bool = True
+    ) -> PBCalendarEvent:
         return await self._set_event_optional_text(
             event_id, "title", title, "set-event-title", flush=flush
         )
 
-    async def set_event_details(self, event_id: str, details: str, *, flush: bool = True) -> PBCalendarEvent:
+    async def set_event_details(
+        self, event_id: str, details: str, *, flush: bool = True
+    ) -> PBCalendarEvent:
         return await self._set_event_optional_text(
             event_id, "details", details, "set-event-details", flush=flush
         )
@@ -394,7 +514,9 @@ class MealPlanService(OperationService):
         *,
         flush: bool = True,
     ) -> PBCalendarEvent:
-        event = self.state.meal_plan_events.get(event_id) or self.state.meal_plan_template_events.get(event_id)
+        event = self.state.meal_plan_events.get(
+            event_id
+        ) or self.state.meal_plan_template_events.get(event_id)
         if event is None:
             raise KeyError(event_id)
         old_event = clone_message(event)
@@ -420,7 +542,9 @@ class MealPlanService(OperationService):
     async def set_event_label(
         self, event_id: str, label_id: str, *, flush: bool = True
     ) -> PBCalendarEvent:
-        event = self.state.meal_plan_events.get(event_id) or self.state.meal_plan_template_events.get(event_id)
+        event = self.state.meal_plan_events.get(
+            event_id
+        ) or self.state.meal_plan_template_events.get(event_id)
         if event is None:
             raise KeyError(event_id)
         current = str(event.labelId or "")
@@ -451,7 +575,9 @@ class MealPlanService(OperationService):
     async def set_event_label_sort_index(
         self, event_id: str, sort_index: int, *, flush: bool = True
     ) -> PBCalendarEvent:
-        event = self.state.meal_plan_events.get(event_id) or self.state.meal_plan_template_events.get(event_id)
+        event = self.state.meal_plan_events.get(
+            event_id
+        ) or self.state.meal_plan_template_events.get(event_id)
         if event is None:
             raise KeyError(event_id)
         if int(getattr(event, "labelSortIndex", 0)) == int(sort_index):
@@ -505,7 +631,9 @@ class MealPlanService(OperationService):
         )
 
     def _event_list_item(self, event_id: str, item_id: str) -> tuple[PBCalendarEvent, int]:
-        event = self.state.meal_plan_events.get(event_id) or self.state.meal_plan_template_events.get(event_id)
+        event = self.state.meal_plan_events.get(
+            event_id
+        ) or self.state.meal_plan_template_events.get(event_id)
         if event is None:
             raise KeyError(event_id)
         for index, item in enumerate(event.eventListItems):
@@ -551,7 +679,9 @@ class MealPlanService(OperationService):
     ) -> PBMealPlanTemplate:
         template = self._template(template_id)
         template.name = name
-        await self.operation("set-template-name", updatedTemplate=clone_message(template), flush=flush)
+        await self.operation(
+            "set-template-name", updatedTemplate=clone_message(template), flush=flush
+        )
         return template
 
     async def set_template_icon(
@@ -560,7 +690,9 @@ class MealPlanService(OperationService):
         template = self._template(template_id)
         value = icon if isinstance(icon, Message) else PB.PBIcon(iconName=icon)
         template.icon.CopyFrom(value)
-        await self.operation("set-template-icon", updatedTemplate=clone_message(template), flush=flush)
+        await self.operation(
+            "set-template-icon", updatedTemplate=clone_message(template), flush=flush
+        )
         return template
 
     async def add_template_day_ids(
@@ -590,14 +722,18 @@ class MealPlanService(OperationService):
         kept = [x for x in template.dayIds if x not in remove]
         del template.dayIds[:]
         template.dayIds.extend(kept)
-        affected = list(dict.fromkeys([
-            *event_ids,
-            *(
-                event_id
-                for event_id, event in self.state.meal_plan_template_events.items()
-                if str(getattr(event, "templateDayId", "") or "") in remove
-            ),
-        ]))
+        affected = list(
+            dict.fromkeys(
+                [
+                    *event_ids,
+                    *(
+                        event_id
+                        for event_id, event in self.state.meal_plan_template_events.items()
+                        if str(getattr(event, "templateDayId", "") or "") in remove
+                    ),
+                ]
+            )
+        )
         for event_id in affected:
             self.state.meal_plan_template_events.pop(event_id, None)
         partial = clone_message(template)
@@ -617,7 +753,9 @@ class MealPlanService(OperationService):
         template = self._template(template_id)
         del template.dayIds[:]
         template.dayIds.extend(day_ids)
-        await self.operation("set-template-day-ids", updatedTemplate=clone_message(template), flush=flush)
+        await self.operation(
+            "set-template-day-ids", updatedTemplate=clone_message(template), flush=flush
+        )
         return template
 
     async def set_template_day_id_for_events(
@@ -847,7 +985,11 @@ class MealPlanService(OperationService):
                 if int(value.eventType) == event_type and str(value.date) == str(event.date)
             ]
         maximum = max(
-            (int(value.orderAddedSortIndex) for value in candidates if value.identifier != event.identifier),
+            (
+                int(value.orderAddedSortIndex)
+                for value in candidates
+                if value.identifier != event.identifier
+            ),
             default=-1,
         )
         event.orderAddedSortIndex = maximum + 1
@@ -869,16 +1011,21 @@ class MealPlanService(OperationService):
             raise KeyError(group_id)
         return group
 
-    async def set_icalendar_enabled(self,enabled:bool)->PBMealPlanSetICalendarEnabledRequestResponse:
-        request=PB.PBMealPlanSetICalendarEnabledRequest(shouldEnableIcalendarGeneration=enabled)
+    async def set_icalendar_enabled(
+        self, enabled: bool
+    ) -> PBMealPlanSetICalendarEnabledRequestResponse:
+        request = PB.PBMealPlanSetICalendarEnabledRequest(shouldEnableIcalendarGeneration=enabled)
         response = await self.transport.post_proto(
             "/data/meal-planning-calendar/set-icalendar-enabled",
-            fields={"icalendar_request":request},
+            fields={"icalendar_request": request},
             response_type="PBMealPlanSetICalendarEnabledRequestResponse",
         )
         assert isinstance(response, PB.PBMealPlanSetICalendarEnabledRequestResponse)
         return response
-    async def send_as_email(self,email:str,markup:str)->bytes:
+
+    async def send_as_email(self, email: str, markup: str) -> bytes:
         return await self.transport.request(
-            "POST","/data/meal-planning-calendar/send-as-email",fields={"email":email,"markup":markup}
+            "POST",
+            "/data/meal-planning-calendar/send-as-email",
+            fields={"email": email, "markup": markup},
         )

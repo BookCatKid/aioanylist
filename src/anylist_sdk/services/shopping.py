@@ -106,15 +106,43 @@ _DEFAULT_SYSTEM_CATEGORY_NAMES = {
     "other": "Other",
 }
 _SYSTEM_ITEM_CATEGORIES = {
-    "baby", "bakery", "beverages", "breakfast-and-cereal",
-    "condiments-oils-and-salad-dressings", "cooking-and-baking", "dairy",
-    "frozen-foods", "grains-pasta-and-side-dishes", "health-and-personal-care",
-    "household-and-cleaning", "meat", "pet-supplies", "produce", "seafood",
-    "snacks-cookies-and-candy", "soups-and-canned-goods", "wine-beer-spirits", "other",
+    "baby",
+    "bakery",
+    "beverages",
+    "breakfast-and-cereal",
+    "condiments-oils-and-salad-dressings",
+    "cooking-and-baking",
+    "dairy",
+    "frozen-foods",
+    "grains-pasta-and-side-dishes",
+    "health-and-personal-care",
+    "household-and-cleaning",
+    "meat",
+    "pet-supplies",
+    "produce",
+    "seafood",
+    "snacks-cookies-and-candy",
+    "soups-and-canned-goods",
+    "wine-beer-spirits",
+    "other",
 }
 _PRICE_QUANTITY_UNITS = {
-    "cup", "fl oz", "oz", "tbsp", "tsp", "g", "mg", "l", "dl", "ml",
-    "slice", "clove", "pinch", "drop", "dash", "inch",
+    "cup",
+    "fl oz",
+    "oz",
+    "tbsp",
+    "tsp",
+    "g",
+    "mg",
+    "l",
+    "dl",
+    "ml",
+    "slice",
+    "clove",
+    "pinch",
+    "drop",
+    "dash",
+    "inch",
 }
 
 
@@ -150,6 +178,7 @@ class ShoppingListsService(OperationService):
         # The official web client retains the older queue too; expose it for operations
         # that are still routed there by a given web build.
         from ..operations import OperationQueue
+
         self.legacy_queue = OperationQueue(
             transport,
             QueueSpec(
@@ -169,9 +198,15 @@ class ShoppingListsService(OperationService):
         self.legacy_queue.on_response = self._on_legacy_response
         self.on_store_filter_removed: Callable[[str, str, bool], Awaitable[None]] | None = None
         self.on_category_group_removed: Callable[[str, str, bool], Awaitable[None]] | None = None
-        self.on_items_became_recent: Callable[
-            [str, Sequence[ListItem], bool, bool], Awaitable[None]
-        ] | None = None
+        self.on_items_became_recent: (
+            Callable[[str, Sequence[ListItem], bool, bool], Awaitable[None]] | None
+        ) = None
+        # AnyList Web constructs new shopping items locally before queueing them. The tag-data
+        # classifier lives above this service in AnyListClient, so the client wires this callback
+        # to the same classifier used by autocomplete/categorization.
+        self.on_classify_grocery_item: (
+            Callable[[str], Awaitable[tuple[str | None, str | None]]] | None
+        ) = None
         self.on_folder_refresh_requested: Callable[[], Awaitable[object]] | None = None
         self.on_new_list_settings: Callable[[str, str, int, bool], Awaitable[None]] | None = None
         self.on_new_list_starter_lists: Callable[[str, str, bool], Awaitable[None]] | None = None
@@ -302,8 +337,7 @@ class ShoppingListsService(OperationService):
 
     def has_pending_new_list(self) -> bool:
         return any(
-            str(op.metadata.handlerId) == "new-shopping-list"
-            for op in self.legacy_queue._pending
+            str(op.metadata.handlerId) == "new-shopping-list" for op in self.legacy_queue._pending
         )
 
     def remove_list_local(self, list_id: str) -> ShoppingList | None:
@@ -478,6 +512,257 @@ class ShoppingListsService(OperationService):
         )
         return position == PB.ShoppingList.NewListItemPosition.Top
 
+    def _effective_list_setting_bool(self, list_id: str, field: str) -> bool:
+        """Return a per-list boolean with the same default-settings fallback as app.js."""
+
+        for settings_id in (list_id, ""):
+            settings = self.state.list_settings.get(settings_id)
+            if settings is None or field not in settings.DESCRIPTOR.fields_by_name:
+                continue
+            try:
+                if settings.HasField(field):
+                    return bool(getattr(settings, field))
+            except ValueError:
+                return bool(getattr(settings, field))
+        return False
+
+    @staticmethod
+    def _category_match_id(category: PBListCategory) -> str:
+        return str(category.systemCategory or "") or canonical_category_match_id(str(category.name))
+
+    def _selected_category_group(self, list_id: str) -> PBListCategoryGroup | None:
+        groups = self._category_group_index(list_id)
+        settings = self.state.list_settings.get(list_id)
+        if settings is not None and settings.HasField("listCategoryGroupId"):
+            selected = groups.get(str(settings.listCategoryGroupId))
+            if selected is not None:
+                return selected
+        return self._default_category_group(list_id)
+
+    def _category_assignments_for_new_item(
+        self,
+        list_id: str,
+        name: str,
+        *,
+        generic_root_category: str | None,
+        generic_enabled: bool,
+    ) -> list[PBListItemCategoryAssignment]:
+        """Port ShoppingList.zL(name, tag) from the current web client.
+
+        Each category group receives, in order of precedence, the explicit per-item rule,
+        the generic grocery root category, or the group's default category. When a generic
+        root exists but a category group has no matching system category, the web client
+        deliberately leaves that group unassigned instead of falling back to its default.
+        """
+
+        lowered = name.lower()
+        groups = list(self._category_group_index(list_id).values())
+        matching_rules = [
+            rule
+            for rule in self._categorization_rule_index(list_id).values()
+            if str(rule.itemName).lower() == lowered
+        ]
+        rules_by_group = {str(rule.categoryGroupId): rule for rule in matching_rules}
+        use_generic = len(matching_rules) != len(groups) and generic_enabled
+        categories = self._category_index(list_id)
+        result: list[PBListItemCategoryAssignment] = []
+
+        for group in groups:
+            group_id = str(group.identifier)
+            category_id = ""
+            rule = rules_by_group.get(group_id)
+            if rule is not None:
+                category_id = str(rule.categoryId or "")
+            elif use_generic and generic_root_category is not None:
+                for category in categories.values():
+                    if (
+                        str(category.categoryGroupId) == group_id
+                        and str(category.systemCategory or "") == generic_root_category
+                    ):
+                        category_id = str(category.identifier)
+                        break
+            else:
+                category_id = str(group.defaultCategoryId or "")
+
+            if not category_id:
+                continue
+            result.append(
+                PB.PBListItemCategoryAssignment(
+                    identifier=uuid5_hex(group_id, _CATEGORY_ASSIGNMENT_NAMESPACE),
+                    categoryGroupId=group_id,
+                    categoryId=category_id,
+                )
+            )
+        return result
+
+    async def prepare_item_for_add(
+        self,
+        list_id: str,
+        name: str,
+        *,
+        item_id: str | None = None,
+    ) -> ListItem:
+        """Construct the exact fresh ListItem shape used by ShoppingList.TJ/NJ in app.js."""
+
+        self._require_list(list_id)
+        item = PB.ListItem(
+            identifier=item_id or uuid4_hex(),
+            listId=list_id,
+            userId=self.user_id,
+            name=name or "-",
+        )
+
+        generic_enabled = self._effective_list_setting_bool(
+            list_id, "genericGroceryAutocompleteEnabled"
+        )
+        grocery_tag: str | None = None
+        generic_root: str | None = None
+        if generic_enabled and self.on_classify_grocery_item is not None:
+            grocery_tag, generic_root = await self.on_classify_grocery_item(name)
+            if grocery_tag:
+                item.priceMatchupTag = grocery_tag
+
+        assignments = self._category_assignments_for_new_item(
+            list_id,
+            name,
+            generic_root_category=generic_root,
+            generic_enabled=generic_enabled,
+        )
+        for assignment in assignments:
+            item.categoryAssignments.add().CopyFrom(assignment)
+
+        selected_group = self._selected_category_group(list_id)
+        match_id = "other"
+        if selected_group is not None:
+            selected_group_id = str(selected_group.identifier)
+            assignment = next(
+                (
+                    value
+                    for value in item.categoryAssignments
+                    if str(value.categoryGroupId) == selected_group_id
+                ),
+                None,
+            )
+            if assignment is not None:
+                category = self._category_index(list_id).get(str(assignment.categoryId))
+                if category is not None:
+                    match_id = self._category_match_id(category)
+
+        item.categoryMatchId = match_id
+        item.category = match_id if match_id in _SYSTEM_ITEM_CATEGORIES else "other"
+        return item
+
+    @staticmethod
+    def _merge_autocomplete_item(base: ListItem, source: ListItem) -> None:
+        """Port ShoppingList.xJ's protobuf-field merge for non-current autocomplete rows."""
+
+        for field in base.DESCRIPTOR.fields:
+            name = field.name
+            if field.is_repeated:
+                target = getattr(base, name)
+                if len(target) != 0:
+                    continue
+                incoming = getattr(source, name)
+                if field.message_type is not None:
+                    for value in incoming:
+                        target.add().CopyFrom(value)
+                else:
+                    target.extend(incoming)
+                continue
+
+            try:
+                if base.HasField(name) or not source.HasField(name):
+                    continue
+            except ValueError:
+                continue
+            if field.message_type is not None:
+                getattr(base, name).CopyFrom(getattr(source, name))
+            else:
+                setattr(base, name, getattr(source, name))
+
+    async def prepare_autocomplete_item_for_add(
+        self,
+        list_id: str,
+        source_item: ListItem,
+    ) -> ListItem:
+        """Construct the new-item branch used for Favorite/Recent/generic autocomplete rows."""
+
+        item = await self.prepare_item_for_add(list_id, str(source_item.name))
+        self._merge_autocomplete_item(item, source_item)
+        return item
+
+    def apply_category_to_prepared_item(
+        self,
+        list_id: str,
+        item: ListItem,
+        category: PBListCategory,
+    ) -> None:
+        """Apply the add-item controller's active-category context before queueing the item."""
+
+        if str(category.listId or list_id) != list_id:
+            raise ValueError("category does not belong to the target shopping list")
+        group_id = str(category.categoryGroupId)
+        assignment = PB.PBListItemCategoryAssignment(
+            identifier=uuid5_hex(group_id, _CATEGORY_ASSIGNMENT_NAMESPACE),
+            categoryGroupId=group_id,
+            categoryId=str(category.identifier),
+        )
+        existing = next(
+            (
+                index
+                for index, value in enumerate(item.categoryAssignments)
+                if str(value.categoryGroupId) == group_id
+            ),
+            -1,
+        )
+        if existing >= 0:
+            item.categoryAssignments[existing].CopyFrom(assignment)
+        else:
+            item.categoryAssignments.add().CopyFrom(assignment)
+
+        match_id = self._category_match_id(category)
+        item.categoryMatchId = match_id
+        item.category = match_id if match_id in _SYSTEM_ITEM_CATEGORIES else "other"
+
+    async def add_prepared_item(
+        self,
+        list_id: str,
+        item: ListItem,
+        *,
+        flush: bool = True,
+        handler_id: str = "add-shopping-list-item",
+    ) -> ListItem:
+        """Queue one already-constructed item through ShoppingList.oK/Mz."""
+
+        lst = self._require_list(list_id)
+        prepared = clone_message(item)
+        prepared.listId = list_id
+        if not prepared.identifier:
+            prepared.identifier = uuid4_hex()
+        if not prepared.userId:
+            prepared.userId = self.user_id
+
+        at_top = self._new_items_at_top(list_id)
+        if at_top:
+            lst.items.insert(0, prepared)
+            stored = lst.items[0]
+        else:
+            lst.items.add().CopyFrom(prepared)
+            stored = lst.items[-1]
+
+        fields: dict[str, Any] = {
+            "listId": list_id,
+            "listItemId": prepared.identifier,
+            "listItem": clone_message(prepared),
+        }
+        if at_top:
+            fields["list"] = PB.ShoppingList(
+                identifier=list_id,
+                newListItemPosition=PB.ShoppingList.NewListItemPosition.Top,
+            )
+        await self.operation(handler_id, flush=flush, **fields)
+        return stored
+
     async def add_item(
         self,
         list_id: str,
@@ -493,8 +778,7 @@ class ShoppingListsService(OperationService):
         flush: bool = True,
         handler_id: str = "add-shopping-list-item",
     ) -> ListItem:
-        lst = self._require_list(list_id)
-        item = PB.ListItem(identifier=item_id or uuid4_hex(), listId=list_id, name=name)
+        item = await self.prepare_item_for_add(list_id, name, item_id=item_id)
         if details is not None:
             item.details = details
         if quantity is not None:
@@ -503,27 +787,19 @@ class ShoppingListsService(OperationService):
             item.packageSizePb.CopyFrom(package_size)
         if category_match_id is not None:
             item.categoryMatchId = category_match_id
+            item.category = (
+                category_match_id if category_match_id in _SYSTEM_ITEM_CATEGORIES else "other"
+            )
         if store_ids:
             item.storeIds.extend(store_ids)
         if product_upc is not None:
             item.productUpc = product_upc
-        at_top = self._new_items_at_top(list_id)
-        if at_top:
-            lst.items.insert(0, item)
-        else:
-            lst.items.add().CopyFrom(item)
-        fields: dict[str, Any] = {
-            "listId": list_id,
-            "listItemId": item.identifier,
-            "listItem": clone_message(item),
-        }
-        if at_top:
-            fields["list"] = PB.ShoppingList(
-                identifier=list_id,
-                newListItemPosition=PB.ShoppingList.NewListItemPosition.Top,
-            )
-        await self.operation(handler_id, flush=flush, **fields)
-        return lst.items[0] if at_top else lst.items[-1]
+        return await self.add_prepared_item(
+            list_id,
+            item,
+            flush=flush,
+            handler_id=handler_id,
+        )
 
     async def add_items(
         self,
@@ -559,9 +835,7 @@ class ShoppingListsService(OperationService):
                 partial.items.add().CopyFrom(item)
             if at_top:
                 partial.newListItemPosition = PB.ShoppingList.NewListItemPosition.Top
-            await self.operation(
-                handler_id, listId=list_id, list=partial, flush=False
-            )
+            await self.operation(handler_id, listId=list_id, list=partial, flush=False)
         if flush:
             await self.flush()
         result: list[ListItem] = []
@@ -654,7 +928,9 @@ class ShoppingListsService(OperationService):
         if self.on_items_became_recent is not None:
             await self.on_items_became_recent(list_id, [original], False, flush)
 
-    async def set_checked(self, list_id: str, item_id: str, checked: bool, *, flush: bool = True) -> None:
+    async def set_checked(
+        self, list_id: str, item_id: str, checked: bool, *, flush: bool = True
+    ) -> None:
         item = self._require_item(list_id, item_id)
         item.checked = checked
         await self.operation(
@@ -667,7 +943,9 @@ class ShoppingListsService(OperationService):
         if checked and self.on_items_became_recent is not None:
             await self.on_items_became_recent(list_id, [clone_message(item)], False, flush)
 
-    async def rename_item(self, list_id: str, item_id: str, name: str, *, flush: bool = True) -> None:
+    async def rename_item(
+        self, list_id: str, item_id: str, name: str, *, flush: bool = True
+    ) -> None:
         item = self._require_item(list_id, item_id)
         original = str(item.name)
         item.name = name
@@ -680,7 +958,9 @@ class ShoppingListsService(OperationService):
             flush=flush,
         )
 
-    async def set_details(self, list_id: str, item_id: str, details: str, *, flush: bool = True) -> None:
+    async def set_details(
+        self, list_id: str, item_id: str, details: str, *, flush: bool = True
+    ) -> None:
         item = self._require_item(list_id, item_id)
         original = str(item.details)
         item.details = details
@@ -693,7 +973,9 @@ class ShoppingListsService(OperationService):
             flush=flush,
         )
 
-    async def set_product_upc(self, list_id: str, item_id: str, upc: str, *, flush: bool = True) -> None:
+    async def set_product_upc(
+        self, list_id: str, item_id: str, upc: str, *, flush: bool = True
+    ) -> None:
         item = self._require_item(list_id, item_id)
         original = str(item.productUpc)
         if upc == original:
@@ -708,7 +990,9 @@ class ShoppingListsService(OperationService):
             flush=flush,
         )
 
-    async def set_photo(self, list_id: str, item_id: str, photo_id: str | None, *, flush: bool = True) -> None:
+    async def set_photo(
+        self, list_id: str, item_id: str, photo_id: str | None, *, flush: bool = True
+    ) -> None:
         item = self._require_item(list_id, item_id)
         del item.photoIds[:]
         if photo_id:
@@ -722,7 +1006,9 @@ class ShoppingListsService(OperationService):
             flush=flush,
         )
 
-    async def set_quantity(self, list_id: str, item_id: str, quantity: PBItemQuantity, *, flush: bool = True) -> None:
+    async def set_quantity(
+        self, list_id: str, item_id: str, quantity: PBItemQuantity, *, flush: bool = True
+    ) -> None:
         item = self._require_item(list_id, item_id)
         current = item.quantityPb if item.HasField("quantityPb") else PB.PBItemQuantity()
         if quantity_equal(current, quantity):
@@ -738,10 +1024,16 @@ class ShoppingListsService(OperationService):
         if item.HasField("deprecatedQuantity"):
             partial.deprecatedQuantity = item.deprecatedQuantity
         await self.operation(
-            "set-list-item-quantity-v2", listId=list_id, listItemId=item_id, listItem=partial, flush=flush
+            "set-list-item-quantity-v2",
+            listId=list_id,
+            listItemId=item_id,
+            listItem=partial,
+            flush=flush,
         )
 
-    async def set_package_size(self, list_id: str, item_id: str, package_size: PBItemPackageSize, *, flush: bool = True) -> None:
+    async def set_package_size(
+        self, list_id: str, item_id: str, package_size: PBItemPackageSize, *, flush: bool = True
+    ) -> None:
         item = self._require_item(list_id, item_id)
         current = item.packageSizePb if item.HasField("packageSizePb") else PB.PBItemPackageSize()
         if package_size_equal(current, package_size):
@@ -750,36 +1042,60 @@ class ShoppingListsService(OperationService):
         partial = PB.ListItem(identifier=item_id, listId=list_id)
         partial.packageSizePb.CopyFrom(package_size)
         await self.operation(
-            "set-list-item-package-size", listId=list_id, listItemId=item_id, listItem=partial, flush=flush
+            "set-list-item-package-size",
+            listId=list_id,
+            listItemId=item_id,
+            listItem=partial,
+            flush=flush,
         )
 
-    async def set_quantity_override(self, list_id: str, item_id: str, value: bool, *, flush: bool = True) -> None:
+    async def set_quantity_override(
+        self, list_id: str, item_id: str, value: bool, *, flush: bool = True
+    ) -> None:
         item = self._require_item(list_id, item_id)
-        if item.HasField("itemQuantityShouldOverrideIngredientQuantity") and bool(
-            item.itemQuantityShouldOverrideIngredientQuantity
-        ) == value:
+        if (
+            item.HasField("itemQuantityShouldOverrideIngredientQuantity")
+            and bool(item.itemQuantityShouldOverrideIngredientQuantity) == value
+        ):
             return
         item.itemQuantityShouldOverrideIngredientQuantity = value
-        partial = PB.ListItem(identifier=item_id, listId=list_id, itemQuantityShouldOverrideIngredientQuantity=value)
+        partial = PB.ListItem(
+            identifier=item_id, listId=list_id, itemQuantityShouldOverrideIngredientQuantity=value
+        )
         await self.operation(
             "set-item-quantity-should-override-ingredient-quantity",
-            listId=list_id, listItemId=item_id, listItem=partial, flush=flush,
+            listId=list_id,
+            listItemId=item_id,
+            listItem=partial,
+            flush=flush,
         )
 
-    async def set_package_override(self, list_id: str, item_id: str, value: bool, *, flush: bool = True) -> None:
+    async def set_package_override(
+        self, list_id: str, item_id: str, value: bool, *, flush: bool = True
+    ) -> None:
         item = self._require_item(list_id, item_id)
-        if item.HasField("itemPackageSizeShouldOverrideIngredientPackageSize") and bool(
-            item.itemPackageSizeShouldOverrideIngredientPackageSize
-        ) == value:
+        if (
+            item.HasField("itemPackageSizeShouldOverrideIngredientPackageSize")
+            and bool(item.itemPackageSizeShouldOverrideIngredientPackageSize) == value
+        ):
             return
         item.itemPackageSizeShouldOverrideIngredientPackageSize = value
-        partial = PB.ListItem(identifier=item_id, listId=list_id, itemPackageSizeShouldOverrideIngredientPackageSize=value)
+        partial = PB.ListItem(
+            identifier=item_id,
+            listId=list_id,
+            itemPackageSizeShouldOverrideIngredientPackageSize=value,
+        )
         await self.operation(
             "set-item-package-size-should-override-ingredient-package-size",
-            listId=list_id, listItemId=item_id, listItem=partial, flush=flush,
+            listId=list_id,
+            listItemId=item_id,
+            listItem=partial,
+            flush=flush,
         )
 
-    async def set_price_quantity(self, list_id: str, item_id: str, quantity: PBItemQuantity, *, flush: bool = True) -> None:
+    async def set_price_quantity(
+        self, list_id: str, item_id: str, quantity: PBItemQuantity, *, flush: bool = True
+    ) -> None:
         item = self._require_item(list_id, item_id)
         current = item.priceQuantityPb if item.HasField("priceQuantityPb") else PB.PBItemQuantity()
         if quantity_equal(current, quantity):
@@ -787,46 +1103,99 @@ class ShoppingListsService(OperationService):
         item.priceQuantityPb.CopyFrom(quantity)
         partial = PB.ListItem(identifier=item_id, listId=list_id)
         partial.priceQuantityPb.CopyFrom(quantity)
-        await self.operation("set-list-item-price-quantity", listId=list_id, listItemId=item_id, listItem=partial, flush=flush)
+        await self.operation(
+            "set-list-item-price-quantity",
+            listId=list_id,
+            listItemId=item_id,
+            listItem=partial,
+            flush=flush,
+        )
 
-    async def set_price_package_size(self, list_id: str, item_id: str, package: PBItemPackageSize, *, flush: bool = True) -> None:
+    async def set_price_package_size(
+        self, list_id: str, item_id: str, package: PBItemPackageSize, *, flush: bool = True
+    ) -> None:
         item = self._require_item(list_id, item_id)
-        current = item.pricePackageSizePb if item.HasField("pricePackageSizePb") else PB.PBItemPackageSize()
+        current = (
+            item.pricePackageSizePb
+            if item.HasField("pricePackageSizePb")
+            else PB.PBItemPackageSize()
+        )
         if package_size_equal(current, package):
             return
         item.pricePackageSizePb.CopyFrom(package)
         partial = PB.ListItem(identifier=item_id, listId=list_id)
         partial.pricePackageSizePb.CopyFrom(package)
-        await self.operation("set-list-item-price-package-size", listId=list_id, listItemId=item_id, listItem=partial, flush=flush)
+        await self.operation(
+            "set-list-item-price-package-size",
+            listId=list_id,
+            listItemId=item_id,
+            listItem=partial,
+            flush=flush,
+        )
 
-    async def set_price_quantity_override(self, list_id: str, item_id: str, value: bool, *, flush: bool = True) -> None:
+    async def set_price_quantity_override(
+        self, list_id: str, item_id: str, value: bool, *, flush: bool = True
+    ) -> None:
         item = self._require_item(list_id, item_id)
-        if item.HasField("priceQuantityShouldOverrideItemQuantity") and bool(
-            item.priceQuantityShouldOverrideItemQuantity
-        ) == value:
+        if (
+            item.HasField("priceQuantityShouldOverrideItemQuantity")
+            and bool(item.priceQuantityShouldOverrideItemQuantity) == value
+        ):
             return
         item.priceQuantityShouldOverrideItemQuantity = value
-        partial = PB.ListItem(identifier=item_id, listId=list_id, priceQuantityShouldOverrideItemQuantity=value)
-        await self.operation("set-list-item-price-quantity-should-override-item-quantity", listId=list_id, listItemId=item_id, listItem=partial, flush=flush)
+        partial = PB.ListItem(
+            identifier=item_id, listId=list_id, priceQuantityShouldOverrideItemQuantity=value
+        )
+        await self.operation(
+            "set-list-item-price-quantity-should-override-item-quantity",
+            listId=list_id,
+            listItemId=item_id,
+            listItem=partial,
+            flush=flush,
+        )
 
-    async def set_price_package_override(self, list_id: str, item_id: str, value: bool, *, flush: bool = True) -> None:
+    async def set_price_package_override(
+        self, list_id: str, item_id: str, value: bool, *, flush: bool = True
+    ) -> None:
         item = self._require_item(list_id, item_id)
-        if item.HasField("pricePackageSizeShouldOverrideItemPackageSize") and bool(
-            item.pricePackageSizeShouldOverrideItemPackageSize
-        ) == value:
+        if (
+            item.HasField("pricePackageSizeShouldOverrideItemPackageSize")
+            and bool(item.pricePackageSizeShouldOverrideItemPackageSize) == value
+        ):
             return
         item.pricePackageSizeShouldOverrideItemPackageSize = value
-        partial = PB.ListItem(identifier=item_id, listId=list_id, pricePackageSizeShouldOverrideItemPackageSize=value)
-        await self.operation("set-list-item-price-package-size-should-override-item-package-size", listId=list_id, listItemId=item_id, listItem=partial, flush=flush)
+        partial = PB.ListItem(
+            identifier=item_id, listId=list_id, pricePackageSizeShouldOverrideItemPackageSize=value
+        )
+        await self.operation(
+            "set-list-item-price-package-size-should-override-item-package-size",
+            listId=list_id,
+            listItemId=item_id,
+            listItem=partial,
+            flush=flush,
+        )
 
-    async def assign_category(self, list_id: str, item_id: str, assignment: PBListItemCategoryAssignment, *, flush: bool = True) -> None:
+    async def assign_category(
+        self,
+        list_id: str,
+        item_id: str,
+        assignment: PBListItemCategoryAssignment,
+        *,
+        flush: bool = True,
+    ) -> None:
         item = self._require_item(list_id, item_id)
         if not assignment.categoryGroupId:
             return
         normalized = clone_message(assignment)
-        normalized.identifier = uuid5_hex(normalized.categoryGroupId, _CATEGORY_ASSIGNMENT_NAMESPACE)
+        normalized.identifier = uuid5_hex(
+            normalized.categoryGroupId, _CATEGORY_ASSIGNMENT_NAMESPACE
+        )
         existing = next(
-            (idx for idx, value in enumerate(item.categoryAssignments) if value.identifier == normalized.identifier),
+            (
+                idx
+                for idx, value in enumerate(item.categoryAssignments)
+                if value.identifier == normalized.identifier
+            ),
             -1,
         )
         if existing >= 0:
@@ -842,10 +1211,14 @@ class ShoppingListsService(OperationService):
             flush=flush,
         )
 
-    async def set_category_match_id(self, list_id: str, item_id: str, category_match_id: str, *, flush: bool = True) -> None:
+    async def set_category_match_id(
+        self, list_id: str, item_id: str, category_match_id: str, *, flush: bool = True
+    ) -> None:
         item = self._require_item(list_id, item_id)
         item.categoryMatchId = category_match_id
-        item.category = category_match_id if category_match_id in _SYSTEM_ITEM_CATEGORIES else "other"
+        item.category = (
+            category_match_id if category_match_id in _SYSTEM_ITEM_CATEGORIES else "other"
+        )
         # AnyList mutates first, then sends the full item and calls categoryID() for
         # originalValue.  Since categoryMatchId is now populated, originalValue is the
         # new match ID; updatedValue is not used by this handler.
@@ -858,24 +1231,44 @@ class ShoppingListsService(OperationService):
             flush=flush,
         )
 
-    async def add_store(self, list_id: str, item_id: str, store_id: str, *, flush: bool = True) -> None:
+    async def add_store(
+        self, list_id: str, item_id: str, store_id: str, *, flush: bool = True
+    ) -> None:
         item = self._require_item(list_id, item_id)
         if store_id in item.storeIds:
             return
         item.storeIds.append(store_id)
-        await self.operation("add-list-item-store-id", listId=list_id, listItemId=item_id, updatedValue=store_id, flush=flush)
+        await self.operation(
+            "add-list-item-store-id",
+            listId=list_id,
+            listItemId=item_id,
+            updatedValue=store_id,
+            flush=flush,
+        )
 
-    async def remove_store(self, list_id: str, item_id: str, store_id: str, *, flush: bool = True) -> None:
+    async def remove_store(
+        self, list_id: str, item_id: str, store_id: str, *, flush: bool = True
+    ) -> None:
         item = self._require_item(list_id, item_id)
         if store_id not in item.storeIds:
             return
         item.storeIds.remove(store_id)
-        await self.operation("remove-list-item-store-id", listId=list_id, listItemId=item_id, updatedValue=store_id, flush=flush)
+        await self.operation(
+            "remove-list-item-store-id",
+            listId=list_id,
+            listItemId=item_id,
+            updatedValue=store_id,
+            flush=flush,
+        )
 
-    async def save_price(self, list_id: str, item_id: str, price: PBItemPrice, *, flush: bool = True) -> None:
+    async def save_price(
+        self, list_id: str, item_id: str, price: PBItemPrice, *, flush: bool = True
+    ) -> None:
         item = self._require_item(list_id, item_id)
         store_id = str(getattr(price, "storeId", "") or "")
-        empty = (not price.HasField("amount") or float(price.amount) == 0.0) and not (price.details or "")
+        empty = (not price.HasField("amount") or float(price.amount) == 0.0) and not (
+            price.details or ""
+        )
         existing_index = next(
             (idx for idx, value in enumerate(item.prices) if (value.storeId or "") == store_id),
             -1,
@@ -888,7 +1281,9 @@ class ShoppingListsService(OperationService):
             item.prices[existing_index].CopyFrom(price)
         else:
             item.prices.add().CopyFrom(price)
-        await self.operation("save-item-price", listId=list_id, listItemId=item_id, itemPrice=price, flush=flush)
+        await self.operation(
+            "save-item-price", listId=list_id, listItemId=item_id, itemPrice=price, flush=flush
+        )
 
     async def set_price_matchup_tag(
         self, list_id: str, item_id: str, tag: str, *, flush: bool = True
@@ -910,9 +1305,10 @@ class ShoppingListsService(OperationService):
         self, list_id: str, value: bool, *, flush: bool = True
     ) -> None:
         lst = self._require_list(list_id)
-        if lst.HasField("allowsMultipleListCategoryGroups") and bool(
-            lst.allowsMultipleListCategoryGroups
-        ) == value:
+        if (
+            lst.HasField("allowsMultipleListCategoryGroups")
+            and bool(lst.allowsMultipleListCategoryGroups) == value
+        ):
             return
         lst.allowsMultipleListCategoryGroups = value
         partial = PB.ShoppingList(identifier=list_id, allowsMultipleListCategoryGroups=value)
@@ -1066,7 +1462,9 @@ class ShoppingListsService(OperationService):
         # ShoppingList.gK returns without queueing when the email is not shared.
         if not found:
             return
-        await self.operation("unshare-shopping-list", listId=list_id, updatedValue=email, flush=flush)
+        await self.operation(
+            "unshare-shopping-list", listId=list_id, updatedValue=email, flush=flush
+        )
 
     async def add_notification_location(
         self,
@@ -1083,7 +1481,9 @@ class ShoppingListsService(OperationService):
         # AnyList's AK() helper treats latitude+longitude as the location identity.
         # A duplicate is rejected locally and no operation is queued.
         for existing in lst.notificationLocations:
-            if float(existing.latitude) == float(latitude) and float(existing.longitude) == float(longitude):
+            if float(existing.latitude) == float(latitude) and float(existing.longitude) == float(
+                longitude
+            ):
                 return None
         location = PB.PBNotificationLocation(
             identifier=location_id or uuid4_hex(),
@@ -1112,7 +1512,12 @@ class ShoppingListsService(OperationService):
         self, list_id: str, item_ids: Sequence[str], store_ids: Sequence[str], *, flush: bool = True
     ) -> None:
         await self._set_store_ids_on_items(
-            list_id, item_ids, store_ids, add=False, handler_id="remove-store-ids-from-items", flush=flush
+            list_id,
+            item_ids,
+            store_ids,
+            add=False,
+            handler_id="remove-store-ids-from-items",
+            flush=flush,
         )
 
     async def _set_store_ids_on_items(
@@ -1293,7 +1698,9 @@ class ShoppingListsService(OperationService):
         )
 
     async def migrate_list_category(self, category: PBListCategory, *, flush: bool = True) -> str:
-        return await self.save_list_category(category, handler_id="migrate-list-category", flush=flush)
+        return await self.save_list_category(
+            category, handler_id="migrate-list-category", flush=flush
+        )
 
     async def rename_list_category(
         self, category: PBListCategory, name: str, *, flush: bool = True
@@ -1341,7 +1748,9 @@ class ShoppingListsService(OperationService):
             flush=flush,
         )
 
-    async def migrate_category_group(self, group: PBListCategoryGroup, *, flush: bool = True) -> str:
+    async def migrate_category_group(
+        self, group: PBListCategoryGroup, *, flush: bool = True
+    ) -> str:
         return await self.save_category_group(
             group, handler_id="migrate-list-category-group", flush=flush
         )
@@ -1357,7 +1766,10 @@ class ShoppingListsService(OperationService):
         # Q.G falls back to the first category set after localized name sorting.  Python's
         # casefold ordering is the deterministic locale-neutral approximation used by the SDK
         # until live conformance can exercise locale-specific collation.
-        return min(groups.values(), key=lambda value: (str(value.name or "").casefold(), str(value.identifier)))
+        return min(
+            groups.values(),
+            key=lambda value: (str(value.name or "").casefold(), str(value.identifier)),
+        )
 
     async def delete_category_group(
         self, group: PBListCategoryGroup, *, flush: bool = True
@@ -1460,7 +1872,11 @@ class ShoppingListsService(OperationService):
         )
 
     async def remove_category_ids(
-        self, group: PBListCategoryGroup, categories: Sequence[PBListCategory], *, flush: bool = True
+        self,
+        group: PBListCategoryGroup,
+        categories: Sequence[PBListCategory],
+        *,
+        flush: bool = True,
     ) -> str:
         list_id = str(group.listId)
         index = self._category_index(list_id)
@@ -1505,9 +1921,7 @@ class ShoppingListsService(OperationService):
         resolved_list_id = list_id or str(rule.listId)
         category_group_id = str(rule.categoryGroupId)
         item_name = str(rule.itemName)
-        identifier = category_rule_identifier(
-            item_name, category_group_id, resolved_list_id
-        )
+        identifier = category_rule_identifier(item_name, category_group_id, resolved_list_id)
         existing = self._categorization_rule_index(resolved_list_id).get(identifier)
         if existing is not None:
             updated = clone_message(existing)
@@ -1528,10 +1942,7 @@ class ShoppingListsService(OperationService):
         self, list_id: str, rules: Sequence[PBListCategorizationRule], *, flush: bool = True
     ) -> None:
         index = self._categorization_rule_index(list_id)
-        canonical = [
-            self._canonical_categorization_rule(rule, list_id=list_id)
-            for rule in rules
-        ]
+        canonical = [self._canonical_categorization_rule(rule, list_id=list_id) for rule in rules]
         for rule in canonical:
             index[str(rule.identifier)] = clone_message(rule)
         for start in range(0, len(canonical), 25):
@@ -1551,10 +1962,7 @@ class ShoppingListsService(OperationService):
         self, list_id: str, rules: Sequence[PBListCategorizationRule], *, flush: bool = True
     ) -> None:
         index = self._categorization_rule_index(list_id)
-        canonical = [
-            self._canonical_categorization_rule(rule, list_id=list_id)
-            for rule in rules
-        ]
+        canonical = [self._canonical_categorization_rule(rule, list_id=list_id) for rule in rules]
         for rule in canonical:
             index[str(rule.identifier)] = clone_message(rule)
         for start in range(0, len(canonical), 25):
@@ -1577,7 +1985,10 @@ class ShoppingListsService(OperationService):
         category_ids_set = {str(x) for x in category_ids}
         rules = self._categorization_rule_index(list_id)
         for identifier, rule in tuple(rules.items()):
-            if str(rule.categoryGroupId) == str(group.identifier) and str(rule.categoryId) in category_ids_set:
+            if (
+                str(rule.categoryGroupId) == str(group.identifier)
+                and str(rule.categoryId) in category_ids_set
+            ):
                 rules.pop(identifier, None)
         updated = clone_message(group)
         del updated.categories[:]
@@ -1591,7 +2002,9 @@ class ShoppingListsService(OperationService):
             flush=flush,
         )
 
-    async def reorder_items(self, list_id: str, ordered_item_ids: Sequence[str], *, flush: bool = True) -> None:
+    async def reorder_items(
+        self, list_id: str, ordered_item_ids: Sequence[str], *, flush: bool = True
+    ) -> None:
         lst = self._require_list(list_id)
         by_id = {item.identifier: clone_message(item) for item in lst.items}
         ordered = [by_id[item_id] for item_id in ordered_item_ids if item_id in by_id]
@@ -1608,7 +2021,11 @@ class ShoppingListsService(OperationService):
         self, list_id: str, item_ingredient: PBItemIngredient
     ) -> ListItem | None:
         """Find the favorite/recent item AnyList Web uses to enrich a new recipe item."""
-        ingredient = item_ingredient.ingredient if item_ingredient.HasField("ingredient") else PB.PBIngredient()
+        ingredient = (
+            item_ingredient.ingredient
+            if item_ingredient.HasField("ingredient")
+            else PB.PBIngredient()
+        )
         wanted_words = stem_words(((ingredient.name or "").lower()).split(" "))
         package = (
             item_ingredient.packageSizePb
@@ -1656,7 +2073,10 @@ class ShoppingListsService(OperationService):
         if item is None:
             ingredient = item_ingredient.ingredient
             item = PB.ListItem(
-                identifier=item_id, listId=list_id, name=(ingredient.name or "-"), userId=self.user_id
+                identifier=item_id,
+                listId=list_id,
+                name=(ingredient.name or "-"),
+                userId=self.user_id,
             )
             item.ingredients.add().CopyFrom(item_ingredient)
             if item_ingredient.HasField("packageSizePb"):
@@ -1679,7 +2099,10 @@ class ShoppingListsService(OperationService):
             lst.items.add().CopyFrom(item)
             await self.operation(
                 "add-item-ingredient-to-list-item",
-                listId=list_id, listItemId=item_id, listItem=item, flush=flush,
+                listId=list_id,
+                listItemId=item_id,
+                listItem=item,
+                flush=flush,
             )
             stored = self.item(list_id, item_id)
             assert stored is not None
@@ -1698,7 +2121,10 @@ class ShoppingListsService(OperationService):
         partial.ingredients.add().CopyFrom(item_ingredient)
         await self.operation(
             "add-item-ingredient-to-list-item",
-            listId=list_id, listItemId=item_id, listItem=partial, flush=flush,
+            listId=list_id,
+            listItemId=item_id,
+            listItem=partial,
+            flush=flush,
         )
         return item
 
@@ -1721,7 +2147,10 @@ class ShoppingListsService(OperationService):
         partial.ingredients.add().CopyFrom(item_ingredient)
         await self.operation(
             "remove-ingredient-id-from-list-item",
-            listId=list_id, listItemId=item_id, listItem=partial, flush=flush,
+            listId=list_id,
+            listItemId=item_id,
+            listItem=partial,
+            flush=flush,
         )
         return True
 
@@ -1749,7 +2178,10 @@ class ShoppingListsService(OperationService):
         partial.ingredients.add().CopyFrom(item_ingredient)
         await self.operation(
             "add-item-ingredient-to-list-item",
-            listId=list_id, listItemId=item_id, listItem=partial, flush=flush,
+            listId=list_id,
+            listItemId=item_id,
+            listItem=partial,
+            flush=flush,
         )
         return True
 
@@ -1775,7 +2207,9 @@ class ShoppingListsService(OperationService):
 
         # The web helper only does work when name, ingredient payloads or scale factor
         # changed.  Comparing serialized ingredient messages preserves protobuf presence.
-        same_name = (getattr(new_recipe, "name", "") or "") == (getattr(old_recipe, "name", "") or "")
+        same_name = (getattr(new_recipe, "name", "") or "") == (
+            getattr(old_recipe, "name", "") or ""
+        )
         same_scale = float(getattr(new_recipe, "scaleFactor", 0.0) or 0.0) == float(
             getattr(old_recipe, "scaleFactor", 0.0) or 0.0
         )
@@ -1822,7 +2256,9 @@ class ShoppingListsService(OperationService):
                     # longer exists; event deletion has its own cleanup path.
                     if event is None:
                         continue
-                updated_source = ingredient_to_item_ingredient(updated_ingredient, new_recipe, event)
+                updated_source = ingredient_to_item_ingredient(
+                    updated_ingredient, new_recipe, event
+                )
                 new_item_id = recipe_list_item_identifier(updated_source, list_id)
                 if new_item_id != old_item_id:
                     removed = await self._remove_recipe_ingredient_from_item(
@@ -1855,9 +2291,11 @@ class ShoppingListsService(OperationService):
         """Update recipe provenance after an event date or scale-factor change (official PR path)."""
         if self.get(list_id) is None:
             return 0
-        if (getattr(new_event, "date", "") or "") == (getattr(old_event, "date", "") or "") and float(
-            getattr(new_event, "recipeScaleFactor", 0.0) or 0.0
-        ) == float(getattr(old_event, "recipeScaleFactor", 0.0) or 0.0):
+        if (getattr(new_event, "date", "") or "") == (
+            getattr(old_event, "date", "") or ""
+        ) and float(getattr(new_event, "recipeScaleFactor", 0.0) or 0.0) == float(
+            getattr(old_event, "recipeScaleFactor", 0.0) or 0.0
+        ):
             return 0
         ingredients = {
             str(x.identifier): x for x in recipe.ingredients if getattr(x, "identifier", "")
@@ -1868,7 +2306,9 @@ class ShoppingListsService(OperationService):
             for source in snapshot.ingredients:
                 if (getattr(source, "eventId", "") or "") != new_event.identifier:
                     continue
-                ingredient_id = source.ingredient.identifier if source.HasField("ingredient") else ""
+                ingredient_id = (
+                    source.ingredient.identifier if source.HasField("ingredient") else ""
+                )
                 ingredient = ingredients.get(str(ingredient_id))
                 if ingredient is None:
                     continue
@@ -1882,13 +2322,20 @@ class ShoppingListsService(OperationService):
         return changed
 
     async def sync_event_list_update(
-        self, list_id: str, new_event: PBCalendarEvent, old_event: PBCalendarEvent, *, flush: bool = True
+        self,
+        list_id: str,
+        new_event: PBCalendarEvent,
+        old_event: PBCalendarEvent,
+        *,
+        flush: bool = True,
     ) -> int:
         """Reconcile free-form meal event list items with shopping provenance (official bR path)."""
         lst = self.get(list_id)
         if lst is None:
             return 0
-        same_title = (getattr(new_event, "title", "") or "") == (getattr(old_event, "title", "") or "")
+        same_title = (getattr(new_event, "title", "") or "") == (
+            getattr(old_event, "title", "") or ""
+        )
         same_date = (getattr(new_event, "date", "") or "") == (getattr(old_event, "date", "") or "")
         new_items = list(getattr(new_event, "eventListItems", ()))
         old_items = list(getattr(old_event, "eventListItems", ()))
@@ -1906,7 +2353,9 @@ class ShoppingListsService(OperationService):
             for source in snapshot.ingredients:
                 if (getattr(source, "eventId", "") or "") != new_event.identifier:
                     continue
-                ingredient_id = source.ingredient.identifier if source.HasField("ingredient") else ""
+                ingredient_id = (
+                    source.ingredient.identifier if source.HasField("ingredient") else ""
+                )
                 event_item = item_by_id.get(str(ingredient_id))
                 if event_item is None:
                     if await self._remove_recipe_ingredient_from_item(
@@ -1973,7 +2422,9 @@ class ShoppingListsService(OperationService):
             await self.flush()
         return removed
 
-    async def raw_legacy_operation(self, handler_id: str, *, flush: bool = True, **fields: Any) -> str:
+    async def raw_legacy_operation(
+        self, handler_id: str, *, flush: bool = True, **fields: Any
+    ) -> str:
         op = self.legacy_queue.new_operation(handler_id, **fields)
         return await self.legacy_queue.enqueue(op, flush=flush)
 

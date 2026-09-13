@@ -37,22 +37,37 @@ async def test_dispatch_maps_invalidation_domain_and_heartbeat_is_not_an_invalid
 @pytest.mark.asyncio
 async def test_reconnect_listener_runs_only_after_first_successful_connection(monkeypatch) -> None:
     class Message:
-        def __init__(self, type_, data=None): self.type=type_;self.data=data
+        def __init__(self, type_, data=None):
+            self.type = type_
+            self.data = data
+
     class WS:
         close_code = 1000
+
         async def receive(self):
             return Message(__import__("aiohttp").WSMsgType.CLOSED)
-        async def close(self, code=1000): self.close_code=code
-        async def send_str(self, value): pass
+
+        async def close(self, code=1000):
+            self.close_code = code
+
+        async def send_str(self, value):
+            pass
+
     class Context:
-        async def __aenter__(self): return WS()
-        async def __aexit__(self, *args): return False
+        async def __aenter__(self):
+            return WS()
+
+        async def __aexit__(self, *args):
+            return False
+
     class Session:
-        def ws_connect(self, *args, **kwargs): return Context()
-    transport=DummyTransport()
-    transport.session=Session()
-    realtime=RealtimeClient(transport)
-    calls=[]
+        def ws_connect(self, *args, **kwargs):
+            return Context()
+
+    transport = DummyTransport()
+    transport.session = Session()
+    realtime = RealtimeClient(transport)
+    calls = []
     realtime.add_reconnect_listener(lambda: calls.append("reconnect"))
 
     assert await realtime._connection() == 1000
@@ -61,33 +76,57 @@ async def test_reconnect_listener_runs_only_after_first_successful_connection(mo
     assert await realtime._connection() == 1000
     assert calls == ["reconnect"]
 
+
 @pytest.mark.asyncio
 async def test_reconnect_callback_failure_does_not_kill_healthy_socket() -> None:
     class Message:
-        def __init__(self, type_, data=None): self.type=type_;self.data=data
+        def __init__(self, type_, data=None):
+            self.type = type_
+            self.data = data
+
     class WS:
-        close_code=1000
-        async def receive(self): return Message(__import__('aiohttp').WSMsgType.CLOSED)
-        async def close(self,code=1000): self.close_code=code
-        async def send_str(self,value): pass
+        close_code = 1000
+
+        async def receive(self):
+            return Message(__import__("aiohttp").WSMsgType.CLOSED)
+
+        async def close(self, code=1000):
+            self.close_code = code
+
+        async def send_str(self, value):
+            pass
+
     class Context:
-        async def __aenter__(self): return WS()
-        async def __aexit__(self,*args): return False
+        async def __aenter__(self):
+            return WS()
+
+        async def __aexit__(self, *args):
+            return False
+
     class Session:
-        def ws_connect(self,*args,**kwargs): return Context()
-    transport=DummyTransport();transport.session=Session()
-    realtime=RealtimeClient(transport);realtime._has_connected_once=True
-    async def broken(): raise RuntimeError('catchup failed')
+        def ws_connect(self, *args, **kwargs):
+            return Context()
+
+    transport = DummyTransport()
+    transport.session = Session()
+    realtime = RealtimeClient(transport)
+    realtime._has_connected_once = True
+
+    async def broken():
+        raise RuntimeError("catchup failed")
+
     realtime.add_reconnect_listener(broken)
-    assert await realtime._connection()==1000
+    assert await realtime._connection() == 1000
 
 
 @pytest.mark.asyncio
 async def test_explicit_stop_resets_reconnect_session_state() -> None:
-    realtime=RealtimeClient(DummyTransport())
-    realtime._has_connected_once=True;realtime._retry_delay=8
+    realtime = RealtimeClient(DummyTransport())
+    realtime._has_connected_once = True
+    realtime._retry_delay = 8
     await realtime.stop()
-    assert not realtime._has_connected_once and realtime._retry_delay==0.5
+    assert not realtime._has_connected_once and realtime._retry_delay == 0.5
+
 
 @pytest.mark.asyncio
 async def test_start_without_authentication_fails_instead_of_hanging() -> None:
@@ -95,6 +134,7 @@ async def test_start_without_authentication_fails_instead_of_hanging() -> None:
     transport.tokens = None
     realtime = RealtimeClient(transport)
     from anylist_sdk.exceptions import AuthenticationError
+
     with pytest.raises(AuthenticationError):
         await realtime.start()
 
@@ -112,6 +152,7 @@ async def test_listener_failure_does_not_prevent_other_listeners_or_kill_dispatc
     await realtime._dispatch("refresh-shopping-lists")
     assert seen == ["refresh-shopping-lists"]
 
+
 @pytest.mark.asyncio
 async def test_retry_delay_resets_two_seconds_after_open_independent_of_frames(monkeypatch) -> None:
     import anylist_sdk.realtime as realtime_module
@@ -119,21 +160,36 @@ async def test_retry_delay_resets_two_seconds_after_open_independent_of_frames(m
     monkeypatch.setattr(realtime_module, "RETRY_RESET_DELAY", 0.01)
 
     class Message:
-        def __init__(self, type_): self.type = type_; self.data = None
+        def __init__(self, type_):
+            self.type = type_
+            self.data = None
+
     class WS:
         close_code = 1006
+
         async def receive(self):
             await asyncio.sleep(0.02)
             return Message(__import__("aiohttp").WSMsgType.CLOSED)
-        async def close(self, code=1000): self.close_code = code
-        async def send_str(self, value): pass
-    class Context:
-        async def __aenter__(self): return WS()
-        async def __aexit__(self, *args): return False
-    class Session:
-        def ws_connect(self, *args, **kwargs): return Context()
 
-    transport = DummyTransport(); transport.session = Session()
+        async def close(self, code=1000):
+            self.close_code = code
+
+        async def send_str(self, value):
+            pass
+
+    class Context:
+        async def __aenter__(self):
+            return WS()
+
+        async def __aexit__(self, *args):
+            return False
+
+    class Session:
+        def ws_connect(self, *args, **kwargs):
+            return Context()
+
+    transport = DummyTransport()
+    transport.session = Session()
     realtime = RealtimeClient(transport)
     realtime._retry_delay = 8.0
 
@@ -148,20 +204,35 @@ async def test_retry_reset_timer_is_cancelled_when_socket_closes_early(monkeypat
     monkeypatch.setattr(realtime_module, "RETRY_RESET_DELAY", 0.02)
 
     class Message:
-        def __init__(self, type_): self.type = type_; self.data = None
+        def __init__(self, type_):
+            self.type = type_
+            self.data = None
+
     class WS:
         close_code = 1006
+
         async def receive(self):
             return Message(__import__("aiohttp").WSMsgType.CLOSED)
-        async def close(self, code=1000): self.close_code = code
-        async def send_str(self, value): pass
-    class Context:
-        async def __aenter__(self): return WS()
-        async def __aexit__(self, *args): return False
-    class Session:
-        def ws_connect(self, *args, **kwargs): return Context()
 
-    transport = DummyTransport(); transport.session = Session()
+        async def close(self, code=1000):
+            self.close_code = code
+
+        async def send_str(self, value):
+            pass
+
+    class Context:
+        async def __aenter__(self):
+            return WS()
+
+        async def __aexit__(self, *args):
+            return False
+
+    class Session:
+        def ws_connect(self, *args, **kwargs):
+            return Context()
+
+    transport = DummyTransport()
+    transport.session = Session()
     realtime = RealtimeClient(transport)
     realtime._retry_delay = 8.0
 
@@ -198,18 +269,36 @@ async def test_three_missed_heartbeats_force_close_after_two_sends(monkeypatch) 
 
     class WS:
         close_code = None
-        def __init__(self): self.sent = []; self.closed = False
-        async def receive(self): await asyncio.Event().wait()
-        async def close(self, code=1000): self.close_code = code; self.closed = True
-        async def send_str(self, value): self.sent.append(value)
-    ws = WS()
-    class Context:
-        async def __aenter__(self): return ws
-        async def __aexit__(self, *args): return False
-    class Session:
-        def ws_connect(self, *args, **kwargs): return Context()
 
-    transport = DummyTransport(); transport.session = Session()
+        def __init__(self):
+            self.sent = []
+            self.closed = False
+
+        async def receive(self):
+            await asyncio.Event().wait()
+
+        async def close(self, code=1000):
+            self.close_code = code
+            self.closed = True
+
+        async def send_str(self, value):
+            self.sent.append(value)
+
+    ws = WS()
+
+    class Context:
+        async def __aenter__(self):
+            return ws
+
+        async def __aexit__(self, *args):
+            return False
+
+    class Session:
+        def ws_connect(self, *args, **kwargs):
+            return Context()
+
+    transport = DummyTransport()
+    transport.session = Session()
     realtime = RealtimeClient(transport)
 
     assert await asyncio.wait_for(realtime._connection(), timeout=0.1) == 1006
@@ -220,7 +309,10 @@ async def test_three_missed_heartbeats_force_close_after_two_sends(monkeypatch) 
 @pytest.mark.asyncio
 async def test_4010_refresh_success_reconnects_immediately_without_backoff(monkeypatch) -> None:
     class Transport(DummyTransport):
-        def __init__(self): super().__init__(); self.refreshes = 0
+        def __init__(self):
+            super().__init__()
+            self.refreshes = 0
+
         async def refresh_access_token(self, *, force=False):
             self.refreshes += 1
             return self.tokens
@@ -228,10 +320,16 @@ async def test_4010_refresh_success_reconnects_immediately_without_backoff(monke
     transport = Transport()
     realtime = RealtimeClient(transport)
     codes = iter([4010, 1000])
-    async def connection(): return next(codes)
+
+    async def connection():
+        return next(codes)
+
     realtime._connection = connection
     sleeps = []
-    async def fake_sleep(delay): sleeps.append(delay)
+
+    async def fake_sleep(delay):
+        sleeps.append(delay)
+
     monkeypatch.setattr(asyncio, "sleep", fake_sleep)
 
     await realtime._run()
@@ -244,7 +342,10 @@ async def test_4010_refresh_success_reconnects_immediately_without_backoff(monke
 @pytest.mark.asyncio
 async def test_4010_refresh_failure_uses_normal_exponential_backoff(monkeypatch) -> None:
     class Transport(DummyTransport):
-        def __init__(self): super().__init__(); self.refreshes = 0
+        def __init__(self):
+            super().__init__()
+            self.refreshes = 0
+
         async def refresh_access_token(self, *, force=False):
             self.refreshes += 1
             raise RuntimeError("refresh failed")
@@ -252,10 +353,16 @@ async def test_4010_refresh_failure_uses_normal_exponential_backoff(monkeypatch)
     transport = Transport()
     realtime = RealtimeClient(transport)
     codes = iter([4010, 1000])
-    async def connection(): return next(codes)
+
+    async def connection():
+        return next(codes)
+
     realtime._connection = connection
     sleeps = []
-    async def fake_sleep(delay): sleeps.append(delay)
+
+    async def fake_sleep(delay):
+        sleeps.append(delay)
+
     monkeypatch.setattr(asyncio, "sleep", fake_sleep)
 
     await realtime._run()
@@ -269,10 +376,16 @@ async def test_4010_refresh_failure_uses_normal_exponential_backoff(monkeypatch)
 async def test_retry_backoff_caps_at_120_seconds(monkeypatch) -> None:
     realtime = RealtimeClient(DummyTransport())
     codes = iter([1006] * 9 + [1000])
-    async def connection(): return next(codes)
+
+    async def connection():
+        return next(codes)
+
     realtime._connection = connection
     sleeps = []
-    async def fake_sleep(delay): sleeps.append(delay)
+
+    async def fake_sleep(delay):
+        sleeps.append(delay)
+
     monkeypatch.setattr(asyncio, "sleep", fake_sleep)
 
     await realtime._run()
@@ -280,10 +393,14 @@ async def test_retry_backoff_caps_at_120_seconds(monkeypatch) -> None:
     assert sleeps == [0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 120.0]
     assert realtime._retry_delay == 120.0
 
+
 @pytest.mark.asyncio
 async def test_stop_during_backoff_cancels_runner_immediately(monkeypatch) -> None:
     realtime = RealtimeClient(DummyTransport())
-    async def connection(): return 1006
+
+    async def connection():
+        return 1006
+
     realtime._connection = connection
     sleeping = asyncio.Event()
 

@@ -11,7 +11,9 @@ from anylist_sdk.state import AnyListState
 
 
 @pytest.mark.asyncio
-async def test_migrated_category_group_operation_uses_list_category_group_id(fake_transport) -> None:
+async def test_migrated_category_group_operation_uses_list_category_group_id(
+    fake_transport,
+) -> None:
     state = AnyListState(user_id="user")
     service = ListSettingsService(fake_transport, state, user_id="user")
 
@@ -34,7 +36,9 @@ async def test_list_settings_does_not_invent_handler_for_schema_only_field(fake_
 
 
 @pytest.mark.asyncio
-async def test_mobile_settings_does_not_invent_handler_for_read_only_web_field(fake_transport) -> None:
+async def test_mobile_settings_does_not_invent_handler_for_read_only_web_field(
+    fake_transport,
+) -> None:
     state = AnyListState(user_id="user")
     state.mobile_app_settings = PB.PBMobileAppSettings(identifier="user", timestamp=1)
     service = MobileSettingsService(fake_transport, state, user_id="user")
@@ -79,9 +83,7 @@ async def test_list_settings_partial_carries_object_timestamp(fake_transport) ->
 @pytest.mark.asyncio
 async def test_mobile_settings_partial_carries_current_timestamp(fake_transport) -> None:
     state = AnyListState(user_id="user")
-    state.mobile_app_settings = PB.PBMobileAppSettings(
-        identifier="mobile", timestamp=88.25
-    )
+    state.mobile_app_settings = PB.PBMobileAppSettings(identifier="mobile", timestamp=88.25)
     service = MobileSettingsService(fake_transport, state, user_id="user")
 
     await service.set("webSelectedTabId", "lists")
@@ -95,9 +97,7 @@ async def test_mobile_settings_partial_carries_current_timestamp(fake_transport)
 @pytest.mark.asyncio
 async def test_mobile_recipe_cooking_state_operations_carry_timestamp(fake_transport) -> None:
     state = AnyListState(user_id="user")
-    state.mobile_app_settings = PB.PBMobileAppSettings(
-        identifier="mobile", timestamp=7.0
-    )
+    state.mobile_app_settings = PB.PBMobileAppSettings(identifier="mobile", timestamp=7.0)
     service = MobileSettingsService(fake_transport, state, user_id="user")
     cooking = PB.PBRecipeCookingState(recipeId="recipe")
 
@@ -113,8 +113,11 @@ async def test_mobile_recipe_cooking_state_operations_carry_timestamp(fake_trans
     assert remove_op.updatedSettings.timestamp == 7.0
     assert list(remove_op.updatedSettings.recipeCookingStates) == [cooking]
 
+
 @pytest.mark.asyncio
-async def test_clear_store_filter_id_uses_official_handler_with_absent_field(fake_transport) -> None:
+async def test_clear_store_filter_id_uses_official_handler_with_absent_field(
+    fake_transport,
+) -> None:
     state = AnyListState(user_id="user")
     state.list_settings["list"] = PB.PBListSettings(
         identifier="settings", userId="user", listId="list", timestamp=3.5, storeFilterId="filter"
@@ -128,6 +131,7 @@ async def test_clear_store_filter_id_uses_official_handler_with_absent_field(fak
     assert op.metadata.handlerId == "set-store-filter-id"
     assert op.updatedSettings.timestamp == 3.5
     assert not op.updatedSettings.HasField("storeFilterId")
+
 
 @pytest.mark.asyncio
 async def test_list_settings_suppresses_official_unchanged_mutation(fake_transport) -> None:
@@ -169,7 +173,9 @@ async def test_list_settings_remove_sends_only_identity_timestamp_partial(fake_t
 
 
 @pytest.mark.asyncio
-async def test_list_settings_absent_icon_to_null_still_queues_official_handler(fake_transport) -> None:
+async def test_list_settings_absent_icon_to_null_still_queues_official_handler(
+    fake_transport,
+) -> None:
     state = AnyListState(user_id="user")
     state.list_settings["list"] = PB.PBListSettings(
         identifier="settings", userId="user", listId="list", timestamp=2.0
@@ -292,7 +298,9 @@ async def test_list_settings_custom_theme_always_queues_exact_partial(fake_trans
 
 
 @pytest.mark.asyncio
-async def test_list_settings_can_clear_optional_scalar_with_absent_wire_field(fake_transport) -> None:
+async def test_list_settings_can_clear_optional_scalar_with_absent_wire_field(
+    fake_transport,
+) -> None:
     state = AnyListState(user_id="user")
     state.list_settings["list"] = PB.PBListSettings(
         identifier="settings", userId="user", listId="list", listThemeId="theme"
@@ -308,7 +316,9 @@ async def test_list_settings_can_clear_optional_scalar_with_absent_wire_field(fa
 
 
 @pytest.mark.asyncio
-async def test_new_list_settings_initialization_matches_official_grocery_batch(fake_transport) -> None:
+async def test_new_list_settings_initialization_matches_official_grocery_batch(
+    fake_transport,
+) -> None:
     state = AnyListState(user_id="user")
     service = ListSettingsService(fake_transport, state, user_id="user")
 
@@ -363,9 +373,7 @@ async def test_new_list_settings_copies_selected_custom_new_list_theme(fake_tran
 
     settings = await service.initialize_new_list("list", "group")
 
-    expected_id = uuid5_hex(
-        "userlist", UUID(hex="471ba5c9888f4f30a159308708ba7949")
-    )
+    expected_id = uuid5_hex("userlist", UUID(hex="471ba5c9888f4f30a159308708ba7949"))
     assert settings.listThemeId == expected_id
     assert settings.customTheme.identifier == expected_id
     assert settings.customTheme.userId == "user"
@@ -392,7 +400,9 @@ async def test_mobile_selected_defaults_suppress_equivalent_mutations(fake_trans
 
 
 @pytest.mark.asyncio
-async def test_mobile_recipe_collection_layout_setter_compares_raw_optional_field(fake_transport) -> None:
+async def test_mobile_recipe_collection_layout_setter_compares_raw_optional_field(
+    fake_transport,
+) -> None:
     state = AnyListState(user_id="user")
     state.mobile_app_settings = PB.PBMobileAppSettings(identifier="mobile", timestamp=1.0)
     service = MobileSettingsService(fake_transport, state, user_id="user")
@@ -489,7 +499,9 @@ async def test_mobile_settings_scalar_handler_contracts(
 
 
 @pytest.mark.asyncio
-async def test_list_settings_refresh_returns_before_http_while_edit_queue_pending(fake_transport) -> None:
+async def test_list_settings_refresh_returns_before_http_while_edit_queue_pending(
+    fake_transport,
+) -> None:
     state = AnyListState(user_id="user")
     service = ListSettingsService(fake_transport, state, user_id="user")
     await service.queue.enqueue(service.queue.new_operation("set-should-hide-prices"), flush=False)
@@ -501,7 +513,9 @@ async def test_list_settings_refresh_returns_before_http_while_edit_queue_pendin
 
 
 @pytest.mark.asyncio
-async def test_mobile_settings_refresh_returns_before_http_while_edit_queue_pending(fake_transport) -> None:
+async def test_mobile_settings_refresh_returns_before_http_while_edit_queue_pending(
+    fake_transport,
+) -> None:
     state = AnyListState(user_id="user")
     state.mobile_app_settings = PB.PBMobileAppSettings(identifier="mobile", timestamp=1.0)
     service = MobileSettingsService(fake_transport, state, user_id="user")
@@ -537,21 +551,25 @@ async def test_recipe_cooking_states_are_keyed_by_recipe_and_event(fake_transpor
     state.mobile_app_settings = settings
     service = MobileSettingsService(fake_transport, state, user_id="user")
 
-    await service.save_recipe_cooking_states([
-        PB.PBRecipeCookingState(recipeId="recipe", eventId="event-a", selectedStepNumber=3)
-    ])
+    await service.save_recipe_cooking_states(
+        [PB.PBRecipeCookingState(recipeId="recipe", eventId="event-a", selectedStepNumber=3)]
+    )
 
     values = {(x.recipeId, x.eventId): x.selectedStepNumber for x in settings.recipeCookingStates}
     assert values == {("recipe", "event-a"): 3, ("recipe", "event-b"): 2}
 
-    await service.remove_recipe_cooking_states([
-        PB.PBRecipeCookingState(recipeId="recipe", eventId="event-a")
-    ])
-    assert [(x.recipeId, x.eventId) for x in settings.recipeCookingStates] == [("recipe", "event-b")]
+    await service.remove_recipe_cooking_states(
+        [PB.PBRecipeCookingState(recipeId="recipe", eventId="event-a")]
+    )
+    assert [(x.recipeId, x.eventId) for x in settings.recipeCookingStates] == [
+        ("recipe", "event-b")
+    ]
 
 
 @pytest.mark.asyncio
-async def test_list_settings_direct_refresh_uses_stable_official_timestamp_id(fake_transport) -> None:
+async def test_list_settings_direct_refresh_uses_stable_official_timestamp_id(
+    fake_transport,
+) -> None:
     state = AnyListState(user_id="user")
     state.list_settings_timestamp = 8.5
     state.list_settings_timestamp_id = "loaded"
@@ -573,7 +591,9 @@ async def test_list_settings_direct_refresh_uses_stable_official_timestamp_id(fa
 
 
 @pytest.mark.asyncio
-async def test_starter_settings_direct_refresh_uses_same_official_timestamp_id(fake_transport) -> None:
+async def test_starter_settings_direct_refresh_uses_same_official_timestamp_id(
+    fake_transport,
+) -> None:
     state = AnyListState(user_id="user")
     state.starter_list_settings_timestamp = 3.0
     state.starter_list_settings_timestamp_id = "loaded"
@@ -588,7 +608,9 @@ async def test_starter_settings_direct_refresh_uses_same_official_timestamp_id(f
 
 
 @pytest.mark.asyncio
-async def test_settings_refresh_does_not_overwrite_optimistic_state_while_queue_pending(fake_transport) -> None:
+async def test_settings_refresh_does_not_overwrite_optimistic_state_while_queue_pending(
+    fake_transport,
+) -> None:
     state = AnyListState(user_id="user")
     state.list_settings["list"] = PB.PBListSettings(
         identifier="settings", userId="user", listId="list", shouldHidePrices=True

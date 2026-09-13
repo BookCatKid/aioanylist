@@ -30,7 +30,9 @@ async def test_user_grouping_mutations_are_optimistic(state):
     assert op.metadata.handlerId == "add-grouping"
     assert list(op.grouping.categoryIds) == ["a", "b"]
 
-    await service.set_grouping_categories(grouping.identifier, ["b", "a"], ordering_only=True, flush=False)
+    await service.set_grouping_categories(
+        grouping.identifier, ["b", "a"], ordering_only=True, flush=False
+    )
     assert list(state.category_groupings[grouping.identifier].categoryIds) == ["b", "a"]
     assert service.queue._pending[-1].metadata.handlerId == "set-grouping-category-order"
 
@@ -63,7 +65,13 @@ async def test_user_grouping_mutations_are_optimistic(state):
 @pytest.mark.asyncio
 async def test_categorized_item_uses_official_md5_memory_key(state):
     service = CategorizedItemsService(DummyTransport(), state, user_id="user1")
-    item = PB.ListItem(identifier="shopping-id", listId="list1", name="Milk", categoryMatchId="dairy", category="other")
+    item = PB.ListItem(
+        identifier="shopping-id",
+        listId="list1",
+        name="Milk",
+        categoryMatchId="dairy",
+        category="other",
+    )
 
     await service.categorize(item, flush=False)
 
@@ -84,7 +92,11 @@ async def test_categorized_item_uses_official_md5_memory_key(state):
 async def test_categorized_item_lookup_falls_back_to_global(state):
     service = CategorizedItemsService(DummyTransport(), state, user_id="user1")
     global_item = PB.ListItem(
-        identifier=service.memory_id("Milk", ""), listId="", userId="user1", name="milk", categoryMatchId="dairy"
+        identifier=service.memory_id("Milk", ""),
+        listId="",
+        userId="user1",
+        name="milk",
+        categoryMatchId="dairy",
     )
     state.categorized_items[global_item.identifier] = global_item
     assert service.lookup("MILK", "another-list") is global_item
@@ -95,9 +107,20 @@ async def test_global_categorization_replaces_list_specific_memory(state):
     service = CategorizedItemsService(DummyTransport(), state, user_id="user1")
     local_id = service.memory_id("Milk", "list1")
     state.categorized_items[local_id] = PB.ListItem(
-        identifier=local_id, listId="list1", userId="user1", name="milk", categoryMatchId="dairy", category="other"
+        identifier=local_id,
+        listId="list1",
+        userId="user1",
+        name="milk",
+        categoryMatchId="dairy",
+        category="other",
     )
-    item = PB.ListItem(identifier="shopping-id", listId="list1", name="Milk", categoryMatchId="beverages", category="other")
+    item = PB.ListItem(
+        identifier="shopping-id",
+        listId="list1",
+        name="Milk",
+        categoryMatchId="beverages",
+        category="other",
+    )
 
     await service.categorize(item, global_scope=True, flush=False)
 
@@ -117,10 +140,21 @@ async def test_global_categorization_replaces_list_specific_memory(state):
 @pytest.mark.asyncio
 async def test_remove_categorized_item_uses_memory_key_not_shopping_id(state):
     service = CategorizedItemsService(DummyTransport(), state, user_id="user1")
-    item = PB.ListItem(identifier="shopping-id", listId="list1", name="Milk", categoryMatchId="dairy", category="other")
+    item = PB.ListItem(
+        identifier="shopping-id",
+        listId="list1",
+        name="Milk",
+        categoryMatchId="dairy",
+        category="other",
+    )
     key = service.memory_id("Milk", "list1")
     state.categorized_items[key] = PB.ListItem(
-        identifier=key, listId="list1", userId="user1", name="milk", categoryMatchId="dairy", category="other"
+        identifier=key,
+        listId="list1",
+        userId="user1",
+        name="milk",
+        categoryMatchId="dairy",
+        category="other",
     )
 
     await service.remove(item, flush=False)
@@ -136,9 +170,7 @@ def test_categorized_sync_lowercases_server_names_before_indexing(state):
     response = PB.PBCategorizedItemsList()
     response.timestamp.identifier = "all"
     response.timestamp.timestamp = 4
-    response.categorizedItems.add(
-        identifier="memory", listId="list1", userId="user1", name="MiLK"
-    )
+    response.categorizedItems.add(identifier="memory", listId="list1", userId="user1", name="MiLK")
 
     state.apply_categorized_items(response)
 
@@ -146,7 +178,9 @@ def test_categorized_sync_lowercases_server_names_before_indexing(state):
 
 
 @pytest.mark.asyncio
-async def test_user_categories_refresh_returns_before_http_while_edit_queue_pending(fake_transport) -> None:
+async def test_user_categories_refresh_returns_before_http_while_edit_queue_pending(
+    fake_transport,
+) -> None:
     state = AnyListState(user_id="user")
     service = UserCategoriesService(fake_transport, state, user_id="user")
     await service.queue.enqueue(service.queue.new_operation("add-category"), flush=False)
@@ -158,7 +192,9 @@ async def test_user_categories_refresh_returns_before_http_while_edit_queue_pend
 
 
 @pytest.mark.asyncio
-async def test_categorized_items_refresh_returns_before_http_while_edit_queue_pending(fake_transport) -> None:
+async def test_categorized_items_refresh_returns_before_http_while_edit_queue_pending(
+    fake_transport,
+) -> None:
     state = AnyListState(user_id="user")
     service = CategorizedItemsService(fake_transport, state, user_id="user")
     await service.queue.enqueue(service.queue.new_operation("categorize-item"), flush=False)
@@ -256,9 +292,7 @@ async def test_category_memory_migration_uses_exact_partial_payload_and_21_op_fl
     assert not service.queue.paused
     assert service.queue._pending == []
     migrated = [
-        value
-        for value in state.categorized_items.values()
-        if value.identifier != other_key
+        value for value in state.categorized_items.values() if value.identifier != other_key
     ]
     assert all(value.categoryMatchId == "produce" for value in migrated)
     assert state.categorized_items[other_key].categoryMatchId == "dairy"

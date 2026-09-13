@@ -92,9 +92,7 @@ def descriptor_pool_for_official_schema() -> descriptor_pool.DescriptorPool:
 
     message_names = {m["name"] for m in schema["messages"]}
     top_enums = {e["name"] for e in schema.get("enums", [])}
-    nested_enums = {
-        m["name"]: {e["name"] for e in m.get("enums", [])} for m in schema["messages"]
-    }
+    nested_enums = {m["name"]: {e["name"] for e in m.get("enums", [])} for m in schema["messages"]}
 
     for enum in schema.get("enums", []):
         _add_enum(file_proto, enum)
@@ -159,7 +157,9 @@ def descriptor_pool_for_official_schema() -> descriptor_pool.DescriptorPool:
             )
             default = raw.get("options", {}).get("default")
             if default is not None:
-                field.default_value = str(default).lower() if isinstance(default, bool) else str(default)
+                field.default_value = (
+                    str(default).lower() if isinstance(default, bool) else str(default)
+                )
 
     pool = descriptor_pool.DescriptorPool()
     pool.Add(file_proto)

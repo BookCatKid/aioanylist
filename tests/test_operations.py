@@ -31,7 +31,9 @@ async def test_operation_metadata_and_200_batching(fake_transport) -> None:
 
 
 @pytest.mark.asyncio
-async def test_partial_ack_immediately_retries_when_remaining_queue_is_small(fake_transport) -> None:
+async def test_partial_ack_immediately_retries_when_remaining_queue_is_small(
+    fake_transport,
+) -> None:
     queue = OperationQueue(
         fake_transport,
         QueueSpec("q", "/update", "PBListOperation", "PBListOperationList"),
@@ -41,7 +43,9 @@ async def test_partial_ack_immediately_retries_when_remaining_queue_is_small(fak
     b = queue.new_operation("b")
     await queue.enqueue(a, flush=False)
     await queue.enqueue(b, flush=False)
-    fake_transport.responses.append(PB.PBEditOperationResponse(processedOperations=[a.metadata.operationId]))
+    fake_transport.responses.append(
+        PB.PBEditOperationResponse(processedOperations=[a.metadata.operationId])
+    )
     ack = await queue.flush()
     assert ack is not None
     assert queue.pending_count == 0
@@ -111,7 +115,9 @@ async def test_queue_stops_when_first_200_ack_leaves_more_than_200(fake_transpor
 
 
 @pytest.mark.asyncio
-async def test_response_delegate_observes_queue_after_acknowledged_operations_are_shifted(fake_transport) -> None:
+async def test_response_delegate_observes_queue_after_acknowledged_operations_are_shifted(
+    fake_transport,
+) -> None:
     queue = OperationQueue(
         fake_transport,
         QueueSpec("q", "/update", "PBListOperation", "PBListOperationList"),
@@ -151,6 +157,7 @@ async def test_response_delegate_failure_is_isolated_after_server_ack(fake_trans
     assert ack is not None
     assert ack.processed_ids == (op.metadata.operationId,)
     assert queue.pending_count == 0
+
 
 @pytest.mark.asyncio
 async def test_enqueue_during_inflight_flush_is_not_blocked_and_is_sent_next() -> None:
@@ -200,7 +207,9 @@ async def test_enqueue_during_inflight_flush_is_not_blocked_and_is_sent_next() -
 
 
 @pytest.mark.asyncio
-async def test_response_delegate_can_enqueue_without_recursive_flush_deadlock(fake_transport) -> None:
+async def test_response_delegate_can_enqueue_without_recursive_flush_deadlock(
+    fake_transport,
+) -> None:
     queue = OperationQueue(
         fake_transport,
         QueueSpec("q", "/update", "PBListOperation", "PBListOperationList"),
@@ -225,7 +234,9 @@ async def test_response_delegate_can_enqueue_without_recursive_flush_deadlock(fa
 
 
 @pytest.mark.asyncio
-async def test_restore_rejects_operations_archived_for_another_user(tmp_path, fake_transport) -> None:
+async def test_restore_rejects_operations_archived_for_another_user(
+    tmp_path, fake_transport
+) -> None:
     journal = FileOperationJournal(tmp_path)
     spec = QueueSpec("shared", "/update", "PBListOperation", "PBListOperationList")
     old = OperationQueue(fake_transport, spec, user_id="old-user", journal=journal)
@@ -246,6 +257,7 @@ async def test_restore_ignores_corrupt_archived_operation_payload(tmp_path, fake
 
     assert await queue.restore() == 0
     assert queue.pending_count == 0
+
 
 @pytest.mark.asyncio
 async def test_transport_failure_retains_pending_operations_for_retry(fake_transport) -> None:

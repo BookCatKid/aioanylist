@@ -32,13 +32,15 @@ async def test_sign_in_uses_official_form_and_parses_auth_payload() -> None:
     async def token(request: web.Request):
         form = await request.post()
         seen.update(form)
-        return web.json_response({
-            "user_id": "user",
-            "access_token": "access",
-            "refresh_token": "refresh",
-            "is_premium_user": True,
-            "user_locale": "de-DE",
-        })
+        return web.json_response(
+            {
+                "user_id": "user",
+                "access_token": "access",
+                "refresh_token": "refresh",
+                "is_premium_user": True,
+                "user_locale": "de-DE",
+            }
+        )
 
     app = web.Application()
     app.router.add_post("/auth/token", token)
@@ -102,6 +104,7 @@ async def test_concurrent_refreshes_are_serialized_and_share_rotated_token() -> 
             tokens=AuthTokens("user", "old", "refresh"),
         ) as transport:
             import asyncio
+
             a, b = await asyncio.gather(
                 transport.refresh_access_token(stale_token="old"),
                 transport.refresh_access_token(stale_token="old"),
@@ -180,9 +183,7 @@ async def test_protobuf_multipart_fields_are_not_file_uploads() -> None:
             )
 
     assert result == b"ok"
-    assert seen["content_type"] == (
-        "multipart/form-data; boundary=Boundary+0xAbCdEfGbOuNdArY"
-    )
+    assert seen["content_type"] == ("multipart/form-data; boundary=Boundary+0xAbCdEfGbOuNdArY")
     assert seen["name"] == "operations"
     assert seen["filename"] is None
     assert seen["part_content_type"] is None

@@ -56,7 +56,9 @@ async def test_incremental_sync_sends_domain_timestamps(fake_transport) -> None:
 
 
 @pytest.mark.asyncio
-async def test_incremental_sync_304_is_noop_without_marking_new_state_loaded(fake_transport) -> None:
+async def test_incremental_sync_304_is_noop_without_marking_new_state_loaded(
+    fake_transport,
+) -> None:
     fake_transport.responses.append(None)
     state = AnyListState(user_id="user")
     sync = SyncCoordinator(fake_transport, state)
@@ -96,7 +98,9 @@ async def test_sync_notifies_only_domains_present_in_response(fake_transport) ->
 
 
 @pytest.mark.asyncio
-async def test_aggregate_sync_defers_busy_manager_snapshot_until_guard_clears(fake_transport) -> None:
+async def test_aggregate_sync_defers_busy_manager_snapshot_until_guard_clears(
+    fake_transport,
+) -> None:
     first = PB.PBUserDataResponse()
     first.listSettingsResponse.timestamp.identifier = "all"
     first.listSettingsResponse.timestamp.timestamp = 10

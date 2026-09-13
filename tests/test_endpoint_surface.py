@@ -5,7 +5,12 @@ import pytest
 from anylist_sdk.proto import PB, decode
 from anylist_sdk.services.categories import CategorizedItemsService, UserCategoriesService
 from anylist_sdk.services.folders import FoldersService
-from anylist_sdk.services.http_api import AlexaService, PhotosService, SharingService, WebStateService
+from anylist_sdk.services.http_api import (
+    AlexaService,
+    PhotosService,
+    SharingService,
+    WebStateService,
+)
 from anylist_sdk.services.meal_plan import MealPlanService
 from anylist_sdk.services.recipes import RecipesService
 from anylist_sdk.services.settings import ListSettingsService, MobileSettingsService
@@ -50,9 +55,7 @@ async def test_alexa_direct_endpoint_contracts(fake_transport) -> None:
 
 @pytest.mark.asyncio
 async def test_auxiliary_direct_endpoint_contracts(fake_transport) -> None:
-    fake_transport.responses.extend(
-        [b"photo-ok", b'{"status":"success"}', b"mac", b"welcome"]
-    )
+    fake_transport.responses.extend([b"photo-ok", b'{"status":"success"}', b"mac", b"welcome"])
     photos = PhotosService(fake_transport)
     sharing = SharingService(fake_transport, "user")
     web = WebStateService(fake_transport)
@@ -118,18 +121,14 @@ async def test_direct_refresh_endpoint_contracts(fake_transport) -> None:
         [
             PB.PBUserCategoryData(identifier="all", timestamp=1),
             PB.PBCategorizedItemsList(
-                timestamp=PB.PBTimestamp(
-                    identifier="last-categorized-item-timestamp", timestamp=1
-                )
+                timestamp=PB.PBTimestamp(identifier="last-categorized-item-timestamp", timestamp=1)
             ),
             PB.PBListFoldersResponse(listDataId="data", rootFolderId="root"),
             PB.PBMobileAppSettings(identifier="user", timestamp=1),
             PB.PBIdentifierList(timestamp=1),
             PB.PBRecipeDataResponse(recipeDataId="recipes", timestamp=1),
             PB.PBRecipeDataResponse(recipeDataId="recipes", timestamp=2),
-            PB.PBCalendarResponse(
-                calendarId="calendar", responseVersion=1, isFullSync=True
-            ),
+            PB.PBCalendarResponse(calendarId="calendar", responseVersion=1, isFullSync=True),
         ]
     )
 

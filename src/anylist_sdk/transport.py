@@ -91,9 +91,7 @@ class AnyListTransport:
         boundary = MULTIPART_BOUNDARY.encode("ascii")
         for index, (name, value) in enumerate(fields.items()):
             chunks.append((b"--" if index == 0 else b"\r\n--") + boundary + b"\r\n")
-            chunks.append(
-                f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode("utf-8")
-            )
+            chunks.append(f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode("utf-8"))
             if isinstance(value, (bytes, bytearray, memoryview)):
                 chunks.append(bytes(value))
             else:
@@ -147,16 +145,16 @@ class AnyListTransport:
         await self._publish_tokens(tokens)
         return tokens
 
-    async def refresh_access_token(self, *, force: bool = False, stale_token: str | None = None) -> AuthTokens:
+    async def refresh_access_token(
+        self, *, force: bool = False, stale_token: str | None = None
+    ) -> AuthTokens:
         async with self._refresh_lock:
             if self.tokens is None:
                 raise AuthenticationError("Cannot refresh without an authenticated session")
             if not force and stale_token and self.tokens.access_token != stale_token:
                 return self.tokens
 
-            body, content_type = self._multipart_body(
-                {"refresh_token": self.tokens.refresh_token}
-            )
+            body, content_type = self._multipart_body({"refresh_token": self.tokens.refresh_token})
             try:
                 async with self.session.post(
                     f"{self.base_url}/auth/token/refresh",
@@ -228,7 +226,9 @@ class AnyListTransport:
                         extra_headers=extra_headers,
                     )
                 if response.status in (401, 403):
-                    raise PermissionDeniedError(f"AnyList rejected {endpoint}: HTTP {response.status}")
+                    raise PermissionDeniedError(
+                        f"AnyList rejected {endpoint}: HTTP {response.status}"
+                    )
                 if response.status >= 400:
                     raise TransportError(
                         f"AnyList request {method} {endpoint} failed with HTTP {response.status}: "

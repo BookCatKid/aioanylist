@@ -61,7 +61,9 @@ class AutocompleteEngine:
                         found.extend(rows)
             found.sort(
                 key=lambda row: (
-                    0 if token_index == 0 and str(row[0]).lower().startswith(token) and row[1] > 0 else 1,
+                    0
+                    if token_index == 0 and str(row[0]).lower().startswith(token) and row[1] > 0
+                    else 1,
                     -float(row[1]),
                     localized_sort_key(str(row[0]).lower()),
                 )

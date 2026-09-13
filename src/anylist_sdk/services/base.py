@@ -25,9 +25,7 @@ class OperationService:
     ) -> None:
         self.transport = transport
         self.state = state
-        self.queue = OperationQueue(
-            transport, spec, user_id=user_id, journal=journal
-        )
+        self.queue = OperationQueue(transport, spec, user_id=user_id, journal=journal)
 
     async def operation(
         self,

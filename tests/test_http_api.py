@@ -24,7 +24,9 @@ class FakeTransport:
 @pytest.mark.asyncio
 async def test_account_get_mirrors_account_info_into_state() -> None:
     state = AnyListState()
-    response = PB.PBAccountInfoResponse(firstName="Ada", lastName="Lovelace", email="ada@example.com")
+    response = PB.PBAccountInfoResponse(
+        firstName="Ada", lastName="Lovelace", email="ada@example.com"
+    )
     service = AccountService(FakeTransport(response), state)
     result = await service.get()
     assert result.email == "ada@example.com"

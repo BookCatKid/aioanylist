@@ -4,10 +4,24 @@ from functools import lru_cache
 
 _VOWELS = set("aeiouy")
 _EXCEPTION1 = {
-    "skis": "ski", "skies": "sky", "dying": "die", "lying": "lie", "tying": "tie",
-    "idly": "idl", "gently": "gentl", "ugly": "ugli", "early": "earli", "only": "onli",
-    "singly": "singl", "sky": "sky", "news": "news", "howe": "howe", "atlas": "atlas",
-    "cosmos": "cosmos", "bias": "bias", "andes": "andes",
+    "skis": "ski",
+    "skies": "sky",
+    "dying": "die",
+    "lying": "lie",
+    "tying": "tie",
+    "idly": "idl",
+    "gently": "gentl",
+    "ugly": "ugli",
+    "early": "earli",
+    "only": "onli",
+    "singly": "singl",
+    "sky": "sky",
+    "news": "news",
+    "howe": "howe",
+    "atlas": "atlas",
+    "cosmos": "cosmos",
+    "bias": "bias",
+    "andes": "andes",
 }
 _EXCEPTION2 = {"inning", "outing", "canning", "herring", "earring", "proceed", "exceed", "succeed"}
 _R1_SPECIAL = ("gener", "commun", "arsen")
@@ -134,11 +148,28 @@ def english_stem(raw: str) -> str:
 
     # Step 2: longest suffix first.
     step2 = {
-        "ization": "ize", "ational": "ate", "fulness": "ful", "ousness": "ous",
-        "iveness": "ive", "tional": "tion", "biliti": "ble", "lessli": "less",
-        "entli": "ent", "ation": "ate", "alism": "al", "aliti": "al", "ousli": "ous",
-        "iviti": "ive", "fulli": "ful", "enci": "ence", "anci": "ance", "abli": "able",
-        "izer": "ize", "ator": "ate", "alli": "al", "bli": "ble",
+        "ization": "ize",
+        "ational": "ate",
+        "fulness": "ful",
+        "ousness": "ous",
+        "iveness": "ive",
+        "tional": "tion",
+        "biliti": "ble",
+        "lessli": "less",
+        "entli": "ent",
+        "ation": "ate",
+        "alism": "al",
+        "aliti": "al",
+        "ousli": "ous",
+        "iviti": "ive",
+        "fulli": "ful",
+        "enci": "ence",
+        "anci": "ance",
+        "abli": "able",
+        "izer": "ize",
+        "ator": "ate",
+        "alli": "al",
+        "bli": "ble",
     }
     applied = False
     for suffix in sorted(step2, key=len, reverse=True):
@@ -157,8 +188,14 @@ def english_stem(raw: str) -> str:
 
     # Step 3
     step3 = {
-        "ational": "ate", "tional": "tion", "alize": "al", "icate": "ic",
-        "iciti": "ic", "ical": "ic", "ful": "", "ness": "",
+        "ational": "ate",
+        "tional": "tion",
+        "alize": "al",
+        "icate": "ic",
+        "iciti": "ic",
+        "ical": "ic",
+        "ful": "",
+        "ness": "",
     }
     applied = False
     for suffix in sorted(step3, key=len, reverse=True):
@@ -171,8 +208,23 @@ def english_stem(raw: str) -> str:
 
     # Step 4
     for suffix in (
-        "ement", "ment", "ance", "ence", "able", "ible", "ate", "ive", "ize", "iti",
-        "al", "ism", "er", "ous", "ant", "ent", "ic",
+        "ement",
+        "ment",
+        "ance",
+        "ence",
+        "able",
+        "ible",
+        "ate",
+        "ive",
+        "ize",
+        "iti",
+        "al",
+        "ism",
+        "er",
+        "ous",
+        "ant",
+        "ent",
+        "ic",
     ):
         if _in_region(word, suffix, r2):
             word = word[: -len(suffix)]
