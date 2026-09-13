@@ -10,6 +10,11 @@ from .http_api import (
     WebStateService,
 )
 from .meal_plan import MealPlanService
+from .native import (
+    MapsService,
+    NativeConfigService,
+    ProductsService,
+)
 from .recipes import RecipesService
 from .settings import ListSettingsService, MobileSettingsService
 from .shopping import ShoppingListsService, category_rule_identifier
@@ -22,9 +27,12 @@ __all__ = [
     "FoldersService",
     "GenericDomainService",
     "ListSettingsService",
+    "MapsService",
     "MealPlanService",
     "MobileSettingsService",
+    "NativeConfigService",
     "PhotosService",
+    "ProductsService",
     "RawAPI",
     "RecipesService",
     "SharingService",

@@ -28,12 +28,22 @@ def test_authenticated_constructor_installs_complete_service_surface() -> None:
         "meal_plan",
         "account",
         "photos",
+        "maps",
+        "products",
         "sharing",
         "alexa",
         "web_state",
+        "config",
         "raw",
     ):
         assert getattr(client, name) is not None
+
+
+def test_unauthenticated_constructor_keeps_public_config_surface_only() -> None:
+    client = AnyListClient()
+    assert client.config is not None
+    assert client.raw is not None
+    assert client.products is None
 
 
 def test_constructor_exposes_token_callback_without_transport_reachthrough() -> None:
@@ -150,7 +160,8 @@ async def test_logout_clears_account_state_and_authenticated_services(monkeypatc
     await client.logout()
     assert client.state.user_id is None and client.state.shopping_lists == {}
     assert client.lists is None and client.recipes is None and client.account is None
-    assert client.raw is not None and not client.ready.is_set()
+    assert client.products is None
+    assert client.config is not None and client.raw is not None and not client.ready.is_set()
 
 
 @pytest.mark.asyncio

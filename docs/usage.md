@@ -159,6 +159,49 @@ print(client.photos.url(photo_id))
 
 `upload_url()` asks AnyList to import an HTTP(S) image URL. The service enforces the content types and 10 MiB limit used by AnyList Web for byte uploads.
 
+AnyList's Android client also exposes its native image-search endpoint through the same service:
+
+```python
+results = await client.photos.image_search("pancakes")
+for result in results:
+    print(result.media_url, result.thumbnail_url)
+```
+
+## Native search, lookup, and configuration
+
+Several AnyList-owned endpoints exist only in the official native clients. The SDK keeps the normal `www.anylist.com` host by default while reproducing the Android request shape for these routes.
+
+UPC lookup returns the official `PBProductLookupResponse`; a 404 or an empty response means no match. The Android UI premium-gates this feature, so applications should respect the account/product UX appropriate to their integration:
+
+```python
+assert client.products is not None
+
+product = await client.products.lookup("012345678905")
+if product is not None:
+    print(product.listItem.name, product.productThumbnailUrl)
+```
+
+Place search mirrors the Android location-notification picker. Android computes `radius` as half the visible map diagonal; the SDK accepts the already-computed radius in meters:
+
+```python
+assert client.maps is not None
+
+places = await client.maps.place_search(
+    "grocery store",
+    latitude=32.7,
+    longitude=-117.1,
+    radius_meters=2_000,
+)
+```
+
+`client.config.get()` exposes Android's `/data/version-check` endpoint, which is actually a remote-configuration response containing assistant visibility/status messages and retail-promotion data. It can be called before or after authentication.
+
+`client.alexa.set_default_list_id(...)` exposes the Android Alexa default-list selector alongside the SDK's existing Alexa integration methods.
+
+Android App Notices, client metrics, rating-prompt feedback, FCM push-token registration, and legacy Google Assistant link/unlink routes are documented in the research inventory but deliberately not exposed as SDK services. They are app UI/telemetry/lifecycle plumbing or obsolete external-integration behavior rather than useful AnyList data APIs.
+
+The Android client also reveals account/signup/password/subuser/delete/purchase endpoints. They are intentionally documented in the research/conformance material but not exposed as SDK conveniences because they are high-impact account-management or store-specific operations and add little value to normal list/recipe/automation integrations.
+
 ## Manual refresh and realtime
 
 `await client.refresh()` performs timestamp-based catch-up synchronization. With realtime enabled, WebSocket messages act as invalidations and the SDK refreshes synchronized domains rather than treating socket messages as an independent source of truth.

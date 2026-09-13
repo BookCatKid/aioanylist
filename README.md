@@ -1,6 +1,6 @@
 # anylist-sdk
 
-Async-first, typed, pure-Python client for AnyList, reconstructed from the **official AnyList web application**, its embedded protobuf schema, and AnyList-owned runtime/server behavior.
+Async-first, typed, pure-Python client for AnyList, reconstructed from the **official AnyList web application**, official native-client behavior where the web app has no equivalent surface, the embedded protobuf schema, and AnyList-owned runtime/server behavior.
 
 This project does not use unofficial AnyList clients as protocol authority and is not affiliated with or endorsed by AnyList.
 
@@ -11,12 +11,12 @@ This project does not use unofficial AnyList clients as protocol authority and i
 - Access-token refresh with rotating refresh-token support.
 - Incremental synchronization plus WebSocket invalidation/reconnect handling.
 - Durable operation journals for replay after interrupted sessions.
-- Shopping lists, Favorites/Recents, folders, stores, categories, recipes, meal planning, photos, sharing, account data, and auxiliary endpoints.
+- Shopping lists, Favorites/Recents, folders, stores, categories, recipes, meal planning, photos, sharing, account data, native search/lookup, remote config, and auxiliary endpoints.
 - Client-side AnyList behavior including autocomplete, grocery categorization, quantity/package parsing, recipe parsing, normalization, stemming, derived totals, and deterministic identifiers.
 - PEP 561 typing with schema-generated protobuf stubs.
 - Full-featured Textual example application, kept outside the installable SDK package.
 
-The default repository test suite currently passes **485/485** tests. Detailed source/live verification evidence is tracked in [`docs/conformance.md`](docs/conformance.md).
+The default repository test suite currently passes **490/490** tests. Detailed source/live verification evidence is tracked in [`docs/conformance.md`](docs/conformance.md).
 
 ## Requirements
 
@@ -123,6 +123,7 @@ The checked-in stub is deterministic. `tools/generate_proto_stubs.py --check` fa
 src/anylist_sdk/        installable SDK, protocol runtime, and services
 tests/                  offline/local regression suite
 live_tests/             explicitly opt-in real-service conformance tests
+research/               official-client reverse-engineering evidence and inventories
 docs/                   architecture, TUI guide, and conformance evidence
 tools/                  schema/surface extraction and generated-stub tooling
 examples/               downstream example applications
@@ -130,7 +131,7 @@ examples/               downstream example applications
 
 ## Conformance and safety
 
-The official executable web-client behavior is the primary specification for this project. Captured requests or server acceptance alone are not treated as permission to invent semantics.
+The official executable web-client behavior is the primary specification for shared/web functionality. For native-only functionality that has no web equivalent, decompiled official Android behavior and captured official iOS behavior are used as client authority rather than unofficial third-party libraries. Captured requests or server acceptance alone are not treated as permission to invent semantics.
 
 The full verification matrix, known official-source contradictions, deliberate evidence-backed divergence, and live-test safety boundaries are documented in [`docs/conformance.md`](docs/conformance.md).
 

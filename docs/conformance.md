@@ -1,12 +1,12 @@
 # AnyList SDK Conformance Matrix
 
-This is the authoritative verification checklist for the SDK. **Official executable `app.js` behavior is the primary specification.** Exact source reconstruction is the default; captured requests or server acceptance alone never justify invented behavior. A deliberate divergence is allowed only when the source defect/limitation is explicit, the alternative is supported by the official schema/runtime model, and both offline regression evidence and a disposable live test prove the alternative. Such cases are labeled as intentional divergences rather than parity.
+This is the authoritative verification checklist for the SDK. **Official executable `app.js` behavior is the primary specification for shared/web functionality.** For native-only functionality absent from the web application, behavior from official AnyList native clients is accepted as client authority. Exact source reconstruction is the default; captured requests or server acceptance alone never justify invented behavior. A deliberate divergence is allowed only when the source defect/limitation is explicit, the alternative is supported by the official schema/runtime model, and both offline regression evidence and a disposable live test prove the alternative. Such cases are labeled as intentional divergences rather than parity.
 
 ## Status legend
 
 - **✅ LIVE VERIFIED** — the current code path has been exercised against the real AnyList service and the exercised result was validated. This is the strongest evidence available; it does **not** mean every imaginable edge case is mathematically proven.
 - **✅ LOCAL VERIFIED** — behavior is intentionally local-only and has been verified end-to-end locally (for example token logout).
-- **🧪 OFFLINE VERIFIED** — official `app.js` / embedded schema behavior is covered by offline regression tests, but the method has not yet been proven with a live server mutation/readback.
+- **🧪 OFFLINE VERIFIED** — official client source / embedded schema behavior is covered by offline regression tests, but the method has not yet been proven with a live server mutation/readback.
 - **🟡 LIVE PARTIAL** — a meaningful live path passed, but another direction/side effect remains intentionally untested.
 - **🟠 LIVE RETEST REQUIRED** — relevant implementation changed after the last live attempt; do not treat older live results as current proof.
 - **🔷 VERIFIED INTENTIONAL DIVERGENCE** — differs deliberately from a precisely identified `app.js` path because the official path has a concrete defect/limitation; the alternative is schema-supported and locked by both offline and live evidence.
@@ -16,7 +16,7 @@ This is the authoritative verification checklist for the SDK. **Official executa
 
 ## Current checkpoint
 
-- Default offline/local suite: **485 passing** at the latest repository gate.
+- Default offline/local suite: **490 passing** at the latest repository gate.
 - Current read-only live suite: **12/12 passing** with the corrected multipart transport, including live autocomplete/categorization against official English/German tag resources plus live sync-hook, raw-API, service-view, and transport-close coverage.
 - Native token-session sign-out: **2/2 passing** against both `www.anylist.com` and `production.anylist.com`. In both cases `/data/auth/sign-out` revoked the supplied refresh token immediately while the already-issued access token remained accepted by `/data/account/info` immediately after logout.
 - Guarded live mutation suite: **48 passed, 1 safely skipped without writing** in the latest complete run. In addition to the disposable shopping-list ecosystem, coverage now includes uniquely identified disposable global categories/groupings and learned categorization memory, disposable recipes/collections with exact collection-order restoration, disposable per-recipe cooking-state add/remove with byte-for-byte preservation of every pre-existing cooking-state record, disposable meal-plan events/labels/list-items, disposable templates/template events/template groups with exact root-item restoration, and recipe-linked deletion across both normal and template event stores.
@@ -28,11 +28,31 @@ This is the authoritative verification checklist for the SDK. **Official executa
 - Known official quirk: `ShoppingListsResponse.orderedIds` is populated on a full response and empty on unchanged deltas; `app.js` stores its private `$oj$JK` value but never reads it. Real ordering is folder-managed.
 - Known official contradiction: `set-web-selected-meal-plan-event-id` exists in JavaScript but `PBMobileAppSettings` has no `webSelectedMealPlanEventId` field.
 
+### Free-account server entitlement sweep (2026-09-13)
+
+A separate disposable account was created specifically to determine whether AnyList Complete restrictions are enforced by the server or only by official-client UI. Fresh authentication reported `is_premium_user = false`; after the entire sweep, both a new auth token and `/data/account/info` still reported non-premium status (`isPremiumUser = false`, `subscriptionType = 0`).
+
+The real service accepted and persisted every Complete-labelled data surface exercised by the SDK: folders; stores, filters, item/store assignments and prices; first-time list passcode creation; notification locations plus `locationNotificationsEnabled`; premium and custom themes; the `set-badge-mode` list-settings handler; item and recipe photo metadata; binary photo upload; URL photo import; recipe scaling plus prep/cook times; meal-plan events, labels, event-list items, templates, template groups and template events; iCalendar enable/disable; and meal-plan email delivery. Uploaded photo IDs were also fetched back from `photos.anylist.com` with HTTP 200, proving actual server-side photo storage rather than optimistic metadata alone. UPC lookup and web image search likewise worked while authenticated as the free account.
+
+The advertised five-import recipe limit was also not enforced by these server paths. Seven disposable web imports were parsed, saved with `isNewRecipeFromWebImport`, verified from fresh clients, and removed again. Responses counted down through `freeRecipeImportsRemainingCount = 0`; another import after zero still returned status `0` with a recipe, reported `-1`, and the subsequent saved recipe persisted. This is observed server behavior, not a guarantee that AnyList will preserve it or that official clients will expose the same actions.
+
+These results strongly indicate that the official apps enforce many Complete restrictions client-side. The SDK therefore does not synthesize subscription errors for operations that the server accepts. Product-level entitlements that are not SDK data APIs—such as entering the official Web/Mac applications, Apple Watch availability, or support priority—are outside this server-data sweep.
+
+The full feature-by-feature server matrix, Android `isPremiumUser` gate audit, recipe-import quota observations, theme behavior, and known unknowns are preserved in [`free-account-entitlements.md`](free-account-entitlements.md). In particular, Android's native list-settings surface proves that `customDarkTheme` is written with the `save-custom-dark-theme` handler; this handler is absent from the web-derived `official_surface.json`, so it is treated as native-client authority rather than invented web behavior.
+
 ### Native iOS capture observation (not behavioral authority)
 
 A current AnyList iOS 7.1 network capture was compared with the web-derived SDK during the repository quality audit. The native app still uses API version `3` and the same core token/data paths represented here: `/auth/token`, `/auth/token/refresh`, `/data/user-data/get`, `/data/account/info`, and `/data/add-user-listener`. Its production host is `production.anylist.com` rather than the web client's `www.anylist.com`, and it adds native-app request headers plus mobile-specific endpoints for push tokens, app notices, locale/version handling, and analytics.
 
-The capture also shows a native `POST /data/auth/sign-out` request carrying bearer authentication and multipart fields named `refresh_token`, `push_token`, and `push_token_type`. That is strong evidence that the native client has a token-session sign-out path distinct from the web browser's `_xsrf`-protected `/auth/logout` form. An unauthenticated probe returned HTTP `401` from the same `/data/auth/sign-out` path on both `production.anylist.com` and `www.anylist.com`, confirming that the route exists on the normal web hostname too rather than being production-host-only. The SDK now exposes that native sign-out path as `logout()` while keeping local-only credential removal explicit as `clear_session()`. A separately gated live auth-mutation test then proved the server semantics on both hosts: sign-out immediately revokes the submitted refresh token, while the already-issued access token remains usable immediately afterward and therefore dies only through its ordinary expiry. Once that access token expires, the revoked refresh token prevents the signed-out session from obtaining another pair.
+The capture also shows a native `POST /data/auth/sign-out` request carrying bearer authentication and multipart fields named `refresh_token`, `push_token`, and `push_token_type`. That is strong evidence that the native client has a token-session sign-out path distinct from the web browser's `_xsrf`-protected `/auth/logout` form. An unauthenticated probe returned HTTP `401` from the same `/data/auth/sign-out` path on both `production.anylist.com` and `www.anylist.com`, confirming that the route exists on the normal web hostname too rather than being production-host-only. A separately gated live auth-mutation test then proved the server semantics on both hosts: sign-out immediately revokes the submitted refresh token, while the already-issued access token remains usable immediately afterward and therefore dies only through its ordinary expiry. Once that access token expires, the revoked refresh token prevents the signed-out session from obtaining another pair.
+
+### Native Android 3.0.3 source reconstruction
+
+The official Android 3.0.3 (build 278) application was decompiled and independently inventoried from both Java call sites and raw DEX endpoint strings. It uses API version `3`, a persisted client identifier, `production.anylist.com`, and the same protobuf schema: all 156 Android `model.proto` messages match the SDK schema name-for-name. Android also exposes native-only AnyList routes that have no web equivalent. The SDK only promotes generally useful data features: remote configuration, UPC lookup, place search, and image search. App Notices, Alexa default-list selection, metrics, rating feedback, push-token registration, and legacy Google Assistant linking remain documented but intentionally unexposed because they are app UI/telemetry/lifecycle plumbing or obsolete external integration behavior.
+
+Android sends `/data/auth/sign-out` as `application/x-www-form-urlencoded`, unlike iOS multipart. The server accepts both. The SDK keeps its previously implemented multipart request because that exact code path is already live verified on both AnyList hosts; copying Android's encoding adds no useful SDK capability.
+
+The Android source also reveals account/signup/password/subuser/delete/purchase endpoints. Those are intentionally not promoted to high-level SDK methods: they are high-impact account-management or store-specific operations, while the normal SDK use cases are list, recipe, meal-plan, automation, and native data features. Their exact known routes remain documented under `research/hidden_endpoints.md` rather than being silently discarded.
 
 ## Client
 
@@ -139,7 +159,7 @@ The capture also shows a native `POST /data/auth/sign-out` request carrying bear
 | `ShoppingListsService.refresh()` | ✅ LIVE VERIFIED | Called against the real endpoint and decoded/applied successfully. |
 | `ShoppingListsService.create()` | ✅ LIVE VERIFIED | Created the reserved disposable shopping list with starter-list side effects disabled; a fresh authenticated state confirmed server persistence. |
 | `ShoppingListsService.rename()` | ✅ LIVE VERIFIED | Temporary rename persisted on a fresh read and was restored to the exact guard name. |
-| `ShoppingListsService.set_password()` | ✅ LIVE VERIFIED | Temporary password persisted on fresh read and was restored exactly once the server-side optional field was materialized. First-ever set/clear changes protobuf presence from absent to present-empty, matching server behavior. |
+| `ShoppingListsService.set_password()` | ✅ LIVE VERIFIED | Temporary password persisted on fresh read and was restored exactly once the server-side optional field was materialized. A separate non-premium-account probe also created a fresh disposable list, set its passcode from an initially absent field, and confirmed it from a fresh client before deleting the list. |
 | `ShoppingListsService.prepare_item_for_add()` | 🧪 OFFLINE VERIFIED | Source-traced fresh-item constructor builds the client-side category/tag metadata before upload; regressions assert the official category precedence and single-add payload behavior. |
 | `ShoppingListsService.prepare_autocomplete_item_for_add()` | 🧪 OFFLINE VERIFIED | Source-traced Favorite/Recent autocomplete branch keeps freshly computed fields and fills only missing/empty fields from the selected suggestion. |
 | `ShoppingListsService.apply_category_to_prepared_item()` | 🧪 OFFLINE VERIFIED | Local prepared-item helper applies the explicit category assignment/match metadata before the item is queued, matching the UI's pre-upload edit path. |
@@ -176,7 +196,7 @@ The capture also shows a native `POST /data/auth/sign-out` request carrying bear
 | `ShoppingListsService.remove_checked()` | ✅ LIVE VERIFIED | Removed only checked disposable items while preserving their existing Recent entries without duplicates; live-confirmed after the cross-service flush fix. |
 | `ShoppingListsService.uncheck_all()` | ✅ LIVE VERIFIED | Temporary checked items were uncrossed without Recent Items writes and verified on a fresh read. |
 | `ShoppingListsService.unshare()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Could affect another user/share relationship; intentionally not exercised. |
-| `ShoppingListsService.add_notification_location()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Could create location-notification/geofence state and has no same-scope cleanup path in this SDK surface. |
+| `ShoppingListsService.add_notification_location()` | ✅ LIVE VERIFIED | On the disposable non-premium account, a notification location was added to a newly-created list and confirmed from a fresh client together with `locationNotificationsEnabled`; deleting the entire disposable list provided exact cleanup. |
 | `ShoppingListsService.add_store_ids_to_items()` | ✅ LIVE VERIFIED | Temporary item/store association persisted on fresh read. |
 | `ShoppingListsService.remove_store_ids_from_items()` | ✅ LIVE VERIFIED | Temporary association removal persisted on fresh read. |
 | `ShoppingListsService.remove_store_id_from_all_items()` | ✅ LIVE VERIFIED | Temporary store cleanup persisted on fresh read. |
@@ -221,7 +241,7 @@ The capture also shows a native `POST /data/auth/sign-out` request carrying bear
 | `ListSettingsService.ensure()` | ✅ LIVE VERIFIED | Exercised against synchronized real list settings and through disposable Favorite starter-settings creation; returned/reused the official deterministic settings object. |
 | `ListSettingsService.initialize_new_list()` | ✅ LIVE VERIFIED | Exercised by creation of the retained disposable list with fresh-session persistence. |
 | `ListSettingsService.refresh()` | ✅ LIVE VERIFIED | Called against the real endpoint and decoded/applied successfully. |
-| `ListSettingsService.set()` | ✅ LIVE VERIFIED | Multiple per-list settings were toggled, verified on fresh reads, then restored exactly. |
+| `ListSettingsService.set()` | ✅ LIVE VERIFIED | Multiple per-list settings were toggled and verified on fresh reads. The disposable non-premium sweep additionally persisted location notifications, a premium built-in theme, a custom theme, and `badgeMode` values through the same handler family before deleting the entire test list. |
 | `ListSettingsService.clear_store_filter_id()` | ✅ LIVE VERIFIED | Temporary selected filter was cleared and fresh read confirmed the effective empty value. The live server normalizes the optional field back to present-empty instead of absent. |
 | `ListSettingsService.set_migrated_list_category_group_id()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Wire payload exactly matches `app.js`, but the live server ignores standalone calls outside AnyList's full user-category migration flow. A valid live test would require modifying pre-existing global migration state rather than a fully isolated disposable resource. |
 | `ListSettingsService.remove()` | ✅ LIVE VERIFIED | Disposable Favorite starter-list settings were created, removed through the shared ListSettingsService implementation, and fresh readback confirmed absence. |
@@ -347,7 +367,7 @@ The capture also shows a native `POST /data/auth/sign-out` request carrying bear
 | `RecipesService.sorted()` | ✅ LIVE VERIFIED | Executed against real synchronized recipe state and returned exactly the synchronized recipe IDs. |
 | `RecipesService.refresh()` | ✅ LIVE VERIFIED | Called against the real endpoint and decoded/applied successfully. |
 | `RecipesService.operation()` | ✅ LIVE VERIFIED | Exercised by disposable recipe and collection mutations against the real recipe update queue. |
-| `RecipesService.save()` | ✅ LIVE VERIFIED | Updated a test-created recipe name/note/rating and verified fresh server state. |
+| `RecipesService.save()` | ✅ LIVE VERIFIED | Updated disposable recipes and verified fresh server state. The non-premium sweep additionally persisted a real uploaded photo ID, `scaleFactor=2.0`, prep time, and cook time on a disposable recipe. |
 | `RecipesService.create()` | ✅ LIVE VERIFIED | Created disposable recipes through an isolated recipe service; fresh readback confirmed persistence. |
 | `RecipesService.remove()` | ✅ LIVE VERIFIED | Removed a disposable recipe individually after recipe-linked event deletion; fresh read confirmed absence. |
 | `RecipesService.remove_many()` | ✅ LIVE VERIFIED | Removed two disposable recipes in one operation; fresh state confirmed cleanup. |
@@ -363,7 +383,7 @@ The capture also shows a native `POST /data/auth/sign-out` request carrying bear
 | `RecipesService.set_max_recipe_count()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
 | `RecipesService.set_system_collection_recipe_sort()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
 | `RecipesService.set_system_collection_collection_sort()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
-| `RecipesService.web_import()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | The official endpoint accepts both URL and optional HTML but does not prove that supplying HTML prevents server-side URL fetching; its response also carries `freeRecipeImportsRemainingCount`, so a live probe could create an external request and/or consume account import quota without a cleanup path. |
+| `RecipesService.web_import()` | ✅ LIVE VERIFIED | A disposable non-premium account exhausted the advertised five-import counter and continued successfully: imports/saves persisted through counter `0`, and one more import returned status `0`, a recipe, and remaining count `-1`; that post-zero recipe also persisted and all seven disposable recipes were removed afterward. |
 | `RecipesService.send_as_email()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
 | `RecipesService.request_link()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
 | `RecipesService.accept_link()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
@@ -416,8 +436,8 @@ The capture also shows a native `POST /data/auth/sign-out` request carrying bear
 | `MealPlanService.move_template_group_items()` | ✅ LIVE VERIFIED | Moved a disposable nested group between two disposable parents and verified fresh state. |
 | `MealPlanService.set_template_group_items_sort_order()` | ✅ LIVE VERIFIED | Disposable template-group item sort setting persisted on fresh state. |
 | `MealPlanService.set_template_group_groups_sort_position()` | ✅ LIVE VERIFIED | Disposable template-group group-position setting persisted on fresh state. |
-| `MealPlanService.set_icalendar_enabled()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
-| `MealPlanService.send_as_email()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
+| `MealPlanService.set_icalendar_enabled()` | ✅ LIVE VERIFIED | On the disposable non-premium account, enabling returned status `0`, no error text, and an account info response containing an iCalendar ID; disabling immediately afterward also returned status `0`. |
+| `MealPlanService.send_as_email()` | ✅ LIVE VERIFIED | The disposable non-premium account successfully requested a weekly meal-plan email; the endpoint returned successfully and the resulting AnyList email was received. |
 
 ## Account
 
@@ -426,13 +446,26 @@ The capture also shows a native `POST /data/auth/sign-out` request carrying bear
 | `AccountService.get()` | ✅ LIVE VERIFIED |  |
 | `AccountService.update_name()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
 
+### Known Android account/auth routes intentionally not exposed
+
+Official Android 3.0.3 source provides exact request/response behavior for `/auth/token/exchange-signed-user-id`, `/data/signup`, `/data/send-password-reset`, `/data/reset-password`, `/data/account/change-password`, `/data/account/add-subuser`, `/data/account/remove-subuser`, `/data/account/request-delete`, `/data/account/unlock-google-play-purchase`, and `/data/account/update-locale`. These remain documented in `research/hidden_endpoints.md` but intentionally have no high-level SDK convenience methods. They are account-creation/recovery/destructive/family-management/store-purchase flows rather than normal data APIs; several rotate credentials or cause account-wide/external effects, and Google Play unlock is platform-store-specific.
+
 ## Photos
 
 | Functionality | Status | Evidence / next check |
 |---|---|---|
-| `PhotosService.upload_bytes()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
-| `PhotosService.upload_url()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
-| `PhotosService.url()` | 🧪 OFFLINE VERIFIED |  |
+| `PhotosService.upload_bytes()` | ✅ LIVE VERIFIED | A non-premium account uploaded real image bytes successfully. The resulting photo URL was fetched back from `photos.anylist.com` with HTTP 200 and non-empty bytes, proving actual server storage. |
+| `PhotosService.upload_url()` | ✅ LIVE VERIFIED | A non-premium account imported an image-search result by URL; the generated photo ID was subsequently fetched from `photos.anylist.com` with HTTP 200 and non-empty bytes. |
+| `PhotosService.image_search()` | ✅ LIVE VERIFIED | Exact Android multipart route `/data/photos/image-search`, `query` field, and strict `results[].MediaUrl` / `Thumbnail.MediaUrl` parsing are source-derived and regression-tested. A live request returned many image results; current thumbnail URLs are proxied through Brave Search, so Android's old Bing-specific log message is historical rather than proof of the present backend. |
+| `PhotosService.url()` | ✅ LIVE VERIFIED | URLs generated for both byte-uploaded and URL-imported photos were fetched live from `photos.anylist.com` with HTTP 200 and non-empty bodies. |
+
+## Android native search, lookup, and config
+
+| Functionality | Status | Evidence / next check |
+|---|---|---|
+| `MapsService.place_search()` | ✅ LIVE VERIFIED | Exact Android multipart `/data/maps/place-search` fields `query`, `lat`, `lng`, `radius` and strict Google-Places-shaped response parsing are regression-tested and returned live place results from `www.anylist.com`. Android computes radius as half the visible-map diagonal. |
+| `ProductsService.lookup()` | ✅ LIVE VERIFIED | Exact Android GET `/data/product-lookup/{upc}` and `PBProductLookupResponse` decode are covered; a live UPC lookup returned a populated AnyList `ListItem` plus product thumbnail. HTTP 404 and a 200 response without `listItem` map to no match offline. |
+| `NativeConfigService.get()` | ✅ LIVE VERIFIED | Live `GET /data/version-check` returned the current remote-config/status payload from `www.anylist.com`, including assistant flags/status and retailer-promotion data. |
 
 ## Sharing / email
 
@@ -451,6 +484,11 @@ The capture also shows a native `POST /data/auth/sign-out` request carrying bear
 | `AlexaService.unlink_list()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
 | `AlexaService.unlink_anylist_list()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
 | `AlexaService.set_enabled_lists()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
+| `AlexaService.set_default_list_id()` | 🧪 OFFLINE VERIFIED | Exact Android multipart `/data/alexa/set-default-list-id` route and `list_id` field are regression-tested. |
+
+### Known native routes intentionally not exposed
+
+`/data/app-notices/get` and `/data/app-notices/update` implement AnyList's in-app notice/announcement UI and read/dismiss bookkeeping. `/data/increment-metric` and `/data/contact/app-rating-prompt-feedback` are app telemetry/feedback plumbing, while `/data/update-push-token` is mobile lifecycle plumbing. All remain research-only. `/data/gassistant/link-list` and `/data/gassistant/unlink-list` are likewise retained only as protocol documentation because the Android source explicitly describes the Google Assistant integration as shut down June 20, 2023.
 
 ## Web state
 

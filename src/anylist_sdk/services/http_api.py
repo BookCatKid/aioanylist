@@ -14,7 +14,7 @@ from ..normalization import localized_sort_key
 from ..proto import PB, PBAccountInfoResponse, PBShareListOperationResponse, decode, encode
 from ..state import AnyListState, clone
 from ..transport import PHOTOS_BASE_URL, AnyListTransport
-from ..types import JSONMapping
+from ..types import ImageSearchResult, JSONMapping
 
 
 class AccountService:
@@ -120,6 +120,20 @@ class PhotosService:
             "POST", "/data/photos/upload-url", fields={"photo_url": url, "photo_id": photo_id}
         )
         return photo_id
+
+    async def image_search(self, query: str) -> list[ImageSearchResult]:
+        raw = await self.transport.request(
+            "POST",
+            "/data/photos/image-search",
+            fields={"query": query},
+        )
+        data = json.loads(raw or b"{}")
+        results: list[ImageSearchResult] = []
+        for value in data.get("results", []):
+            media_url = str(value["MediaUrl"])
+            thumbnail_url = str(value["Thumbnail"]["MediaUrl"])
+            results.append(ImageSearchResult(media_url=media_url, thumbnail_url=thumbnail_url))
+        return results
 
     @staticmethod
     def url(photo_id: str) -> str:
@@ -280,6 +294,14 @@ class AlexaService:
             "POST",
             "/data/alexa/set-is-enabled-for-alexa-for-list-ids",
             fields={"enabled_list_ids": encode(a), "disabled_list_ids": encode(b)},
+        )
+        return cast(JSONMapping, json.loads(raw or b"{}"))
+
+    async def set_default_list_id(self, list_id: str) -> JSONMapping:
+        raw = await self.transport.request(
+            "POST",
+            "/data/alexa/set-default-list-id",
+            fields={"list_id": list_id},
         )
         return cast(JSONMapping, json.loads(raw or b"{}"))
 

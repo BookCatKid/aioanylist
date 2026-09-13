@@ -1,0 +1,1340 @@
+{
+  "artifacts": [
+    "research/android/endpoint_call_sites.tsv",
+    "research/android/endpoint_context.txt",
+    "research/android/jadx_endpoint_strings.txt",
+    "research/android/raw_endpoint_strings.txt",
+    "research/android/model.proto",
+    "research/android/server.proto",
+    "research/android/manifest.json",
+    "research/android/apk/",
+    "research/android/extracted/",
+    "research/android/jadx/"
+  ],
+  "deep_links": [
+    {
+      "activity_hint": "ResetPasswordActivity",
+      "host": "www.anylist.com",
+      "path_prefix": "/reset-password",
+      "scheme": "https"
+    },
+    {
+      "file": "recipe archives (*.anylistrecipes) via content:// and file:// intent filters",
+      "scheme": "content/file"
+    },
+    {
+      "host": "www.anylist.com",
+      "path_prefix": "/google-assistant/list-id/",
+      "scheme": "https",
+      "use": "Google Assistant list linking entry point"
+    }
+  ],
+  "endpoints": [
+    {
+      "auth": "bearer",
+      "encoding": "form",
+      "evidence": [
+        "research/android/jadx/sources/ad/l4.java:18",
+        "research/android/jadx/sources/s/g.java:1005"
+      ],
+      "method": "POST",
+      "notes": "Error mapping in s/g r(): 401 wrong credentials, 500 server error.",
+      "path": "/auth/token",
+      "request": [
+        {
+          "name": "email",
+          "notes": "account email",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "password",
+          "notes": "account password",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "response": {
+        "keys": [
+          "user_id",
+          "access_token",
+          "refresh_token",
+          "is_premium_user"
+        ],
+        "kind": "json"
+      },
+      "sdk_status": "implemented"
+    },
+    {
+      "auth": "bearer client; no-auth refresh instance for the underlying refresh client",
+      "encoding": "form",
+      "evidence": [
+        "research/android/jadx/sources/xc/c.java:66"
+      ],
+      "method": "POST",
+      "notes": "Synchronous; 401 triggers user/session events. Response tokens rotate.",
+      "path": "/auth/token/refresh",
+      "request": [
+        {
+          "name": "refresh_token",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "response": {
+        "keys": [
+          "access_token",
+          "refresh_token"
+        ],
+        "kind": "json"
+      },
+      "sdk_status": "implemented"
+    },
+    {
+      "auth": "bearer client",
+      "encoding": "form",
+      "evidence": [
+        "research/android/jadx/sources/xc/c.java:112"
+      ],
+      "method": "POST",
+      "notes": "Used when f14698b is set (Google sign-in path). Signed user id stored in prefs ALSIGNEDUserIDKey, POSTed once, then cleared.",
+      "path": "/auth/token/exchange-signed-user-id",
+      "request": [
+        {
+          "name": "signed_user_id",
+          "notes": "from SharedPreferences ALSIGNEDUserIDKey",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "response": {
+        "keys": [
+          "access_token",
+          "refresh_token"
+        ],
+        "kind": "json"
+      },
+      "sdk_status": "intentionally_unimplemented"
+    },
+    {
+      "auth": "bearer client",
+      "encoding": "multipart",
+      "evidence": [
+        "research/android/jadx/sources/e7/u6.java:42",
+        "research/android/jadx/sources/s/g.java:891"
+      ],
+      "method": "POST",
+      "notes": "Password omitted for passwordless (Google/Apple) signups. err=EMAIL_ALREADY_REGISTERED on duplicate.",
+      "path": "/data/signup",
+      "request": [
+        {
+          "name": "use_token_auth",
+          "notes": "always 1",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "create_default_list",
+          "notes": "always 0",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "create_default_recipes",
+          "notes": "always 0",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "email",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "password",
+          "notes": "only when non-empty",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "preferred_user_id",
+          "notes": "random UUID persisted in ALPreferredUseIDKey",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "locale",
+          "notes": "e.g. en-US",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "response": {
+        "keys": [
+          "user_id",
+          "access_token",
+          "refresh_token"
+        ],
+        "kind": "json"
+      },
+      "sdk_status": "intentionally_unimplemented"
+    },
+    {
+      "auth": "bearer client (works pre-login; interceptor adds no header when no token)",
+      "encoding": "form",
+      "evidence": [
+        "research/android/jadx/sources/ad/b.java:85",
+        "research/android/jadx/sources/s/g.java:931"
+      ],
+      "method": "POST",
+      "notes": "Plain-text (not JSON) body. HTTP 500 maps to server-error state.",
+      "path": "/data/send-password-reset",
+      "request": [
+        {
+          "name": "email",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "response": {
+        "kind": "text",
+        "values": [
+          "SUCCESS",
+          "NO_ACCOUNT"
+        ]
+      },
+      "sdk_status": "intentionally_unimplemented"
+    },
+    {
+      "auth": "bearer client",
+      "encoding": "form",
+      "evidence": [
+        "research/android/jadx/sources/ad/b.java:174",
+        "research/android/jadx/sources/s/g.java:952"
+      ],
+      "method": "POST",
+      "notes": "Deep-link entry: www.anylist.com/reset-password. On success the app stores the new token pair and refreshes sync.",
+      "path": "/data/reset-password",
+      "request": [
+        {
+          "name": "email",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "password",
+          "notes": "new password, min length 4 enforced client-side",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "reset_token",
+          "notes": "from reset email link",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "use_token_auth",
+          "notes": "always 1",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "response": {
+        "keys": [
+          "user_id",
+          "access_token",
+          "refresh_token",
+          "is_premium_user"
+        ],
+        "kind": "json"
+      },
+      "sdk_status": "intentionally_unimplemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "get",
+      "evidence": [
+        "research/android/jadx/sources/yc/m0.java:87"
+      ],
+      "method": "GET",
+      "notes": "Startup/sync entry point for account info.",
+      "path": "/data/account/info",
+      "request": [],
+      "response": {
+        "kind": "proto",
+        "type": "PBAccountInfoResponse"
+      },
+      "sdk_status": "implemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "multipart",
+      "evidence": [
+        "research/android/jadx/sources/od/s.java:138",
+        "research/android/jadx/sources/od/r.java:26"
+      ],
+      "method": "POST",
+      "notes": "Overwrites first/last name (and email if supplied).",
+      "path": "/data/account/info",
+      "request": [
+        {
+          "name": "account_info",
+          "notes": "PBAccountInfoResponse serialized bytes",
+          "required": true,
+          "type": "bytes"
+        }
+      ],
+      "response": {
+        "kind": "proto",
+        "type": "PBAccountInfoResponse"
+      },
+      "sdk_status": "implemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "multipart",
+      "evidence": [
+        "research/android/jadx/sources/od/e0.java:154"
+      ],
+      "method": "POST",
+      "notes": "All three passwords must be >= 4 chars client-side. Response rotates BOTH tokens.",
+      "path": "/data/account/change-password",
+      "request": [
+        {
+          "name": "current_password",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "new_password",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "refresh_token",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "response": {
+        "kind": "proto",
+        "type": "PBAccountChangePasswordResponse"
+      },
+      "sdk_status": "intentionally_unimplemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "multipart",
+      "evidence": [
+        "research/android/jadx/sources/hd/k.java:254",
+        "research/android/jadx/sources/od/p.java:25"
+      ],
+      "method": "POST",
+      "notes": "Family/household management. Response carries updated account info incl. subusers.",
+      "path": "/data/account/add-subuser",
+      "request": [
+        {
+          "name": "email",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "response": {
+        "kind": "proto",
+        "type": "PBAccountInfoResponse"
+      },
+      "sdk_status": "intentionally_unimplemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "multipart",
+      "evidence": [
+        "research/android/jadx/sources/hd/k.java:238",
+        "research/android/jadx/sources/od/q.java:25"
+      ],
+      "method": "POST",
+      "notes": "Response carries updated account info incl. subusers.",
+      "path": "/data/account/remove-subuser",
+      "request": [
+        {
+          "name": "email",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "response": {
+        "kind": "proto",
+        "type": "PBAccountInfoResponse"
+      },
+      "sdk_status": "intentionally_unimplemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "form-empty",
+      "evidence": [
+        "research/android/jadx/sources/od/a.java:133",
+        "research/android/jadx/sources/n5/c.java:411"
+      ],
+      "method": "POST",
+      "notes": "Null map -> form POST with no fields. Shows success/failure alert using localized_reason.",
+      "path": "/data/account/request-delete",
+      "request": [],
+      "response": {
+        "keys": [
+          "success",
+          "localized_reason"
+        ],
+        "kind": "json"
+      },
+      "sdk_status": "intentionally_unimplemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "form",
+      "evidence": [
+        "research/android/jadx/sources/pc/h.java:117",
+        "research/android/jadx/sources/pc/g.java:26"
+      ],
+      "method": "POST",
+      "notes": "Raw Google Play Billing purchase JSON. Retried on app foreground from ALUnprocessedPurchaseKey. Marks purchase processed via ALProcessedPurchaseKey.",
+      "path": "/data/account/unlock-google-play-purchase",
+      "request": [
+        {
+          "name": "purchaseJson",
+          "notes": "raw purchase JSON string from Play Billing",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "response": {
+        "keys": [
+          "already_processed",
+          "valid",
+          "account_info",
+          "is_subscription_modification"
+        ],
+        "kind": "json"
+      },
+      "sdk_status": "intentionally_unimplemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "multipart",
+      "evidence": [
+        "research/android/jadx/sources/com/purplecover/anylist/ui/MainActivity.java:154"
+      ],
+      "method": "POST",
+      "notes": "Sent on startup when a user exists, and on locale change. Format e.g. en-US.",
+      "path": "/data/account/update-locale",
+      "request": [
+        {
+          "name": "locale",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "response": {
+        "kind": "none"
+      },
+      "sdk_status": "intentionally_unimplemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "form",
+      "evidence": [
+        "research/android/jadx/sources/e7/w5.java:14"
+      ],
+      "method": "POST",
+      "notes": "Hyphenated field names (unlike sign-out underscores). Sent on login/startup and token refresh; gated on user present. Documented but intentionally not exposed because this is native mobile push-registration lifecycle plumbing.",
+      "path": "/data/update-push-token",
+      "request": [
+        {
+          "name": "push-token",
+          "notes": "FCM token from ALFCMTokenKey",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "type",
+          "notes": "always fcm",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "response": {
+        "kind": "none"
+      },
+      "sdk_status": "intentionally_unimplemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "form",
+      "evidence": [
+        "research/android/jadx/sources/e7/w6.java:46",
+        "research/android/jadx/sources/n5/c.java:380"
+      ],
+      "method": "POST",
+      "notes": "Aborts locally if no refresh token. After the request the client wipes tokens, DB, prefs, user dir. Server revokes refresh token, access token lives to expiry. Android sends form encoding; iOS sends multipart. Both accepted.",
+      "path": "/data/auth/sign-out",
+      "request": [
+        {
+          "name": "refresh_token",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "push_token",
+          "notes": "FCM token if present",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "push_token_type",
+          "notes": "fcm when push_token present",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "response": {
+        "kind": "none"
+      },
+      "sdk_status": "implemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "multipart",
+      "evidence": [
+        "research/android/jadx/sources/yc/b.java:153"
+      ],
+      "method": "POST",
+      "notes": "Sync service yc/b. Empty-field form POST when the local queue state is not X.",
+      "path": "/data/app-notices/get",
+      "request": [
+        {
+          "name": "global_app_notice_timestamps",
+          "notes": "PBTimestampList bytes",
+          "required": true,
+          "type": "bytes"
+        },
+        {
+          "name": "user_app_notice_timestamps",
+          "notes": "PBTimestampList bytes",
+          "required": true,
+          "type": "bytes"
+        },
+        {
+          "name": "app_notice_user_data_timestamp",
+          "notes": "PBTimestamp bytes",
+          "required": true,
+          "type": "bytes"
+        }
+      ],
+      "response": {
+        "kind": "proto",
+        "type": "PBAppNoticesResponse"
+      },
+      "sdk_status": "intentionally_unimplemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "multipart",
+      "evidence": [
+        "research/android/jadx/sources/yc/b.java:32"
+      ],
+      "method": "POST",
+      "notes": "Operation queue id app-notice-operations; ops serialized as PBAppNoticeOperationList. Official Android handlers are mark-notice-ids-as-read and dismiss-notice-ids. Documented but intentionally not exposed by the SDK because this is native-app UI bookkeeping.",
+      "path": "/data/app-notices/update",
+      "request": [
+        {
+          "name": "operations",
+          "notes": "PBAppNoticeOperationList serialized by yc/o queue",
+          "required": true,
+          "type": "bytes"
+        }
+      ],
+      "response": {
+        "kind": "proto",
+        "type": "PBEditOperationResponse"
+      },
+      "sdk_status": "intentionally_unimplemented",
+      "sync_queue": "app-notice-operations"
+    },
+    {
+      "auth": "none (startup call via auth client just injects headers if present)",
+      "encoding": "get",
+      "evidence": [
+        "research/android/jadx/sources/com/purplecover/anylist/AnyListApp.java:193",
+        "research/android/jadx/sources/od/z.java:135",
+        "research/android/jadx/sources/n7/c0.java:136"
+      ],
+      "method": "GET",
+      "notes": "Despite the name this is remote feature-flag/config fetch (Alexa/Google Assistant UI flags, footer text, promos).",
+      "path": "/data/version-check",
+      "request": [],
+      "response": {
+        "keys": [
+          "should_show_legacy_alexa_settings",
+          "alexa_skill_disabled_footer_text_android",
+          "should_hide_alexa_linking_ui",
+          "alexa_skill_status",
+          "google_assistant_locales_message",
+          "google_assistant_shutdown_message",
+          "should_hide_google_assistant_linking_ui",
+          "shop_online_retailer_promotions"
+        ],
+        "kind": "json"
+      },
+      "sdk_status": "implemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "form",
+      "evidence": [
+        "research/android/jadx/sources/od/y0.java:81",
+        "research/android/jadx/sources/od/z0.java:183",
+        "research/android/jadx/sources/cd/y3.java:343",
+        "research/android/jadx/sources/com/purplecover/anylist/ui/MainActivity.java:1358"
+      ],
+      "method": "POST",
+      "notes": "Full metric name list: anylist.client.{app_notice_notification_permission_denied, did_show_app_notice_notification, did_tap_app_notice_notification, did_show_whats_new_notification, did_tap_whats_new_notification, did_view_app_notice_from_settings, did_view_whats_new_from_settings, settings_did_scroll_to_app_notice, settings_did_scroll_to_whats_new, whats_new_notification_permission_denied}.",
+      "path": "/data/increment-metric",
+      "request": [
+        {
+          "name": "metric",
+          "notes": "dotted metric name",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "response": {
+        "kind": "none"
+      },
+      "sdk_status": "intentionally_unimplemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "multipart",
+      "evidence": [
+        "research/android/jadx/sources/ad/q3.java:252",
+        "research/android/jadx/sources/hb/c.java:552"
+      ],
+      "method": "POST",
+      "notes": "In-app rating dialog feedback. Success shows thanks dialog; response body not parsed.",
+      "path": "/data/contact/app-rating-prompt-feedback",
+      "request": [
+        {
+          "name": "body_text",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "account_email",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "platform",
+          "notes": "always Android",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "app_version",
+          "notes": "e.g. 3.0.3 (278)",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "os_version",
+          "notes": "Build.VERSION.RELEASE",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "device_model",
+          "notes": "MANUFACTURER + MODEL",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "is_paid",
+          "notes": "1/0",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "star_rating",
+          "notes": "stringified float",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "response": {
+        "kind": "none"
+      },
+      "sdk_status": "intentionally_unimplemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "multipart",
+      "evidence": [
+        "research/android/jadx/sources/cd/i.java:135"
+      ],
+      "method": "POST",
+      "notes": "Both ids optional. Blocked client-side if another list already linked.",
+      "path": "/data/alexa/link-list",
+      "request": [
+        {
+          "name": "alexa_list_id",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "anylist_list_id",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "response": {
+        "kind": "json"
+      },
+      "sdk_status": "implemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "multipart",
+      "evidence": [
+        "research/android/jadx/sources/dd/d3.java:469"
+      ],
+      "method": "POST",
+      "notes": "List picker flow in Alexa settings.",
+      "path": "/data/alexa/set-default-list-id",
+      "request": [
+        {
+          "name": "list_id",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "response": {
+        "kind": "json"
+      },
+      "sdk_status": "implemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "multipart",
+      "evidence": [
+        "research/android/jadx/sources/cd/i.java:147"
+      ],
+      "method": "POST",
+      "notes": "PBValue string lists of enabled/disabled list ids.",
+      "path": "/data/alexa/set-is-enabled-for-alexa-for-list-ids",
+      "request": [
+        {
+          "name": "enabled_list_ids",
+          "notes": "PBValue bytes",
+          "required": true,
+          "type": "bytes"
+        },
+        {
+          "name": "disabled_list_ids",
+          "notes": "PBValue bytes",
+          "required": true,
+          "type": "bytes"
+        }
+      ],
+      "response": {
+        "kind": "json"
+      },
+      "sdk_status": "implemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "multipart",
+      "evidence": [
+        "research/android/jadx/sources/cd/m4.java:84"
+      ],
+      "method": "POST",
+      "notes": "Unlink by AnyList list id.",
+      "path": "/data/alexa/unlink-anylist-list",
+      "request": [
+        {
+          "name": "anylist_list_id",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "response": {
+        "kind": "json"
+      },
+      "sdk_status": "implemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "multipart",
+      "evidence": [
+        "research/android/jadx/sources/ed/p1.java:382",
+        "research/android/jadx/sources/hb/c.java:576"
+      ],
+      "method": "POST",
+      "notes": "Server error mapping: 500 -> should_contact_support, else network_error.",
+      "path": "/data/alexa/unlink-list",
+      "request": [
+        {
+          "name": "alexa_list_id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "should_update_is_enabled_for_alexa_property",
+          "notes": "literal n",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "response": {
+        "kind": "json"
+      },
+      "sdk_status": "implemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "multipart",
+      "evidence": [
+        "research/android/jadx/sources/cd/q2.java:89",
+        "research/android/jadx/sources/cd/q2.java:16"
+      ],
+      "method": "POST",
+      "notes": "Client refuses duplicate links across lists before calling. Documented but intentionally not exposed because the Google Assistant integration is legacy/shut down.",
+      "path": "/data/gassistant/link-list",
+      "request": [
+        {
+          "name": "anylist_list_id",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "response": {
+        "keys": [
+          "success",
+          "should_contact_support",
+          "network_error",
+          "server_error_message"
+        ],
+        "kind": "json"
+      },
+      "sdk_status": "intentionally_unimplemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "multipart",
+      "evidence": [
+        "research/android/jadx/sources/cd/q2.java:119",
+        "research/android/jadx/sources/cd/q2.java:52"
+      ],
+      "method": "POST",
+      "notes": "Response has success flag only. Documented but intentionally not exposed because the Google Assistant integration is legacy/shut down.",
+      "path": "/data/gassistant/unlink-list",
+      "request": [
+        {
+          "name": "google_assistant_list_id",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "response": {
+        "keys": [
+          "success"
+        ],
+        "kind": "json"
+      },
+      "sdk_status": "intentionally_unimplemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "multipart",
+      "evidence": [
+        "research/android/jadx/sources/ad/m2.java:187",
+        "research/android/jadx/sources/a8/i.java:528"
+      ],
+      "method": "POST",
+      "notes": "Radius = half the visible-map diagonal in meters. Backend proxies Google-Places-shaped data.",
+      "path": "/data/maps/place-search",
+      "request": [
+        {
+          "name": "query",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "lat",
+          "notes": "double",
+          "required": true,
+          "type": "number"
+        },
+        {
+          "name": "lng",
+          "notes": "double",
+          "required": true,
+          "type": "number"
+        },
+        {
+          "name": "radius",
+          "notes": "int meters",
+          "required": true,
+          "type": "number"
+        }
+      ],
+      "response": {
+        "keys": [
+          "results[].geometry.location.lat",
+          "results[].geometry.location.lng",
+          "results[].name",
+          "results[].formatted_address"
+        ],
+        "kind": "json"
+      },
+      "sdk_status": "implemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "multipart",
+      "evidence": [
+        "research/android/jadx/sources/ad/x.java:26",
+        "research/android/jadx/sources/hb/c.java:521"
+      ],
+      "method": "POST",
+      "notes": "Error log literally says Bing image search failed; backend uses Bing.",
+      "path": "/data/photos/image-search",
+      "request": [
+        {
+          "name": "query",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "response": {
+        "keys": [
+          "results[].MediaUrl",
+          "results[].Thumbnail.MediaUrl"
+        ],
+        "kind": "json"
+      },
+      "sdk_status": "implemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "get",
+      "evidence": [
+        "research/android/jadx/sources/sd/m.java:308",
+        "research/android/jadx/sources/sd/b.java:43",
+        "research/android/jadx/sources/cd/n.java:2329"
+      ],
+      "method": "GET",
+      "notes": "Barcode value appended to path. Premium-gated client-side. 404 = not found.",
+      "path": "/data/product-lookup/{upc}",
+      "request": [
+        {
+          "name": "upc",
+          "notes": "path suffix, e.g. barcode digits",
+          "required": true,
+          "type": "path"
+        }
+      ],
+      "response": {
+        "kind": "proto",
+        "type": "PBProductLookupResponse"
+      },
+      "sdk_status": "implemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "multipart",
+      "evidence": [
+        "research/android/jadx/sources/ma/c.java:910"
+      ],
+      "method": "POST",
+      "notes": "Uses secondary auth client f14691g. Photo retry metadata tracked via ALPhotoIDKey/ALPhotoRequestFailureCountKey.",
+      "path": "/data/photos/upload",
+      "request": [
+        {
+          "name": "photo",
+          "notes": "file part; filename <photoId>.jpg; image/jpeg",
+          "required": true,
+          "type": "file"
+        }
+      ],
+      "response": {
+        "kind": "none"
+      },
+      "sdk_status": "implemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "multipart",
+      "evidence": [
+        "research/android/jadx/sources/com/purplecover/anylist/ui/recipes/RecipeImportActivity.java:95"
+      ],
+      "method": "POST",
+      "notes": "URL regex-extracted from share intent text.",
+      "path": "/data/recipes/web-import",
+      "request": [
+        {
+          "name": "url",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "response": {
+        "kind": "proto",
+        "type": "PBRecipeWebImportResponse"
+      },
+      "sdk_status": "implemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "multipart",
+      "evidence": [
+        "research/android/jadx/sources/cd/j6.java:60"
+      ],
+      "method": "POST",
+      "notes": "PBListOperation with handler share-shopping-list, list id set via queue helper, updatedValue = invitee email.",
+      "path": "/data/shopping-lists/share-list",
+      "request": [
+        {
+          "name": "operation",
+          "notes": "PBListOperation bytes",
+          "required": true,
+          "type": "bytes"
+        }
+      ],
+      "response": {
+        "kind": "proto",
+        "type": "PBShareListOperationResponse"
+      },
+      "sdk_status": "implemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "multipart",
+      "evidence": [
+        "research/android/jadx/sources/dd/y3.java:343"
+      ],
+      "method": "POST",
+      "notes": "Toggles personal iCalendar feed generation.",
+      "path": "/data/meal-planning-calendar/set-icalendar-enabled",
+      "request": [
+        {
+          "name": "icalendar_request",
+          "notes": "PBMealPlanSetICalendarEnabledRequest bytes",
+          "required": true,
+          "type": "bytes"
+        }
+      ],
+      "response": {
+        "kind": "proto",
+        "type": "PBMealPlanSetICalendarEnabledRequestResponse"
+      },
+      "sdk_status": "implemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "multipart",
+      "evidence": [
+        "research/android/jadx/sources/ed/u4.java:27"
+      ],
+      "method": "POST",
+      "notes": "Accepts an inbound recipe-sharing request.",
+      "path": "/data/user-recipe-data/accept-recipe-link-request",
+      "request": [
+        {
+          "name": "link_request_id",
+          "notes": "PBRecipeLinkRequest.identifier",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "user_id",
+          "notes": "current user id",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "response": {
+        "kind": "proto",
+        "type": "PBRecipeLinkRequestResponse"
+      },
+      "sdk_status": "implemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "multipart",
+      "evidence": [
+        "research/android/jadx/sources/ed/e5.java:63"
+      ],
+      "method": "POST",
+      "notes": "Client pre-validates the request id against local pending lists.",
+      "path": "/data/user-recipe-data/cancel-recipe-link-request",
+      "request": [
+        {
+          "name": "link_request",
+          "notes": "PBRecipeLinkRequest bytes",
+          "required": true,
+          "type": "bytes"
+        }
+      ],
+      "response": {
+        "kind": "proto",
+        "type": "PBRecipeLinkRequestResponse"
+      },
+      "sdk_status": "implemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "multipart",
+      "evidence": [
+        "research/android/jadx/sources/ad/p0.java:517"
+      ],
+      "method": "POST",
+      "notes": "Client generates PBRecipeLinkRequest with random UUID identifier, requesting_user_id, confirming_email.",
+      "path": "/data/user-recipe-data/request-recipe-link-v2",
+      "request": [
+        {
+          "name": "link_request",
+          "notes": "PBRecipeLinkRequest bytes",
+          "required": true,
+          "type": "bytes"
+        }
+      ],
+      "response": {
+        "kind": "proto",
+        "type": "PBRecipeLinkRequestResponse"
+      },
+      "sdk_status": "implemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "multipart",
+      "evidence": [
+        "research/android/jadx/sources/ed/x2.java:118"
+      ],
+      "method": "POST",
+      "notes": "Unshare from a linked user.",
+      "path": "/data/user-recipe-data/unlink-recipes",
+      "request": [
+        {
+          "name": "user_id",
+          "notes": "linked user to remove",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "response": {
+        "kind": "proto",
+        "type": "PBRecipeLinkRequestResponse"
+      },
+      "sdk_status": "implemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "multipart",
+      "evidence": [
+        "research/android/jadx/sources/yc/m0.java:273"
+      ],
+      "method": "POST",
+      "notes": "Aggregate sync bootstrap: timestamps plus meal-plan client info; is_background_fetch=1 on background fetch.",
+      "path": "/data/user-data/get",
+      "request": [
+        {
+          "name": "timestamps",
+          "notes": "PBUserDataClientTimestamps bytes",
+          "required": false,
+          "type": "bytes"
+        },
+        {
+          "name": "client_info",
+          "notes": "PBUserDataClientInfo bytes (meal-plan client versions)",
+          "required": true,
+          "type": "bytes"
+        },
+        {
+          "name": "is_background_fetch",
+          "notes": "literal 1, background fetch only",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "response": {
+        "kind": "proto",
+        "type": "PBUserDataResponse"
+      },
+      "sdk_status": "implemented"
+    },
+    {
+      "auth": "bearer + websocket upgrade (permessage-deflate)",
+      "encoding": "websocket",
+      "evidence": [
+        "research/android/jadx/sources/hg/n.java:134",
+        "research/android/jadx/sources/yc/m0.java:139"
+      ],
+      "method": "WSS",
+      "notes": "Built as https URL then upgraded. Reconnect backoff 500ms doubling to 600s cap; close code 1000 client closing. Skipped during background fetch state. Server pushes invalidation messages that trigger sync.",
+      "path": "/data/add-user-listener",
+      "request": [],
+      "response": {
+        "kind": "push",
+        "type": "server invalidation frames"
+      },
+      "sdk_status": "implemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "multipart-proto-sync",
+      "evidence": [
+        "research/android/jadx/sources/yc/c0.java:50",
+        "research/android/jadx/sources/yc/c0.java:54"
+      ],
+      "method": "POST/GET",
+      "notes": "all = GET protobuf; update = POST protobuf ops; update-v2 uses logical timestamps.",
+      "path": "/data/shopping-lists/*",
+      "request": [],
+      "response": {
+        "kind": "proto"
+      },
+      "sdk_status": "implemented"
+    },
+    {
+      "auth": "bearer",
+      "encoding": "multipart-proto-sync",
+      "evidence": [
+        "research/android/jadx/sources/yc/r.java:36",
+        "research/android/jadx/sources/yc/s.java:30",
+        "research/android/jadx/sources/yc/d0.java:30",
+        "research/android/jadx/sources/yc/h0.java:36",
+        "research/android/jadx/sources/yc/p0.java:32",
+        "research/android/jadx/sources/yc/r0.java:26",
+        "research/android/jadx/sources/yc/u.java:30",
+        "research/android/jadx/sources/yc/z.java:40",
+        "research/android/jadx/sources/yc/d.java:25"
+      ],
+      "method": "POST/GET",
+      "notes": "Queue ids: list-folder-operations, list-setting-operations, starter-list-setting-operations, starter-list-operations (+ update-ordered-ids -> ordered-starter-list-ids-operations), category-operations, categorized-item-operations, meal-plan-operations, recipe-operations, mobile-app-setting-operations.",
+      "path": "/data/{list-folders,list-settings,starter-list-settings,starter-lists,user-categories,categorized-items,meal-planning-calendar,user-recipe-data,mobile-app-settings}/{all,update,by-id}",
+      "request": [],
+      "response": {
+        "kind": "proto"
+      },
+      "sdk_status": "implemented"
+    }
+  ],
+  "generated": "2026-09-13",
+  "non_api_hosts": [
+    {
+      "host": "help.anylist.com",
+      "use": "in-app help articles"
+    },
+    {
+      "host": "icalendar.anylist.com",
+      "url_pattern": "https://icalendar.anylist.com/{icalendar_id}.ics",
+      "use": "personal meal-plan iCalendar feed (id from PBAccountInfoResponse.icalendar_id)"
+    },
+    {
+      "host": "photos.anylist.com",
+      "use": "photo image URL base"
+    },
+    {
+      "host": "www.anylist.com",
+      "use": "reset-password + google-assistant/list-id deep links; recipes/home, jobs, privacy web pages"
+    }
+  ],
+  "proto_schema": {
+    "apk_model_proto_messages": 156,
+    "apk_server_proto_messages": 2,
+    "comparison": "exact name match on all 156 web-derived messages",
+    "extra_in_apk": [
+      "PBUserProfileInfo",
+      "PBUserProfileProperty"
+    ],
+    "extra_in_sdk": [],
+    "note": "PBUserProfileProperty.oneof value: string/numeric/bool/date(ms). PBUserProfileInfo: user id + property map. Matches the Mixpanel people/update-profile usage.",
+    "sdk_schema_messages": 156
+  },
+  "realtime": {
+    "auth": "bearer via xc/h client + Authorization header before upgrade",
+    "backoff": "500ms doubling, 600s cap",
+    "client": "okhttp RealWebSocket (qg.e), permessage-deflate",
+    "close": "code 1000 client closing",
+    "skip_when": "background fetch state (wc.d.X == wc.c.C)",
+    "url": "wss://production.anylist.com/data/add-user-listener"
+  },
+  "source": {
+    "apk": "research/android/apk/com.purplecover.anylist.xapk",
+    "app": "AnyList Android",
+    "base_apk": "research/android/extracted/com.purplecover.anylist.apk",
+    "decompiler": "jadx 1.5.6",
+    "download_source": "APKPure",
+    "jadx_output": "research/android/jadx/",
+    "latest_on_apkpure": "3.0.3",
+    "package": "com.purplecover.anylist",
+    "version_code": 278,
+    "version_name": "3.0.3"
+  },
+  "third_party": [
+    {
+      "classification": "not AnyList API",
+      "endpoints": [
+        "https://production.anylist.com:443/data/track-event",
+        "https://production.anylist.com:443/data/update-profile",
+        "https://production.anylist.com:443/groups/",
+        "https://production.anylist.com:443/flags/"
+      ],
+      "evidence": "research/android/jadx/sources/kc/k.java:122-141",
+      "note": "Mixpanel 8.2.0 SDK with custom endpoints proxied through production.anylist.com"
+    },
+    {
+      "classification": "grocery delivery integration",
+      "endpoints": [
+        "https://grocery-sdk.emeals.com/cart-upload-url?partner=anylist&filename={file}",
+        "https://grocery-sdk.emeals.com/latest-vendor-version?name={vendor}&version={v}",
+        "https://grocery-sdk.emeals.com/v3/vendor-availability?postalcode={zip}",
+        "https://serverless.api.emeals.com{route}"
+      ],
+      "evidence": "research/android/jadx/sources/e5/h.java:132, g5/a.java:41, h5/a.java:36, d7/dd.java:82"
+    },
+    {
+      "classification": "grocery delivery integration",
+      "endpoints": [
+        "https://www.instacart.com/v3/containers/..."
+      ],
+      "evidence": "research/android/jadx/sources/com/emeals/ems_grocery_shopping/feature/grocerydelivery/GroceryShoppingActivity.java:459"
+    }
+  ],
+  "transport": {
+    "authenticator": "xc/g: on 401 retry-with-current-token else refresh via /auth/token/refresh; max 3 attempts",
+    "base_url": "https://production.anylist.com:443/",
+    "get": "xc/b.d(): GET, query-less in observed usage",
+    "headers": {
+      "Accept-Language": "device locale",
+      "X-AnyLeaf-API-Version": "3",
+      "X-AnyLeaf-Android-App-Version": "3.0.3",
+      "X-AnyLeaf-Client-Identifier": "DeviceClientID UUID persisted in prefs"
+    },
+    "instances": "xc/b.f14690f + f14691g bearer clients; xc/c.f14697a unauthenticated (refresh); xc/h.f14704h bearer subclass (realtime)",
+    "post_form": "xc/b.f(): POST application/x-www-form-urlencoded",
+    "post_multipart": "xc/b.g(): POST multipart; values String/Number/bytes/file-part; empty map degrades to empty form POST",
+    "post_sync": "xc/b.h(): synchronous POST form (token endpoints)",
+    "request_interceptor": "xc/a: Authorization: Bearer <access token> (omitted when no token)"
+  },
+  "web_only_endpoints": [
+    "/auth/logout",
+    "/data/meal-planning-calendar/send-as-email",
+    "/data/recipes/send-as-email",
+    "/data/shopping-lists/send-as-email",
+    "/data/photos/upload-url",
+    "/data/user-recipe-data/desktop-recipe-import-extension",
+    "/data/web/set-mac-app-download-prompt-cookie",
+    "/data/web/set-welcome-screen-cookie"
+  ]
+}

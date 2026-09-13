@@ -34,3 +34,10 @@ env/
 .DS_Store
 .idea/
 .vscode/
+
+# Local reverse-engineering artifacts. Keep only the lightweight summaries visible.
+research/*
+!research/hidden_endpoints.md
+!research/android/
+research/android/*
+!research/android/endpoints.json

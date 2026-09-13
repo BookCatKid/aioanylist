@@ -9,7 +9,14 @@ from .exceptions import (
     TagDataError,
     TransportError,
 )
-from .types import AuthTokens, AutocompleteSuggestion, Domain, OperationAck
+from .types import (
+    AuthTokens,
+    AutocompleteSuggestion,
+    Domain,
+    ImageSearchResult,
+    OperationAck,
+    PlaceSearchResult,
+)
 
 __all__ = [
     "AnyListClient",
@@ -18,9 +25,11 @@ __all__ = [
     "AuthenticationError",
     "AutocompleteSuggestion",
     "Domain",
+    "ImageSearchResult",
     "NotModifiedError",
     "OperationAck",
     "PermissionDeniedError",
+    "PlaceSearchResult",
     "ProtocolError",
     "SyncError",
     "TagDataError",

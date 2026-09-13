@@ -56,6 +56,20 @@ class MatchRange:
     length: int
 
 
+@dataclass(slots=True, frozen=True)
+class ImageSearchResult:
+    media_url: str
+    thumbnail_url: str | None = None
+
+
+@dataclass(slots=True, frozen=True)
+class PlaceSearchResult:
+    name: str
+    formatted_address: str
+    latitude: float
+    longitude: float
+
+
 JSONScalar: TypeAlias = str | int | float | bool | None
 JSONValue: TypeAlias = JSONScalar | list["JSONValue"] | dict[str, "JSONValue"]
 JSONMapping: TypeAlias = dict[str, JSONValue]

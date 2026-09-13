@@ -13,6 +13,7 @@ from anylist_sdk.proto import PB, message_class
 class FakeTransport:
     responses: list[Any] = field(default_factory=list)
     calls: list[tuple[str, dict[str, Any], str | None]] = field(default_factory=list)
+    tokens: Any = None
 
     async def post_proto(
         self, endpoint: str, *, fields: dict[str, Any], response_type: str | None = None
@@ -42,10 +43,21 @@ class FakeTransport:
             return message_class(response_type)()
         return b""
 
-    async def request(self, method: str, endpoint: str, *, fields=None, authenticated: bool = True):
+    async def request(
+        self,
+        method: str,
+        endpoint: str,
+        *,
+        fields=None,
+        authenticated: bool = True,
+        allowed_statuses=(),
+    ):
         self.calls.append((f"{method} {endpoint}", fields or {}, None))
         if self.responses:
-            return self.responses.pop(0)
+            response = self.responses.pop(0)
+            if isinstance(response, tuple):
+                return response[1]
+            return response
         return b""
 
 

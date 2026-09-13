@@ -324,6 +324,7 @@ class ListSettingsService(OperationService):
             "badgeMode": "set-badge-mode",
             "locationNotificationsEnabled": "set-location-notifications-enabled",
             "customTheme": "save-custom-theme",
+            "customDarkTheme": "save-custom-dark-theme",
             "shouldShowSharedListCategoryOrderHintBanner": "set-should-show-shared-list-category-order-hint-banner",
         }
         if handler_id is None:
@@ -335,6 +336,7 @@ class ListSettingsService(OperationService):
                 )
         no_op_if_unchanged = field not in {
             "customTheme",
+            "customDarkTheme",
             "shouldShowSharedListCategoryOrderHintBanner",
         }
         if field == "icon":

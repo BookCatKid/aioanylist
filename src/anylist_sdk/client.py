@@ -19,9 +19,12 @@ from .services import (
     CategorizedItemsService,
     FoldersService,
     ListSettingsService,
+    MapsService,
     MealPlanService,
     MobileSettingsService,
+    NativeConfigService,
     PhotosService,
+    ProductsService,
     RawAPI,
     RecipesService,
     SharingService,
@@ -53,9 +56,12 @@ class AnyListClient:
     meal_plan: MealPlanService | None
     account: AccountService | None
     photos: PhotosService | None
+    maps: MapsService | None
+    products: ProductsService | None
     sharing: SharingService | None
     alexa: AlexaService | None
     web_state: WebStateService | None
+    config: NativeConfigService
     raw: RawAPI
 
     def __init__(
@@ -79,6 +85,7 @@ class AnyListClient:
             tokens=tokens,
             token_callback=token_callback,
         )
+        self.config = NativeConfigService(self.transport)
         self.state = AnyListState(user_id=(tokens.user_id if tokens else None))
         self.sync = SyncCoordinator(self.transport, self.state)
         self.realtime = RealtimeClient(self.transport)
@@ -107,9 +114,9 @@ class AnyListClient:
             self.list_settings = self.starter_list_settings = self.mobile_settings = (
                 self.starter_lists
             ) = None
-            self.meal_plan = self.account = self.photos = self.sharing = self.alexa = (
-                self.web_state
-            ) = None
+            self.meal_plan = self.account = self.photos = self.maps = None
+            self.products = None
+            self.sharing = self.alexa = self.web_state = None
             self.raw = RawAPI(self.transport)
             self._services_ready = False
             return
@@ -145,6 +152,8 @@ class AnyListClient:
         self.meal_plan = MealPlanService(self.transport, self.state, user_id=user_id, journal=j)
         self.account = AccountService(self.transport, self.state)
         self.photos = PhotosService(self.transport)
+        self.maps = MapsService(self.transport)
+        self.products = ProductsService(self.transport)
         self.sharing = SharingService(self.transport, user_id, self.state)
         self.alexa = AlexaService(self.transport)
         self.web_state = WebStateService(self.transport)

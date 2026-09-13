@@ -298,6 +298,36 @@ async def test_list_settings_custom_theme_always_queues_exact_partial(fake_trans
 
 
 @pytest.mark.asyncio
+async def test_list_settings_custom_dark_theme_uses_native_official_handler(fake_transport) -> None:
+    state = AnyListState(user_id="user")
+    theme = PB.PBListTheme(
+        identifier="theme",
+        name="Dark Custom",
+        tableHexColor="101010",
+        itemNameHexColor="FFFFFF",
+    )
+    state.list_settings["list"] = PB.PBListSettings(
+        identifier="settings", userId="user", listId="list", timestamp=6.0
+    )
+    service = ListSettingsService(fake_transport, state, user_id="user")
+
+    await service.set("list", "customDarkTheme", theme)
+
+    operation = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert operation.metadata.handlerId == "save-custom-dark-theme"
+    sent = operation.updatedSettings
+    assert sent.HasField("customDarkTheme")
+    assert sent.customDarkTheme.SerializeToString() == theme.SerializeToString()
+    assert {descriptor.name for descriptor, _ in sent.ListFields()} == {
+        "identifier",
+        "userId",
+        "listId",
+        "timestamp",
+        "customDarkTheme",
+    }
+
+
+@pytest.mark.asyncio
 async def test_list_settings_can_clear_optional_scalar_with_absent_wire_field(
     fake_transport,
 ) -> None:

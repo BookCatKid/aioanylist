@@ -15,11 +15,13 @@ Authenticated requests send the access token as a bearer token. On an authentica
 
 Refresh tokens rotate. Applications that persist sessions should write the latest token pair whenever it changes.
 
-`logout()` uses the official native `/data/auth/sign-out` token-session endpoint observed in the current iOS client. The request carries bearer authentication and the current refresh token; optional push-token metadata can be supplied by a native integration. Live tests against both `www.anylist.com` and `production.anylist.com` confirm that sign-out immediately revokes the refresh token but leaves the current access token valid until its normal expiry. `clear_session()` is the explicit local-only operation for discarding credentials without contacting AnyList.
+`logout()` uses the official native `/data/auth/sign-out` token-session endpoint. iOS traffic established the endpoint and its server semantics. Android sends the same fields as URL-encoded form data, while iOS uses multipart; the server accepts both, and the SDK keeps the already-live-verified multipart path. The request carries bearer authentication and the current refresh token; optional push-token metadata can be supplied by a native integration. Live tests against both `www.anylist.com` and `production.anylist.com` confirmed that sign-out immediately revokes the refresh token but leaves the current access token valid until its normal expiry. `clear_session()` is the explicit local-only operation for discarding credentials without contacting AnyList.
 
 ## Transport and protobufs
 
-Normal data/edit endpoints use the multipart/protobuf format emitted by AnyList Web. Binary protobuf values are ordinary multipart fields rather than file uploads.
+Normal data/edit endpoints use the multipart/protobuf format emitted by AnyList Web. Binary protobuf values are ordinary multipart fields rather than file uploads. The normal request path can allow specific HTTP statuses when the endpoint defines them as application data; UPC lookup, for example, treats 404 as a normal miss.
+
+The SDK default remains `https://www.anylist.com`. Android hardcodes `production.anylist.com`, but the host is transport configuration rather than protocol semantics; callers can override `base_url` when reproducing a native environment.
 
 The package embeds the official protobuf schema and builds runtime message classes dynamically. Static typing is provided by `src/anylist_sdk/proto/__init__.pyi`, generated deterministically from the same schema.
 
@@ -65,6 +67,6 @@ The exhaustive evidence level for each public callable is tracked in [`conforman
 
 ## Source authority
 
-Protocol behavior is derived from the official AnyList web application, embedded protobuf schema, and AnyList-owned runtime resources/server behavior. Unofficial clients are not used as behavioral authority.
+Protocol behavior is derived from the official AnyList web application, official AnyList native clients for native-only functionality, the embedded protobuf schema, and AnyList-owned runtime resources/server behavior. Unofficial clients are not used as behavioral authority. Web behavior remains primary where the surfaces overlap; Android source is used to reconstruct useful native-only data features such as search/lookup and remote configuration, while app UI plumbing, mobile lifecycle behavior, telemetry, and obsolete integrations remain documented without becoming public SDK surface.
 
 When official JavaScript and the embedded schema contradict each other, the SDK does not guess missing wire information. Evidence-backed deliberate divergences are documented explicitly in the conformance matrix.

@@ -89,6 +89,22 @@ async def test_authenticated_request_refreshes_once_and_retries_with_new_token()
 
 
 @pytest.mark.asyncio
+async def test_request_can_accept_expected_404() -> None:
+    async def missing(_request: web.Request) -> web.Response:
+        return web.Response(status=404)
+
+    app = web.Application()
+    app.router.add_get("/missing", missing)
+    async with (
+        server(app) as base,
+        AnyListTransport(
+            base_url=base, tokens=AuthTokens("user", "access", "refresh")
+        ) as transport,
+    ):
+        assert await transport.request("GET", "/missing", allowed_statuses=(404,)) == b""
+
+
+@pytest.mark.asyncio
 async def test_concurrent_refreshes_are_serialized_and_share_rotated_token() -> None:
     calls = 0
 

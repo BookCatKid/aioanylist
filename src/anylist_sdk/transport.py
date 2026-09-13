@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Collection, Mapping
 from dataclasses import replace
 from typing import Any, Self
 
@@ -241,6 +241,7 @@ class AnyListTransport:
         authenticated: bool = True,
         retry_auth: bool = True,
         extra_headers: Mapping[str, str] | None = None,
+        allowed_statuses: Collection[int] = (),
     ) -> bytes:
         headers = dict(extra_headers or {})
         stale_token: str | None = None
@@ -268,7 +269,10 @@ class AnyListTransport:
                         authenticated=authenticated,
                         retry_auth=False,
                         extra_headers=extra_headers,
+                        allowed_statuses=allowed_statuses,
                     )
+                if response.status in allowed_statuses:
+                    return body
                 if response.status in (401, 403):
                     raise PermissionDeniedError(
                         f"AnyList rejected {endpoint}: HTTP {response.status}"
