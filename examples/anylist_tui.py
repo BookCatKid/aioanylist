@@ -56,8 +56,8 @@ except ModuleNotFoundError as exc:  # pragma: no cover - friendly optional-extra
 from anylist_sdk import AnyListClient
 from anylist_sdk.normalization import canonical_category_match_id
 from anylist_sdk.parsing.quantity import parse_quantity_and_package_size
-from anylist_sdk.proto import PB, PBCalendarEvent, StarterList
-from anylist_sdk.types import AuthTokens
+from anylist_sdk.proto import PB, ListItem, PBCalendarEvent, StarterList
+from anylist_sdk.types import AuthTokens, AutocompleteSuggestion
 
 APP_DIR = Path.home() / ".config" / "anylist-sdk"
 TOKEN_CACHE = APP_DIR / "tui-tokens.json"
@@ -119,9 +119,19 @@ def _replace_rows(
     *,
     keep_id: str | None = None,
 ) -> None:
+    rendered_rows = tuple(tuple(str(cell) for cell in row) for row in rows)
+    if table.row_count == len(rendered_rows):
+        current_rows = tuple(
+            tuple(str(cell) for cell in table.get_row_at(index)) for index in range(table.row_count)
+        )
+        if current_rows == rendered_rows:
+            # Periodic UI refreshes should be visually inert when synchronized state has
+            # not changed. Clearing/re-adding identical rows resets DataTable's scroll
+            # offset, which made long lists jump back every two seconds.
+            return
     table.clear()
-    for row in rows:
-        table.add_row(*(str(cell) for cell in row))
+    for row in rendered_rows:
+        table.add_row(*row)
     if not ids:
         return
     target = keep_id if keep_id in ids else ids[0]
@@ -211,6 +221,8 @@ class FormModal(ModalScreen[FormResult | None]):
     FormModal .field-label { margin-top: 1; }
     FormModal .form-area { height: 6; }
     FormModal SelectionList { height: 7; border: round $panel; }
+    FormModal #form-autocomplete { height: 8; border: round $panel; margin-top: 0; }
+    FormModal #autocomplete-choice { height: auto; color: $text-muted; margin-bottom: 1; }
     FormModal .form-buttons { height: auto; margin-top: 1; align-horizontal: right; }
     FormModal .form-buttons Button { margin-left: 1; }
     """
@@ -221,11 +233,16 @@ class FormModal(ModalScreen[FormResult | None]):
         fields: Sequence[FormField],
         *,
         submit_label: str = "Save",
+        autocomplete: Callable[[str], Awaitable[list[AutocompleteSuggestion]]] | None = None,
     ) -> None:
         super().__init__()
         self.form_title = title
         self.fields = tuple(fields)
         self.submit_label = submit_label
+        self.autocomplete = autocomplete
+        self.autocomplete_suggestions: list[AutocompleteSuggestion] = []
+        self.selected_autocomplete: AutocompleteSuggestion | None = None
+        self._autocomplete_generation = 0
 
     def compose(self) -> ComposeResult:
         with Vertical(id="form-dialog"):
@@ -264,9 +281,90 @@ class FormModal(ModalScreen[FormResult | None]):
                             placeholder=field.placeholder,
                             id=widget_id,
                         )
+                        if field.key == "name" and self.autocomplete is not None:
+                            yield DataTable(
+                                id="form-autocomplete",
+                                cursor_type="row",
+                                zebra_stripes=True,
+                            )
+                            yield Static("", id="autocomplete-choice")
             with Horizontal(classes="form-buttons"):
                 yield Button("Cancel", id="form-cancel")
                 yield Button(self.submit_label, id="form-submit", variant="primary")
+
+    def on_mount(self) -> None:
+        if self.autocomplete is None:
+            return
+        table = self.query_one("#form-autocomplete", DataTable)
+        table.add_columns("Suggestion", "Source")
+        table.display = False
+
+    @staticmethod
+    def _autocomplete_source_label(source: str) -> str:
+        return {
+            "add": "Add new item",
+            "current-list": "Already on this list",
+            "favorite": "Favorite",
+            "recent": "Recent",
+            "generic": "Suggested",
+        }.get(source, source.replace("-", " ").title())
+
+    async def on_input_changed(self, event: Input.Changed) -> None:
+        if self.autocomplete is None or event.input.id != "field-name":
+            return
+        query = event.value.strip()
+        table = self.query_one("#form-autocomplete", DataTable)
+        choice = self.query_one("#autocomplete-choice", Static)
+        if self.selected_autocomplete is not None and query != self.selected_autocomplete.text:
+            self.selected_autocomplete = None
+            choice.update("")
+        if not query:
+            self._autocomplete_generation += 1
+            self.autocomplete_suggestions = []
+            table.clear()
+            table.display = False
+            return
+        if self.selected_autocomplete is not None and query == self.selected_autocomplete.text:
+            table.display = False
+            return
+
+        self._autocomplete_generation += 1
+        generation = self._autocomplete_generation
+        try:
+            suggestions = await self.autocomplete(query)
+        except Exception:  # noqa: BLE001 - typing should remain usable if suggestions fail
+            if generation == self._autocomplete_generation:
+                self.autocomplete_suggestions = []
+                table.clear()
+                table.display = False
+            return
+        if generation != self._autocomplete_generation:
+            return
+        self.autocomplete_suggestions = suggestions
+        table.clear()
+        for suggestion in suggestions:
+            table.add_row(
+                suggestion.text,
+                self._autocomplete_source_label(suggestion.source),
+            )
+        table.display = bool(suggestions)
+        if suggestions:
+            table.move_cursor(row=0)
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        if event.data_table.id != "form-autocomplete":
+            return
+        row = event.data_table.cursor_row
+        if row is None or row < 0 or row >= len(self.autocomplete_suggestions):
+            return
+        suggestion = self.autocomplete_suggestions[row]
+        self.selected_autocomplete = suggestion
+        self.query_one("#field-name", Input).value = suggestion.text
+        self.query_one("#autocomplete-choice", Static).update(
+            f"Selected from {self._autocomplete_source_label(suggestion.source)}"
+        )
+        event.data_table.display = False
+        self.query_one("#field-name", Input).focus()
 
     def _values(self) -> FormResult:
         result: FormResult = {}
@@ -283,6 +381,14 @@ class FormModal(ModalScreen[FormResult | None]):
                 result[field.key] = self.query_one(widget_id, Checkbox).value
             else:
                 result[field.key] = self.query_one(widget_id, Input).value.strip()
+        if self.autocomplete is not None:
+            name = str(result.get("name") or "")
+            result["_autocomplete_suggestion"] = (
+                self.selected_autocomplete
+                if self.selected_autocomplete is not None
+                and self.selected_autocomplete.text == name
+                else None
+            )
         return result
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -295,6 +401,11 @@ class FormModal(ModalScreen[FormResult | None]):
         key = getattr(event, "key", "")
         if key == "escape":
             self.dismiss(None)
+        elif key == "down" and self.autocomplete is not None:
+            name = self.query_one("#field-name", Input)
+            table = self.query_one("#form-autocomplete", DataTable)
+            if self.focused is name and table.display and self.autocomplete_suggestions:
+                table.focus()
 
 
 class ConfirmModal(ModalScreen[bool]):
@@ -347,6 +458,7 @@ class SDKPanel(Vertical):
         handler: FormHandler,
         *,
         submit_label: str = "Save",
+        autocomplete: Callable[[str], Awaitable[list[AutocompleteSuggestion]]] | None = None,
     ) -> None:
         async def finished(result: FormResult | None) -> None:
             if result is None:
@@ -356,7 +468,10 @@ class SDKPanel(Vertical):
             except Exception as exc:  # noqa: BLE001 - UI boundary reports service errors
                 self.error(exc)
 
-        self.app.push_screen(FormModal(title, fields, submit_label=submit_label), finished)
+        self.app.push_screen(
+            FormModal(title, fields, submit_label=submit_label, autocomplete=autocomplete),
+            finished,
+        )
 
     def confirm(
         self,
@@ -586,6 +701,54 @@ class ListsPanel(SDKPanel):
             )
         return fields
 
+    def _effective_list_setting_bool(self, list_id: str, field: str) -> bool:
+        for settings_id in (list_id, ""):
+            settings = self.client.state.list_settings.get(settings_id)
+            if settings is None or field not in settings.DESCRIPTOR.fields_by_name:
+                continue
+            try:
+                if settings.HasField(field):
+                    return bool(getattr(settings, field))
+            except ValueError:
+                return bool(getattr(settings, field))
+        return False
+
+    async def _item_autocomplete(self, query: str) -> list[AutocompleteSuggestion]:
+        list_id = self.current_list_id
+        service = self.client.lists
+        if service is None or not list_id:
+            return []
+        current = service.get(list_id)
+        if current is None:
+            return []
+
+        favorites: Sequence[ListItem] = ()
+        recents: Sequence[ListItem] = ()
+        starter = self.client.starter_lists
+        if starter is not None:
+            favorite_list = starter.favorite_for_shopping_list(list_id)
+            recent_list = starter.recent_for_shopping_list(list_id)
+            if favorite_list is not None:
+                favorites = starter.autocomplete_items(str(favorite_list.identifier))
+            if recent_list is not None:
+                recents = starter.autocomplete_items(str(recent_list.identifier))
+
+        return await self.client.autocomplete.suggestions(
+            query,
+            current_items=current.items,
+            favorites=favorites,
+            recents=recents,
+            include_favorites=self._effective_list_setting_bool(
+                list_id, "favoritesAutocompleteEnabled"
+            ),
+            include_recents=self._effective_list_setting_bool(
+                list_id, "recentItemsAutocompleteEnabled"
+            ),
+            include_generic=self._effective_list_setting_bool(
+                list_id, "genericGroceryAutocompleteEnabled"
+            ),
+        )
+
     @staticmethod
     def _category_match_id(category: object) -> str:
         system = str(getattr(category, "systemCategory", "") or "")
@@ -638,7 +801,33 @@ class ListsPanel(SDKPanel):
         name = str(result["name"]).strip()
         if not name:
             return self.error("Item name is required")
-        draft = await service.prepare_item_for_add(list_id, name)
+        suggestion = cast(AutocompleteSuggestion | None, result.get("_autocomplete_suggestion"))
+        source_item = (
+            suggestion.payload
+            if suggestion is not None
+            and suggestion.source in {"current-list", "favorite", "recent"}
+            and isinstance(suggestion.payload, ListItem)
+            else None
+        )
+
+        if (
+            suggestion is not None
+            and suggestion.source == "current-list"
+            and source_item is not None
+        ):
+            revived = await service.revive_matching_item(list_id, source_item)
+            if revived is not None:
+                await self.refresh_view()
+                return
+
+        if (
+            suggestion is not None
+            and suggestion.source in {"favorite", "recent"}
+            and source_item is not None
+        ):
+            draft = await service.prepare_autocomplete_item_for_add(list_id, source_item)
+        else:
+            draft = await service.prepare_item_for_add(list_id, name)
 
         details = str(result.get("details") or "")
         if details:
@@ -795,7 +984,13 @@ class ListsPanel(SDKPanel):
         elif button_id == "items-new":
             if not list_id:
                 return self.error("Select a list")
-            self.form("Add item", self._item_form_fields(), self._new_item, submit_label="Add")
+            self.form(
+                "Add item",
+                self._item_form_fields(),
+                self._new_item,
+                submit_label="Add",
+                autocomplete=self._item_autocomplete,
+            )
         elif button_id == "items-edit":
             if not list_id or not item_id:
                 return self.error("Select an item")
@@ -1430,8 +1625,14 @@ class ListSettingsScreen(ModalScreen[None]):
         width: 94%; height: 90%; padding: 1;
         border: round $accent; background: $surface;
     }
-    ListSettingsScreen #tools-header { height: auto; }
+    ListSettingsScreen #tools-header { height: 3; }
+    ListSettingsScreen #tools-title { width: 1fr; height: auto; }
     ListSettingsScreen #tools-close { dock: right; }
+    ListSettingsScreen TabbedContent { height: 1fr; }
+    ListSettingsScreen TabPane { height: 1fr; padding: 1; }
+    ListSettingsScreen StoresCategoriesPanel,
+    ListSettingsScreen SavedItemsPanel,
+    ListSettingsScreen FoldersPanel { width: 1fr; height: 1fr; }
     """
 
     def __init__(self, list_id: str) -> None:
@@ -1444,7 +1645,7 @@ class ListSettingsScreen(ModalScreen[None]):
         title = current.name if current is not None else "Selected list"
         with Vertical(id="tools-dialog"):
             with Horizontal(id="tools-header"):
-                with Vertical():
+                with Vertical(id="tools-title"):
                     yield Label("[b]List Settings[/b]")
                     yield Static(title)
                 yield Button("Close", id="tools-close")
