@@ -55,12 +55,15 @@ variables and mutation-safety rules.
 ## Example TUI client
 
 A substantial Textual-based terminal client lives at [`examples/anylist_tui.py`](examples/anylist_tui.py).
-It is intentionally an example downstream application rather than part of the SDK API, and covers a
-large cross-section of the high-level services: shopping lists/items, list stores/categories,
-conservative folder management, Favorites/Recents/custom starter lists, recipes/collections,
-meal-plan events/items/labels, and global user categories/groupings. Actions with external or
-hard-to-reverse side effects (sharing/email, Alexa, uploads, recursive folder deletion, recipe web
-import, account-name changes) are intentionally omitted.
+It is intentionally an example downstream application rather than part of the SDK API. Its primary
+navigation is user-facing — **Lists**, **Recipes**, and **Meal Plan** — instead of exposing the SDK's
+service boundaries as separate pages. Create/edit actions open focused forms with the relevant
+controls; less-common list features such as stores/categories, saved items, and folders live behind
+the contextual **List Settings…** screen. Item creation defaults to AnyList-style automatic
+categorization and can reuse saved metadata from Favorites/Recent Items while still allowing manual
+overrides. Actions with external or hard-to-reverse side effects
+(sharing/email, Alexa, uploads, recursive folder deletion, recipe web import, account-name changes)
+are intentionally omitted.
 
 ```bash
 python -m pip install -e '.[tui]'
