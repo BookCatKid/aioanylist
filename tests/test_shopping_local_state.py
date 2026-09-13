@@ -747,8 +747,9 @@ async def test_delete_category_group_migrates_filters_to_official_default_group(
 ) -> None:
     svc = service(fake_transport)
     # The deterministic group ID is preferred by AnyList's Q.G fallback selector.
-    from anylist_sdk.identifiers import uuid5_hex
     from uuid import UUID
+
+    from anylist_sdk.identifiers import uuid5_hex
 
     default_id = uuid5_hex("list", UUID(hex="f656a81f0e0a419aa45121f4f2eac51b"))
     doomed = PB.PBListCategoryGroup(identifier="doomed", listId="list", name="Old")
@@ -816,6 +817,94 @@ async def test_add_item_ignores_top_position_while_alphabetically_sorted(fake_tr
     assert [x.identifier for x in svc.state.shopping_lists["list"].items] == ["old", "new"]
     op = fake_transport.calls[-1][1]["operations"].operations[0]
     assert not op.HasField("list")
+
+
+@pytest.mark.asyncio
+async def test_fresh_add_builds_category_metadata_before_single_add_operation(
+    fake_transport,
+) -> None:
+    svc = service(fake_transport)
+    svc.state.shopping_lists["list"] = PB.ShoppingList(identifier="list")
+    group = PB.PBListCategoryGroup(
+        identifier="group",
+        listId="list",
+        name="Groceries",
+        defaultCategoryId="other",
+    )
+    svc.state.list_category_groups["list"] = {"group": group}
+    svc.state.list_categories["list"] = {
+        "other": PB.PBListCategory(
+            identifier="other",
+            listId="list",
+            categoryGroupId="group",
+            name="Other",
+            systemCategory="other",
+        ),
+        "produce-a": PB.PBListCategory(
+            identifier="produce-a",
+            listId="list",
+            categoryGroupId="group",
+            name="Produce A",
+            systemCategory="produce",
+        ),
+        "produce-b": PB.PBListCategory(
+            identifier="produce-b",
+            listId="list",
+            categoryGroupId="group",
+            name="Produce B",
+            systemCategory="produce",
+        ),
+    }
+    svc.state.list_settings["list"] = PB.PBListSettings(
+        identifier="settings",
+        listId="list",
+        listCategoryGroupId="group",
+        genericGroceryAutocompleteEnabled=True,
+    )
+
+    async def classify(_: str) -> tuple[str | None, str | None]:
+        return "banana", "produce"
+
+    svc.on_classify_grocery_item = classify
+
+    item = await svc.add_item("list", "Bananas", item_id="item")
+
+    assert item.priceMatchupTag == "banana"
+    assert item.categoryMatchId == "produce"
+    assert item.category == "produce"
+    assert [(x.categoryGroupId, x.categoryId) for x in item.categoryAssignments] == [
+        ("group", "produce-b")
+    ]
+    assert len(fake_transport.calls) == 1
+    op = fake_transport.calls[0][1]["operations"].operations[0]
+    assert op.metadata.handlerId == "add-shopping-list-item"
+    assert op.listItem == item
+
+
+@pytest.mark.asyncio
+async def test_autocomplete_add_merges_saved_metadata_only_on_selected_suggestion_branch(
+    fake_transport,
+) -> None:
+    svc = service(fake_transport)
+    svc.state.shopping_lists["list"] = PB.ShoppingList(identifier="list")
+    source = PB.ListItem(
+        identifier="favorite-item",
+        name="Milk",
+        details="2%",
+        photoIds=["photo"],
+        storeIds=["market"],
+    )
+
+    fresh = await svc.prepare_item_for_add("list", "Milk", item_id="fresh")
+    selected = await svc.prepare_autocomplete_item_for_add("list", source)
+
+    assert fresh.details == ""
+    assert list(fresh.photoIds) == []
+    assert list(fresh.storeIds) == []
+    assert selected.identifier != source.identifier
+    assert selected.details == "2%"
+    assert list(selected.photoIds) == ["photo"]
+    assert list(selected.storeIds) == ["market"]
 
 
 @pytest.mark.asyncio
@@ -989,8 +1078,9 @@ async def test_redundant_store_and_override_mutations_do_not_queue(fake_transpor
 async def test_category_assignment_uses_deterministic_group_assignment_and_full_item(
     fake_transport,
 ) -> None:
-    from anylist_sdk.identifiers import uuid5_hex
     from uuid import UUID
+
+    from anylist_sdk.identifiers import uuid5_hex
 
     svc = service(fake_transport)
     svc.state.shopping_lists["list"] = PB.ShoppingList(

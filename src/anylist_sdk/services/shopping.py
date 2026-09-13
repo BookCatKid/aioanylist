@@ -580,7 +580,6 @@ class ShoppingListsService(OperationService):
                         and str(category.systemCategory or "") == generic_root_category
                     ):
                         category_id = str(category.identifier)
-                        break
             else:
                 category_id = str(group.defaultCategoryId or "")
 
@@ -635,7 +634,7 @@ class ShoppingListsService(OperationService):
         match_id = "other"
         if selected_group is not None:
             selected_group_id = str(selected_group.identifier)
-            assignment = next(
+            selected_assignment = next(
                 (
                     value
                     for value in item.categoryAssignments
@@ -643,8 +642,8 @@ class ShoppingListsService(OperationService):
                 ),
                 None,
             )
-            if assignment is not None:
-                category = self._category_index(list_id).get(str(assignment.categoryId))
+            if selected_assignment is not None:
+                category = self._category_index(list_id).get(str(selected_assignment.categoryId))
                 if category is not None:
                     match_id = self._category_match_id(category)
 

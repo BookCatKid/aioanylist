@@ -56,7 +56,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover - friendly optional-extra
 from anylist_sdk import AnyListClient
 from anylist_sdk.normalization import canonical_category_match_id
 from anylist_sdk.parsing.quantity import parse_quantity_and_package_size
-from anylist_sdk.proto import PB, ListItem, PBCalendarEvent, StarterList
+from anylist_sdk.proto import PB, PBCalendarEvent, StarterList
 from anylist_sdk.types import AuthTokens
 
 APP_DIR = Path.home() / ".config" / "anylist-sdk"
@@ -540,11 +540,7 @@ class ListsPanel(SDKPanel):
                 "Details" if item is not None else "Details (optional override)",
                 kind="textarea",
                 value=getattr(item, "details", ""),
-                placeholder=(
-                    "Optional notes about this item"
-                    if item is not None
-                    else "Leave blank to reuse saved details when available"
-                ),
+                placeholder="Optional notes about this item",
             ),
             FormField(
                 "category",

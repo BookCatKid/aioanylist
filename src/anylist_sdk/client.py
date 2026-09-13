@@ -9,6 +9,7 @@ import aiohttp
 
 from .autocomplete import AutocompleteEngine
 from .categorization import Categorizer
+from .exceptions import TagDataError
 from .operations import FileOperationJournal, OperationJournal
 from .proto import ListItem, PBCalendarEvent, PBRecipe
 from .realtime import RealtimeClient, RealtimeEvent
@@ -354,7 +355,10 @@ class AnyListClient:
     async def _classify_grocery_item(self, name: str) -> tuple[str | None, str | None]:
         """Return AnyList's grocery tag and its root category for fresh-item construction."""
 
-        tag = await self.categorizer.classify(name)
+        try:
+            tag = await self.categorizer.classify(name)
+        except TagDataError:
+            return None, None
         if not tag:
             return None, None
         active, english = await self.tag_data.active_and_english()
