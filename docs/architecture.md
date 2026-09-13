@@ -15,7 +15,7 @@ Authenticated requests send the access token as a bearer token. On an authentica
 
 Refresh tokens rotate. Applications that persist sessions should write the latest token pair whenever it changes.
 
-`logout()` is intentionally local-only. The official Web token-client source provides sign-in and refresh endpoints but no bearer-token revocation call. A native iOS capture exposes an additional sign-out endpoint; it is recorded in the conformance notes but is not promoted into Web-derived SDK behavior without corresponding source evidence.
+`logout()` uses the official native `/data/auth/sign-out` token-session endpoint observed in the current iOS client. The request carries bearer authentication and the current refresh token; optional push-token metadata can be supplied by a native integration. `clear_session()` is the explicit local-only operation for discarding credentials without contacting AnyList.
 
 ## Transport and protobufs
 

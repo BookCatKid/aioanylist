@@ -181,13 +181,56 @@ class AnyListTransport:
             await self._publish_tokens(tokens)
             return tokens
 
-    async def logout(self) -> None:
-        # The official token client exposes /auth/token and /auth/token/refresh, but app.js
-        # never sends a bearer-authenticated logout request. Its only /auth/logout usage is a
-        # browser-session HTML form carrying _xsrf + next. An SDK token session therefore has
-        # no source-backed remote logout operation to reproduce; discard the local credentials
-        # without inventing a request that the official token flow does not make.
+    async def clear_session(self) -> None:
+        """Discard the local token session without contacting AnyList."""
+
         await self._publish_tokens(None)
+
+    async def logout(
+        self,
+        *,
+        push_token: str | None = None,
+        push_token_type: str | None = None,
+    ) -> None:
+        """Sign out the current token session through AnyList's native sign-out endpoint.
+
+        A current official iOS client uses ``/data/auth/sign-out`` with bearer auth and the
+        current refresh token. Native clients additionally send their push token and push-token
+        type so the server can unregister that device. Non-mobile integrations can omit both.
+
+        The request is retried once after refreshing an expired access token. The multipart body
+        is rebuilt after refresh because AnyList rotates the refresh token as well.
+        """
+
+        if (push_token is None) != (push_token_type is None):
+            raise ValueError("push_token and push_token_type must be provided together")
+        if self.tokens is None:
+            raise AuthenticationError("Not authenticated")
+
+        for attempt in range(2):
+            current = self.tokens
+            if current is None:
+                raise AuthenticationError("Not authenticated")
+            fields: dict[str, str] = {"refresh_token": current.refresh_token}
+            if push_token is not None and push_token_type is not None:
+                fields["push_token"] = push_token
+                fields["push_token_type"] = push_token_type
+            try:
+                await self.request(
+                    "POST",
+                    "/data/auth/sign-out",
+                    fields=fields,
+                    retry_auth=False,
+                )
+            except PermissionDeniedError:
+                if attempt:
+                    raise
+                await self.refresh_access_token(stale_token=current.access_token)
+                continue
+            await self._publish_tokens(None)
+            return
+
+        raise AuthenticationError("AnyList sign-out failed")
 
     async def request(
         self,

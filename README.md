@@ -16,7 +16,7 @@ This project does not use unofficial AnyList clients as protocol authority and i
 - PEP 561 typing with schema-generated protobuf stubs.
 - Full-featured Textual example application, kept outside the installable SDK package.
 
-The default repository test suite currently passes **480/480** tests. Detailed source/live verification evidence is tracked in [`docs/conformance.md`](docs/conformance.md).
+The default repository test suite currently passes **485/485** tests. Detailed source/live verification evidence is tracked in [`docs/conformance.md`](docs/conformance.md).
 
 ## Requirements
 
@@ -84,7 +84,7 @@ Sign-in returns an `AuthTokens` object containing the user ID, access token, ref
 
 AnyList's refresh response rotates **both** the access token and refresh token, so applications that persist sessions should always save the newest `AuthTokens` value rather than assuming the original refresh token remains valid indefinitely.
 
-The SDK never needs to retain the user's password after sign-in. Token-session logout is local: the official **Web** token-client source does not expose a bearer-token revocation request, so `logout()` clears local credentials instead of inventing Web semantics from another client.
+The SDK never needs to retain the user's password after sign-in. `logout()` performs AnyList's official native token-session sign-out and then clears local credentials; `clear_session()` is available when an application deliberately wants local-only credential removal.
 
 See [`docs/architecture.md`](docs/architecture.md) for the transport, sync, operation-queue, and realtime model.
 

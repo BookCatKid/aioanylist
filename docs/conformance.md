@@ -16,7 +16,7 @@ This is the authoritative verification checklist for the SDK. **Official executa
 
 ## Current checkpoint
 
-- Default offline/local suite: **480 passing** at the latest repository gate.
+- Default offline/local suite: **485 passing** at the latest repository gate.
 - Current read-only live suite: **12/12 passing** with the corrected multipart transport, including live autocomplete/categorization against official English/German tag resources plus live sync-hook, raw-API, service-view, and transport-close coverage.
 - Guarded live mutation suite: **48 passed, 1 safely skipped without writing** in the latest complete run. In addition to the disposable shopping-list ecosystem, coverage now includes uniquely identified disposable global categories/groupings and learned categorization memory, disposable recipes/collections with exact collection-order restoration, disposable per-recipe cooking-state add/remove with byte-for-byte preservation of every pre-existing cooking-state record, disposable meal-plan events/labels/list-items, disposable templates/template events/template groups with exact root-item restoration, and recipe-linked deletion across both normal and template event stores.
 - The reusable server-side disposable list **`AnyList SDK Conformance Test`** exists and is retained for future verification. Mutation guards require both its reserved ID and exact name before any write.
@@ -31,7 +31,7 @@ This is the authoritative verification checklist for the SDK. **Official executa
 
 A current AnyList iOS 7.1 network capture was compared with the web-derived SDK during the repository quality audit. The native app still uses API version `3` and the same core token/data paths represented here: `/auth/token`, `/auth/token/refresh`, `/data/user-data/get`, `/data/account/info`, and `/data/add-user-listener`. Its production host is `production.anylist.com` rather than the web client's `www.anylist.com`, and it adds native-app request headers plus mobile-specific endpoints for push tokens, app notices, locale/version handling, and analytics.
 
-The capture also shows a native `POST /data/auth/sign-out` request carrying bearer authentication and multipart fields named `refresh_token`, `push_token`, and `push_token_type`. That is strong evidence that the native client has a token-session sign-out path distinct from the web browser's `_xsrf`-protected `/auth/logout` form. An unauthenticated probe returned HTTP `401` from the same `/data/auth/sign-out` path on both `production.anylist.com` and `www.anylist.com`, confirming that the route exists on the normal web hostname too rather than being production-host-only. It is intentionally **not** implemented as SDK logout behavior at this checkpoint: this project's behavioral authority remains the official web application source, and one captured native request plus route existence is not being promoted into web-parity semantics without corresponding source/behavioral evidence. The observation is recorded here so the distinction is explicit rather than lost.
+The capture also shows a native `POST /data/auth/sign-out` request carrying bearer authentication and multipart fields named `refresh_token`, `push_token`, and `push_token_type`. That is strong evidence that the native client has a token-session sign-out path distinct from the web browser's `_xsrf`-protected `/auth/logout` form. An unauthenticated probe returned HTTP `401` from the same `/data/auth/sign-out` path on both `production.anylist.com` and `www.anylist.com`, confirming that the route exists on the normal web hostname too rather than being production-host-only. The SDK now exposes that native sign-out path as `logout()` while keeping local-only credential removal explicit as `clear_session()`. Request construction, optional push metadata, token clearing, and stale-access refresh/retry behavior are regression-tested offline; the actual post-sign-out revocation semantics still require the separately gated live auth-mutation test below.
 
 ## Client
 
@@ -43,7 +43,8 @@ The capture also shows a native `POST /data/auth/sign-out` request carrying bear
 | `AnyListClient.load()` | ✅ LIVE VERIFIED |  |
 | `AnyListClient.refresh()` | ✅ LIVE VERIFIED | Called against the real endpoint and decoded/applied successfully. |
 | `AnyListClient.flush()` | ✅ LIVE VERIFIED | Deferred Favorite mutation remained absent from a fresh server read until `client.flush()`; explicit flush then persisted exactly one item. |
-| `AnyListClient.logout()` | ✅ LOCAL VERIFIED |  |
+| `AnyListClient.clear_session()` | ✅ LOCAL VERIFIED | Explicit regression verifies local token/state removal without a network request. |
+| `AnyListClient.logout()` | 🧪 OFFLINE VERIFIED | Uses the official native `/data/auth/sign-out` evidence through the transport and clears authenticated state after success. Live revocation semantics remain separately gated. |
 | `AnyListClient.close()` | ✅ LIVE VERIFIED |  |
 
 ## Transport
@@ -54,7 +55,8 @@ The capture also shows a native `POST /data/auth/sign-out` request carrying bear
 | `AnyListTransport.close()` | ✅ LIVE VERIFIED | Live read-only clients were closed and their owned aiohttp sessions were verified closed; a subsequent lazy session reopen/close also succeeded. |
 | `AnyListTransport.sign_in()` | ✅ LIVE VERIFIED | Succeeded repeatedly with current multipart implementation; AnyList later began returning HTTP 503 after repeated test logins. |
 | `AnyListTransport.refresh_access_token()` | ✅ LIVE VERIFIED |  |
-| `AnyListTransport.logout()` | ✅ LOCAL VERIFIED |  |
+| `AnyListTransport.clear_session()` | ✅ LOCAL VERIFIED | Explicit regression verifies token callback publication of `None` with no HTTP request. |
+| `AnyListTransport.logout()` | 🧪 OFFLINE VERIFIED | Exact native endpoint/field shape is regression-tested, including optional push metadata and refresh-token rebuilding after a 401-triggered token refresh. |
 | `AnyListTransport.request()` | ✅ LIVE VERIFIED | Current read and protobuf-write paths both succeeded live after exact multipart correction. |
 | `AnyListTransport.post_proto()` | ✅ LIVE VERIFIED | Current read and protobuf-write paths both succeeded live after exact multipart correction. |
 

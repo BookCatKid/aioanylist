@@ -117,7 +117,7 @@ async def test_concurrent_refreshes_are_serialized_and_share_rotated_token() -> 
 
 
 @pytest.mark.asyncio
-async def test_token_logout_is_local_only_because_official_token_client_has_no_logout_request(
+async def test_clear_session_is_local_only_and_publishes_none(
     monkeypatch,
 ) -> None:
     published = []
@@ -132,11 +132,105 @@ async def test_token_logout_is_local_only_because_official_token_client_has_no_l
 
     monkeypatch.setattr(transport, "request", request)
 
-    await transport.logout()
+    await transport.clear_session()
 
     assert transport.tokens is None
     assert calls == []
     assert published == [None]
+
+
+@pytest.mark.asyncio
+async def test_logout_uses_native_sign_out_endpoint_and_clears_tokens() -> None:
+    seen: dict[str, object] = {}
+
+    async def sign_out(request: web.Request) -> web.Response:
+        seen["authorization"] = request.headers.get("Authorization")
+        seen["form"] = dict(await request.post())
+        return web.Response()
+
+    app = web.Application()
+    app.router.add_post("/data/auth/sign-out", sign_out)
+    published: list[AuthTokens | None] = []
+    async with (
+        server(app) as base,
+        AnyListTransport(
+            base_url=base,
+            tokens=AuthTokens("user", "access", "refresh"),
+            token_callback=published.append,
+        ) as transport,
+    ):
+        await transport.logout()
+
+    assert seen == {
+        "authorization": "Bearer access",
+        "form": {"refresh_token": "refresh"},
+    }
+    assert transport.tokens is None
+    assert published == [None]
+
+
+@pytest.mark.asyncio
+async def test_logout_can_include_native_push_registration() -> None:
+    seen: dict[str, str] = {}
+
+    async def sign_out(request: web.Request) -> web.Response:
+        seen.update(await request.post())
+        return web.Response()
+
+    app = web.Application()
+    app.router.add_post("/data/auth/sign-out", sign_out)
+    async with (
+        server(app) as base,
+        AnyListTransport(
+            base_url=base,
+            tokens=AuthTokens("user", "access", "refresh"),
+        ) as transport,
+    ):
+        await transport.logout(push_token="abc", push_token_type="apns")
+
+    assert seen == {
+        "refresh_token": "refresh",
+        "push_token": "abc",
+        "push_token_type": "apns",
+    }
+
+
+@pytest.mark.asyncio
+async def test_logout_rebuilds_refresh_token_field_after_auth_refresh() -> None:
+    sign_out_forms: list[dict[str, str]] = []
+
+    async def sign_out(request: web.Request) -> web.Response:
+        sign_out_forms.append(dict(await request.post()))
+        if request.headers.get("Authorization") == "Bearer old":
+            return web.Response(status=401)
+        return web.Response()
+
+    async def refresh(_request: web.Request) -> web.Response:
+        return web.json_response({"access_token": "new", "refresh_token": "new-refresh"})
+
+    app = web.Application()
+    app.router.add_post("/data/auth/sign-out", sign_out)
+    app.router.add_post("/auth/token/refresh", refresh)
+    async with (
+        server(app) as base,
+        AnyListTransport(
+            base_url=base,
+            tokens=AuthTokens("user", "old", "old-refresh"),
+        ) as transport,
+    ):
+        await transport.logout()
+
+    assert sign_out_forms == [
+        {"refresh_token": "old-refresh"},
+        {"refresh_token": "new-refresh"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_logout_requires_push_token_and_type_together() -> None:
+    transport = AnyListTransport(tokens=AuthTokens("user", "access", "refresh"))
+    with pytest.raises(ValueError, match="provided together"):
+        await transport.logout(push_token="abc")
 
 
 @pytest.mark.asyncio

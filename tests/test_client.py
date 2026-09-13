@@ -142,7 +142,7 @@ async def test_logout_clears_account_state_and_authenticated_services(monkeypatc
     async def stop():
         pass
 
-    async def logout():
+    async def logout(*, push_token=None, push_token_type=None):
         client.transport.tokens = None
 
     monkeypatch.setattr(client.realtime, "stop", stop)
@@ -151,6 +151,27 @@ async def test_logout_clears_account_state_and_authenticated_services(monkeypatc
     assert client.state.user_id is None and client.state.shopping_lists == {}
     assert client.lists is None and client.recipes is None and client.account is None
     assert client.raw is not None and not client.ready.is_set()
+
+
+@pytest.mark.asyncio
+async def test_clear_session_clears_account_state_without_remote_logout(monkeypatch) -> None:
+    client = AnyListClient(tokens=tokens())
+    calls: list[str] = []
+
+    async def stop() -> None:
+        calls.append("stop")
+
+    async def clear_session() -> None:
+        calls.append("clear")
+        client.transport.tokens = None
+
+    monkeypatch.setattr(client.realtime, "stop", stop)
+    monkeypatch.setattr(client.transport, "clear_session", clear_session)
+    await client.clear_session()
+
+    assert calls == ["stop", "clear"]
+    assert client.state.user_id is None
+    assert client.lists is None
 
 
 @pytest.mark.asyncio

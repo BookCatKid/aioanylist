@@ -468,13 +468,30 @@ class AnyListClient:
         # Aggregate sync carries all invalidated domains and coalesces concurrent refresh events.
         await self.sync.refresh()
 
-    async def logout(self) -> None:
-        await self.realtime.stop()
-        await self.transport.logout()
+    def _reset_unauthenticated_state(self) -> None:
         self.ready.clear()
         self.state = AnyListState()
         self.sync = SyncCoordinator(self.transport, self.state)
         self._install_services(None)
+
+    async def clear_session(self) -> None:
+        """Forget the local AnyList session without revoking it remotely."""
+
+        await self.realtime.stop()
+        await self.transport.clear_session()
+        self._reset_unauthenticated_state()
+
+    async def logout(
+        self,
+        *,
+        push_token: str | None = None,
+        push_token_type: str | None = None,
+    ) -> None:
+        """Sign out remotely and clear all authenticated local state."""
+
+        await self.realtime.stop()
+        await self.transport.logout(push_token=push_token, push_token_type=push_token_type)
+        self._reset_unauthenticated_state()
 
     async def close(self) -> None:
         try:

@@ -50,7 +50,12 @@ def test_official_surface_counts_and_sdk_structural_coverage() -> None:
     assert len(surface["operation_handlers"]) == 185
     root = Path(__file__).parents[1] / "src" / "anylist_sdk"
     sdk_text = "\n".join(p.read_text("utf-8") for p in root.rglob("*.py"))
-    assert [x for x in surface["endpoints"] if x not in sdk_text] == []
+    # /auth/logout is the browser/XSRF form endpoint, not part of the token API. The SDK's
+    # token-session logout uses the official native /data/auth/sign-out endpoint instead.
+    browser_session_only = {"/auth/logout"}
+    assert [
+        x for x in surface["endpoints"] if x not in sdk_text and x not in browser_session_only
+    ] == []
 
     official_handlers = set(surface["operation_handlers"])
     # Do not count documentation/comments/random module strings as operation coverage.
