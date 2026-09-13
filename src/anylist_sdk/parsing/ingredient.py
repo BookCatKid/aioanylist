@@ -14,7 +14,7 @@ _NOTE_RE = re.compile(
     r"(?:seeded|cut\s+(?:into|in)\s+.+|peeled|juiced|drained|rinsed|thawed|divided|melted|"
     r"mashed|cubed|quartered|halved|sifted|cored|packed|crushed|softened|blanched)"
     r"(?:\s+(?:and|&)\s+.+)?|to taste|room temperature|optional|as needed)$",
-    re.I,
+    re.IGNORECASE,
 )
 
 _PACKAGE_OR_UNIT = re.compile(
@@ -35,10 +35,10 @@ _PACKAGE_OR_UNIT = re.compile(
     r"bund|bünde|bd\.?|bn\.?|blatt|blätter|bl\.?|spritzer|spr?\.?|tropf(?:en)?|tr\.?|"
     r"prisen?|prise\(n\)|pr\.?|stücke?|stk\.?|st\.?|stck\.?|stiele?|stangen?|stg\.?|"
     r"würfel|wf\.?|etwas|nach belieben|n\.\s*b\.|viel)(?=$|\s|,)",
-    re.I,
+    re.IGNORECASE,
 )
-_TRAILING_SIZE_ADJECTIVE = re.compile(r"(?:(?:small|medium|large)\s*)+$", re.I)
-_NUMBERED_STEP = re.compile(r"^\d+[.]?\s*", re.I)
+_TRAILING_SIZE_ADJECTIVE = re.compile(r"(?:(?:small|medium|large)\s*)+$", re.IGNORECASE)
+_NUMBERED_STEP = re.compile(r"^\d+[.]?\s*", re.IGNORECASE)
 _STEP_TRIM = re.compile(r"^[\s,\-•–—]+|[\s,\-•–—]+$")
 
 

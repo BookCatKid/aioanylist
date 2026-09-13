@@ -23,6 +23,7 @@ test = [
   "pytest>=8.2",
   "pytest-asyncio>=0.23",
   "mypy>=1.11",
+  "ruff>=0.16",
   "types-protobuf>=5.27",
 ]
 

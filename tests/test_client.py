@@ -36,6 +36,16 @@ def test_authenticated_constructor_installs_complete_service_surface() -> None:
         assert getattr(client, name) is not None
 
 
+def test_constructor_exposes_token_callback_without_transport_reachthrough() -> None:
+    seen = []
+
+    def callback(value: AuthTokens | None) -> None:
+        seen.append(value)
+
+    client = AnyListClient(tokens=tokens(), token_callback=callback)
+    assert client.transport.token_callback is callback
+
+
 @pytest.mark.asyncio
 async def test_sign_in_to_different_account_replaces_all_state(monkeypatch) -> None:
     client = AnyListClient(tokens=tokens("old"))

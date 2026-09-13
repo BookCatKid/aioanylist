@@ -5,7 +5,10 @@ This tool intentionally knows nothing about third-party AnyList clients.
 """
 
 from __future__ import annotations
-import argparse, json, re
+
+import argparse
+import json
+import re
 from pathlib import Path
 
 
@@ -37,9 +40,9 @@ def extract(text: str) -> dict:
         "update",
     )
     verb_pattern = "(?:" + "|".join(action_verbs) + ")"
-    handlers = set(
+    handlers = {
         m.group(2) for m in re.finditer(rf'(["\'])({verb_pattern}[a-z0-9]*(?:-[a-z0-9]+)+)\1', text)
-    )
+    }
     return {"endpoints": endpoints, "operation_handlers": sorted(handlers)}
 
 

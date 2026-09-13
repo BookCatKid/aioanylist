@@ -6,8 +6,8 @@ from typing import TypeVar
 from google.protobuf.message import Message
 
 from .normalization import localized_sort_key, normalized_for_search
-from .proto import PB
 from .parsing.quantity import amount_as_float, decimal_to_friendly_fraction
+from .proto import PB
 
 # Bit mask values used by AnyList Web's ListItem.isEqualToItemExcludingFields and
 # applyPropertiesFromListItem. Keeping the native values makes it possible to port call
@@ -235,11 +235,9 @@ def items_equal(a: Message, b: Message, excluding_fields: int = 0) -> bool:
         a.ingredients, b.ingredients
     ):
         return False
-    if not (excluding_fields & EXCLUDE_PRODUCT_UPC) and not _localized_equal(
+    return bool(excluding_fields & EXCLUDE_PRODUCT_UPC) or _localized_equal(
         a.productUpc or "", b.productUpc or ""
-    ):
-        return False
-    return True
+    )
 
 
 def _copy_optional_message(target: Message, source: Message, field: str) -> None:
@@ -335,8 +333,8 @@ def quantity_to_deprecated_string(quantity: Message) -> str:
     unit = quantity.unit or ""
     if not unit:
         return number
-    if re.search(r"pounds|lbs?\.?", unit, re.I):
+    if re.search(r"pounds|lbs?\.?", unit, re.IGNORECASE):
         return f"{number} lb"
-    if re.search(r"kilograms|kgs?\.?", unit, re.I):
+    if re.search(r"kilograms|kgs?\.?", unit, re.IGNORECASE):
         return f"{number} kg"
     return ""

@@ -9,10 +9,10 @@ from google.protobuf.message import Message
 from ..identifiers import uuid4_hex, uuid5_hex
 from ..item_semantics import (
     items_equal,
-    package_size_equal,
     package_size_empty,
-    quantity_equal,
+    package_size_equal,
     quantity_empty,
+    quantity_equal,
     quantity_to_deprecated_string,
 )
 from ..normalization import localized_sort_key

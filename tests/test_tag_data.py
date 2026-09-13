@@ -6,11 +6,11 @@ import time
 
 import pytest
 from aiohttp import web
+from test_transport import server
 
 from anylist_sdk.exceptions import TagDataError
 from anylist_sdk.tag_data import TagData, TagDataManager
 from anylist_sdk.transport import AnyListTransport
-from test_transport import server
 
 
 def payload(tag: str = "milk") -> dict:
@@ -63,9 +63,8 @@ async def test_active_and_english_loads_german_plus_english() -> None:
     app = web.Application()
     app.router.add_get("/static/webapp/data/tag_data.json", handler)
     app.router.add_get("/static/webapp/data/tag_data_de.json", handler)
-    async with server(app) as base:
-        async with AnyListTransport(base_url=base) as transport:
-            active, english = await TagDataManager(transport, locale="de-DE").active_and_english()
+    async with server(app) as base, AnyListTransport(base_url=base) as transport:
+        active, english = await TagDataManager(transport, locale="de-DE").active_and_english()
     assert active.language == "de" and english.language == "en"
     assert paths == ["/static/webapp/data/tag_data_de.json", "/static/webapp/data/tag_data.json"]
 
@@ -99,9 +98,8 @@ async def test_stale_cache_falls_back_when_official_resource_fails(tmp_path) -> 
 
     app = web.Application()
     app.router.add_get("/static/webapp/data/tag_data.json", handler)
-    async with server(app) as base:
-        async with AnyListTransport(base_url=base) as transport:
-            value = await TagDataManager(
-                transport, cache_dir=tmp_path, cache_ttl=0.01, allow_stale=True
-            ).get("en")
+    async with server(app) as base, AnyListTransport(base_url=base) as transport:
+        value = await TagDataManager(
+            transport, cache_dir=tmp_path, cache_ttl=0.01, allow_stale=True
+        ).get("en")
     assert "milk" in value.tags

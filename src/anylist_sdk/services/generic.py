@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 from ..operations import OperationJournal, QueueSpec
 from ..state import AnyListState
 from ..transport import AnyListTransport

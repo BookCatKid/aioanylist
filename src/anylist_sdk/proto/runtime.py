@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from functools import lru_cache
+from functools import cache, lru_cache
 from importlib.resources import files
 from types import SimpleNamespace
 from typing import Any, cast
@@ -166,13 +166,13 @@ def descriptor_pool_for_official_schema() -> descriptor_pool.DescriptorPool:
     return pool
 
 
-@lru_cache(maxsize=None)
+@cache
 def message_class(name: str) -> type[Message]:
     desc = descriptor_pool_for_official_schema().FindMessageTypeByName(f"{PACKAGE}.{name}")
     return message_factory.GetMessageClass(desc)
 
 
-@lru_cache(maxsize=None)
+@cache
 def enum_type(name: str) -> EnumTypeWrapper:
     desc = descriptor_pool_for_official_schema().FindEnumTypeByName(f"{PACKAGE}.{name}")
     return EnumTypeWrapper(desc)

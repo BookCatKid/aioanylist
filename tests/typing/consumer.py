@@ -4,6 +4,7 @@ from typing import assert_type
 
 from anylist_sdk import AnyListClient
 from anylist_sdk.proto import (
+    PB,
     ListItem,
     PBCalendarEvent,
     PBIngredient,
@@ -12,7 +13,6 @@ from anylist_sdk.proto import (
     PBRecipeCollection,
     PBUserCategory,
     ShoppingList,
-    PB,
 )
 
 

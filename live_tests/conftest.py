@@ -53,7 +53,7 @@ def live_auth_session(live_credentials: tuple[str, str, str]) -> LiveAuthSession
 
     try:
         tokens = asyncio.run(authenticate())
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - hide credential-bearing traceback
         # Suppress the normal traceback here: sign_in's Python frame contains the credential
         # arguments, and live-test failures must never echo those values to test output.
         pytest.fail(
@@ -77,8 +77,9 @@ async def live_client(live_auth_session: LiveAuthSession) -> AsyncIterator[AnyLi
         base_url=session.base_url, tokens=session.tokens, user_email=session.email
     )
 
-    def remember_rotated_tokens(tokens: AuthTokens) -> None:
-        session.tokens = tokens
+    def remember_rotated_tokens(tokens: AuthTokens | None) -> None:
+        if tokens is not None:
+            session.tokens = tokens
 
     client.transport.token_callback = remember_rotated_tokens
     try:

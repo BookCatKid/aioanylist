@@ -92,8 +92,7 @@ def english_stem(raw: str) -> str:
     if word in _EXCEPTION1:
         return _EXCEPTION1[word]
 
-    if word.startswith("'"):
-        word = word[1:]
+    word = word.removeprefix("'")
     word = _mark_ys(word)
     r1, r2 = _regions(word)
 

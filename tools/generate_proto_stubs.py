@@ -5,7 +5,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = ROOT / "src" / "anylist_sdk" / "proto" / "schema.json"
 OUTPUT = ROOT / "src" / "anylist_sdk" / "proto" / "__init__.pyi"

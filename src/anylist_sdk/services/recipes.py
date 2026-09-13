@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Sequence
 import time
+from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
 from google.protobuf.message import Message
 
-from ..identifiers import uuid4_hex
 from ..derived import not_in_collection_smart_collection, sort_recipes, source_smart_collections
+from ..identifiers import uuid4_hex
 from ..operations import OperationJournal, QueueSpec
 from ..proto import (
     PB,

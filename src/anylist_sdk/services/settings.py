@@ -6,8 +6,8 @@ from uuid import UUID
 
 from google.protobuf.message import Message
 
-from ..operations import OperationJournal, QueueSpec
 from ..identifiers import uuid5_hex
+from ..operations import OperationJournal, QueueSpec
 from ..proto import (
     PB,
     PBListSettings,
@@ -18,7 +18,6 @@ from ..proto import (
 from ..state import AnyListState
 from ..transport import AnyListTransport
 from .base import OperationService, clone_message
-
 
 _CUSTOM_THEME_NAMESPACE = UUID(hex="471ba5c9888f4f30a159308708ba7949")
 _DEFAULT_COLOR_THEME_IDS = {

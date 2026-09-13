@@ -139,7 +139,7 @@ class RealtimeClient:
                 await awaitable
             except asyncio.CancelledError:
                 raise
-            except Exception:
+            except Exception:  # noqa: BLE001 - callback failures must not kill the socket
                 # Listener/catch-up failures are outside the WebSocket transport state machine.
                 # The web client launches the corresponding AJAX refreshes without awaiting
                 # them, so a failed refresh cannot tear down a healthy socket.
@@ -155,7 +155,7 @@ class RealtimeClient:
         for callback in tuple(self._callbacks):
             try:
                 result = callback(event)
-            except Exception:
+            except Exception:  # noqa: BLE001,S112 - isolate listener failures
                 continue
             if inspect.isawaitable(result):
                 self._track_callback(result)
@@ -177,7 +177,7 @@ class RealtimeClient:
                     for callback in tuple(self._reconnect_callbacks):
                         try:
                             result = callback()
-                        except Exception:
+                        except Exception:  # noqa: BLE001,S112 - isolate reconnect callback failures
                             continue
                         if inspect.isawaitable(result):
                             self._track_callback(result)
@@ -188,7 +188,7 @@ class RealtimeClient:
                         timeout = max(0.0, next_heartbeat - loop.time())
                         try:
                             msg = await asyncio.wait_for(ws.receive(), timeout=timeout)
-                        except asyncio.TimeoutError:
+                        except TimeoutError:
                             missed += 1
                             if missed >= MAX_MISSED_HEARTBEATS:
                                 await ws.close()
@@ -243,7 +243,7 @@ class RealtimeClient:
                     await self.transport.refresh_access_token(force=True)
                     # Official app reconnects immediately after successful 4010 refresh.
                     continue
-                except Exception:
+                except Exception:  # noqa: BLE001,S110 - failed refresh resumes normal backoff
                     pass
             await asyncio.sleep(self._retry_delay)
             self._retry_delay = min(self._retry_delay * 2.0, MAX_RETRY_DELAY)

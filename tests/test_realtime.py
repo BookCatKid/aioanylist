@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pytest
 
@@ -13,7 +13,9 @@ from anylist_sdk.types import AuthTokens, Domain
 class DummyTransport:
     base_url: str = "https://www.anylist.com"
     client_id: str = "client"
-    tokens: AuthTokens = AuthTokens("user", "access token", "refresh")
+    tokens: AuthTokens = field(
+        default_factory=lambda: AuthTokens("user", "access token", "refresh")
+    )
 
 
 def test_realtime_url_uses_official_endpoint_and_escaping() -> None:

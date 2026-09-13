@@ -281,7 +281,6 @@ async def test_category_memory_migration_uses_exact_partial_payload_and_21_op_fl
     async def fake_flush():
         flush_sizes.append(len(service.queue._pending))
         service.queue._pending.clear()
-        return None
 
     service.queue.flush = fake_flush
 

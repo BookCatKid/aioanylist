@@ -4,10 +4,9 @@ import ast
 import re
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "src" / "anylist_sdk"
-MATRIX = ROOT / "CONFORMANCE_MATRIX.md"
+MATRIX = ROOT / "docs" / "conformance.md"
 
 
 def _public_callables() -> list[tuple[str, bool]]:
@@ -28,9 +27,10 @@ def _public_callables() -> list[tuple[str, bool]]:
                         if child.name.startswith("_"):
                             continue
                         result.append((f"{node.name}.{child.name}()", True))
-            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                if not node.name.startswith("_"):
-                    result.append((f"{node.name}()", False))
+            elif isinstance(
+                node, (ast.FunctionDef, ast.AsyncFunctionDef)
+            ) and not node.name.startswith("_"):
+                result.append((f"{node.name}()", False))
     return result
 
 
@@ -48,4 +48,4 @@ def test_conformance_matrix_accounts_for_every_public_callable() -> None:
         if not present:
             missing.append(token)
 
-    assert missing == [], "CONFORMANCE_MATRIX.md is missing public callables: " + ", ".join(missing)
+    assert missing == [], "docs/conformance.md is missing public callables: " + ", ".join(missing)

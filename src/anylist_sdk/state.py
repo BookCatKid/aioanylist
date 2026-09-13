@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Iterable, TypeVar
+from typing import TypeVar
 
 from google.protobuf.message import Message
 
 from .proto import (
     PB,
     ListItem,
+    PBAccountInfoResponse,
     PBCalendarEvent,
     PBCalendarLabel,
+    PBCalendarResponse,
     PBCategorizedItemsList,
     PBCategoryGrouping,
     PBEmailUserIDPair,
@@ -18,8 +21,8 @@ from .proto import (
     PBListCategory,
     PBListCategoryGroup,
     PBListFolder,
-    PBListFolderTimestamps,
     PBListFoldersResponse,
+    PBListFolderTimestamps,
     PBListResponse,
     PBListSettings,
     PBListSettingsList,
@@ -40,15 +43,12 @@ from .proto import (
     PBUserDataClientInfo,
     PBUserDataClientTimestamps,
     PBUserDataResponse,
-    PBAccountInfoResponse,
-    PBCalendarResponse,
     ShoppingList,
     ShoppingListsResponse,
     StarterList,
     StarterListBatchResponse,
     StarterListsResponseV2,
 )
-
 
 _MessageT = TypeVar("_MessageT", bound=Message)
 

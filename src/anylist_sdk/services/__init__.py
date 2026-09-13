@@ -1,19 +1,19 @@
-from .shopping import ShoppingListsService, category_rule_identifier
-from .recipes import RecipesService
+from .categories import CategorizedItemsService, UserCategoriesService
 from .folders import FoldersService
-from .categories import UserCategoriesService, CategorizedItemsService
-from .settings import ListSettingsService, MobileSettingsService
-from .starter import StarterListsService, recent_list_id
-from .meal_plan import MealPlanService
+from .generic import GenericDomainService
 from .http_api import (
     AccountService,
-    PhotosService,
-    SharingService,
     AlexaService,
-    WebStateService,
+    PhotosService,
     RawAPI,
+    SharingService,
+    WebStateService,
 )
-from .generic import GenericDomainService
+from .meal_plan import MealPlanService
+from .recipes import RecipesService
+from .settings import ListSettingsService, MobileSettingsService
+from .shopping import ShoppingListsService, category_rule_identifier
+from .starter import StarterListsService, recent_list_id
 
 __all__ = [
     "AccountService",

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
 import hashlib
+from collections.abc import Sequence
+
 from google.protobuf.message import Message
 
 from ..identifiers import uuid4_hex
@@ -18,7 +19,6 @@ from ..proto import (
 from ..state import AnyListState, clone
 from ..transport import AnyListTransport
 from .base import OperationService, clone_message
-
 
 # Exact return value of the official user-category manager's MA() helper.  Note that the
 # legacy "deli" system category exists in other built-in mappings but is intentionally not

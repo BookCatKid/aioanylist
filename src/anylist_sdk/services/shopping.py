@@ -8,16 +8,15 @@ from uuid import UUID
 import aiohttp
 from google.protobuf.message import Message
 
-from ..identifiers import uuid4_hex, uuid5_hex
-from ..operations import OperationJournal, QueueSpec
 from ..derived import (
     add_item_ingredient,
     event_list_item_to_item_ingredient,
     ingredient_to_item_ingredient,
     normalized_raw_package_size,
-    remove_item_ingredient,
     recipe_list_item_identifier,
+    remove_item_ingredient,
 )
+from ..identifiers import uuid4_hex, uuid5_hex
 from ..item_semantics import (
     EXCLUDE_DETAILS,
     EXCLUDE_ITEM_QUANTITY,
@@ -30,9 +29,8 @@ from ..item_semantics import (
     quantity_to_deprecated_string,
 )
 from ..normalization import canonical_category_match_id
+from ..operations import OperationJournal, QueueSpec
 from ..parsing.quantity import normalize_unit
-from ..stemming import stem_words
-from .starter import favorite_list_id, recent_list_id
 from ..proto import (
     PB,
     ListItem,
@@ -53,9 +51,11 @@ from ..proto import (
     ShoppingListsResponse,
 )
 from ..state import AnyListState, clone
+from ..stemming import stem_words
 from ..transport import AnyListTransport
 from ..types import OperationAck
 from .base import OperationService, clone_message
+from .starter import favorite_list_id, recent_list_id
 
 # Official web client namespace used by list categorization-rule IDs.
 _CATEGORY_RULE_NAMESPACE = UUID(hex="f4338133428d4f0b94027c9b23243f14")
@@ -231,7 +231,7 @@ class ShoppingListsService(OperationService):
                     raise ValueError(f"HTTP {response.status}")
                 payload = json.loads(await response.text())
             if not isinstance(payload, dict):
-                raise ValueError("translation payload is not an object")
+                raise TypeError("translation payload is not an object")
         except (aiohttp.ClientError, ValueError, TypeError, AttributeError):
             payload = {}
         self._localized_strings = payload
@@ -500,9 +500,12 @@ class ShoppingListsService(OperationService):
             sort_order = int(lst.listItemSortOrder)
         else:
             settings = self.state.list_settings.get(list_id)
-            if settings is not None and settings.HasField("listItemSortOrder"):
-                if settings.listItemSortOrder == "ALListItemSortOrderAlphabetical":
-                    sort_order = PB.ShoppingList.ListItemSortOrder.Alphabetical
+            if (
+                settings is not None
+                and settings.HasField("listItemSortOrder")
+                and settings.listItemSortOrder == "ALListItemSortOrderAlphabetical"
+            ):
+                sort_order = PB.ShoppingList.ListItemSortOrder.Alphabetical
         if sort_order != PB.ShoppingList.ListItemSortOrder.Manual:
             return False
         position = (

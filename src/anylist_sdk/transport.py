@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import replace
-from typing import Any, Awaitable, Callable, Mapping
+from typing import Any, Self
 
 import aiohttp
 from google.protobuf.message import Message
 
-from .identifiers import uuid4_hex
 from .exceptions import (
     AuthenticationError,
     NotModifiedError,
@@ -16,6 +16,7 @@ from .exceptions import (
     ProtocolError,
     TransportError,
 )
+from .identifiers import uuid4_hex
 from .proto import decode, encode
 from .types import AuthTokens
 
@@ -24,7 +25,7 @@ PHOTOS_BASE_URL = "https://photos.anylist.com/"
 API_VERSION = "3"
 MULTIPART_BOUNDARY = "Boundary+0xAbCdEfGbOuNdArY"
 
-TokenCallback = Callable[[AuthTokens], Awaitable[None] | None]
+TokenCallback = Callable[[AuthTokens | None], Awaitable[None] | None]
 
 
 class AnyListTransport:
@@ -61,7 +62,7 @@ class AnyListTransport:
             await self._session.close()
         self._session = None
 
-    async def __aenter__(self) -> "AnyListTransport":
+    async def __aenter__(self) -> Self:
         _ = self.session
         return self
 
@@ -91,7 +92,7 @@ class AnyListTransport:
         boundary = MULTIPART_BOUNDARY.encode("ascii")
         for index, (name, value) in enumerate(fields.items()):
             chunks.append((b"--" if index == 0 else b"\r\n--") + boundary + b"\r\n")
-            chunks.append(f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode("utf-8"))
+            chunks.append(f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode())
             if isinstance(value, (bytes, bytearray, memoryview)):
                 chunks.append(bytes(value))
             else:
@@ -99,7 +100,7 @@ class AnyListTransport:
         chunks.append(b"\r\n--" + boundary + b"--\r\n")
         return b"".join(chunks), f"multipart/form-data; boundary={MULTIPART_BOUNDARY}"
 
-    async def _publish_tokens(self, tokens: AuthTokens) -> None:
+    async def _publish_tokens(self, tokens: AuthTokens | None) -> None:
         self.tokens = tokens
         if self.token_callback is not None:
             result = self.token_callback(tokens)
@@ -186,7 +187,7 @@ class AnyListTransport:
         # browser-session HTML form carrying _xsrf + next. An SDK token session therefore has
         # no source-backed remote logout operation to reproduce; discard the local credentials
         # without inventing a request that the official token flow does not make.
-        self.tokens = None
+        await self._publish_tokens(None)
 
     async def request(
         self,

@@ -10,7 +10,7 @@ from .types import MatchRange
 _APOSTROPHES = re.compile(r"['‘’‚‛]")
 _QUOTES = re.compile(r'["“”„‟〝〞]')
 _DASHES = re.compile(r"[\-֊־᐀᠆‐‑‒–—―⸗⸚⸺⸻〜〰゠︱︲﹘﹣－]")
-_WHITESPACE_RUN = re.compile(r"[\t \u00a0\u1680\u2000-\u200b\u202f\u205f\u3000]{2,}", re.I)
+_WHITESPACE_RUN = re.compile(r"[\t \u00a0\u1680\u2000-\u200b\u202f\u205f\u3000]{2,}", re.IGNORECASE)
 _BOUNDARY = re.compile(r"[\W_]", re.UNICODE)
 
 # Characters for which NFKD does not provide the same useful ASCII-like folding as AnyList's
@@ -78,7 +78,7 @@ def split_into_words(text: str) -> list[str]:
 
 def trim_whitespace_and_punctuation(text: str) -> str:
     chars = r"\s,\-•–—֊־᐀᠆‐‑‒–—―⸗⸚⸺⸻〜〰゠︱︲﹘﹣－"
-    return re.sub(rf"^[{chars}]+|[{chars}]+$", "", text, flags=re.I)
+    return re.sub(rf"^[{chars}]+|[{chars}]+$", "", text, flags=re.IGNORECASE)
 
 
 def _boundary(text: str, index: int, *, before: bool) -> bool:
@@ -210,8 +210,7 @@ def recipe_source_domain(source_url: str) -> str:
         host = (urlparse(source_url).hostname or "").lower()
     except ValueError:
         return ""
-    if host.startswith("www."):
-        host = host[4:]
+    host = host.removeprefix("www.")
     return host
 
 

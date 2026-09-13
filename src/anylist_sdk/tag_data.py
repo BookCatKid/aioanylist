@@ -30,7 +30,7 @@ class TagData:
     autocomplete_keywords: dict[str, Any]
 
     @classmethod
-    def from_json(cls, language: str, value: dict[str, Any]) -> "TagData":
+    def from_json(cls, language: str, value: dict[str, Any]) -> TagData:
         missing = _REQUIRED_KEYS.difference(value)
         # AnyList's localized tag-data files may omit tagKeywordsIndex. app.js only uses
         # that index for the English stemming/classification path; non-English classification
@@ -99,7 +99,7 @@ class TagDataManager:
             stat = await asyncio.to_thread(path.stat)
             raw = await asyncio.to_thread(path.read_text, "utf-8")
             return TagData.from_json(language, json.loads(raw)), stat.st_mtime
-        except Exception:
+        except (OSError, ValueError, TypeError, KeyError, TagDataError):
             return None, 0.0
 
     async def _save_cache(self, language: str, raw: str) -> None:

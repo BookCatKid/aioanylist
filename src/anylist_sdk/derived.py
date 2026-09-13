@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import datetime
 from functools import cmp_to_key, lru_cache
 from pathlib import Path
 from typing import cast
@@ -21,11 +21,11 @@ from .parsing.quantity import (
     decimal_to_friendly_fraction,
     normalize_unit,
     normalize_units_in_text,
+    parse_quantity_and_package_size,
     pluralize_unit,
+    scale_quantity_text,
     singularize_unit,
     singularize_units_in_text,
-    parse_quantity_and_package_size,
-    scale_quantity_text,
 )
 from .proto import (
     PB,
@@ -70,7 +70,7 @@ def source_domain(recipe: PBRecipe) -> str | None:
         return None
     if not host:
         return None
-    return host[4:] if host.startswith("www.") else host
+    return host.removeprefix("www.")
 
 
 def source_display_name(recipe: PBRecipe) -> str | None:
@@ -249,7 +249,7 @@ def sort_recipes(
     if order == int(enum.ManualSortOrder):
         return values
 
-    today_value = today or date.today().isoformat()
+    today_value = today or datetime.now().astimezone().date().isoformat()
     history_cache: dict[str, tuple[str, int]] = {}
 
     def history(recipe: PBRecipe) -> tuple[str, int]:

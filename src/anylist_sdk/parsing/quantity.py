@@ -461,9 +461,9 @@ def _numeric_atom_pattern() -> str:
 _NUM = _numeric_atom_pattern()
 _RANGE = re.compile(
     rf"^(?P<a>{_NUM})(?P<sep>(?:\s+(?:to|or)\s+)|(?:\s*[{_DASH_CLASS}]\s*))(?P<b>{_NUM})(?=$|\s|[A-Za-z(])",
-    re.I,
+    re.IGNORECASE,
 )
-_SINGLE = re.compile(rf"^(?P<a>{_NUM})(?=$|\s|[A-Za-z(\-])", re.I)
+_SINGLE = re.compile(rf"^(?P<a>{_NUM})(?=$|\s|[A-Za-z(\-])", re.IGNORECASE)
 
 
 def parse_leading_amount(
@@ -522,7 +522,7 @@ def _replace_unit_aliases(text: str, groups: dict[str, tuple[str, ...]]) -> str:
         # The web tables are applied sequentially with case-insensitive word-boundary regexes.
         for alias in aliases:
             pattern = re.escape(alias).replace(r"\ ", r"\s+")
-            value = re.sub(rf"(?<!\w){pattern}\.?(?!\w)", canonical, value, flags=re.I)
+            value = re.sub(rf"(?<!\w){pattern}\.?(?!\w)", canonical, value, flags=re.IGNORECASE)
     return value
 
 
@@ -556,7 +556,7 @@ def singularize_units_in_text(text: str) -> str:
     for plural, singular in sorted(
         _PLURAL_SINGULAR.items(), key=lambda pair: len(pair[0]), reverse=True
     ):
-        value = re.sub(rf"(?<!\w){re.escape(plural)}(?!\w)", singular, value, flags=re.I)
+        value = re.sub(rf"(?<!\w){re.escape(plural)}(?!\w)", singular, value, flags=re.IGNORECASE)
     return value
 
 
@@ -579,7 +579,7 @@ def _match_unit_or_package(rest: str) -> tuple[str, str]:
         candidates.extend(aliases)
     candidates.extend(_PACKAGE_WORDS)
     for candidate in sorted(set(candidates), key=len, reverse=True):
-        pattern = re.compile(rf"^{re.escape(candidate)}\.?\b", re.I)
+        pattern = re.compile(rf"^{re.escape(candidate)}\.?\b", re.IGNORECASE)
         m = pattern.match(value)
         if m:
             return value[: m.end()].strip(), value[m.end() :]

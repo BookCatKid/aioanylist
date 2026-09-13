@@ -85,6 +85,29 @@ async def test_delete_folder_item_updates_parent_and_folder_index(fake_transport
     assert [x.identifier for x in operation.folderItems] == ["child"]
 
 
+@pytest.mark.asyncio
+async def test_delete_list_routes_local_cleanup_then_folder_operation(fake_transport) -> None:
+    state = AnyListState(user_id="user", list_data_id="data")
+    parent = PB.PBListFolder(identifier="parent")
+    parent.items.add(identifier="list", itemType=0)
+    state.list_folders["parent"] = parent
+    service = FoldersService(fake_transport, state, user_id="user")
+    removed: list[tuple[str, bool]] = []
+
+    async def on_list_removed(list_id: str, flush: bool) -> None:
+        removed.append((list_id, flush))
+
+    service.on_list_removed = on_list_removed
+    await service.delete_list("list", "parent")
+
+    assert removed == [("list", False)]
+    assert list(state.list_folders["parent"].items) == []
+    operation = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert operation.metadata.handlerId == "delete-folder-items"
+    assert operation.originalParentFolderId == "parent"
+    assert [(item.identifier, item.itemType) for item in operation.folderItems] == [("list", 0)]
+
+
 def test_full_folder_response_clears_stale_entries() -> None:
     state = AnyListState(user_id="user")
     state.list_folders["stale"] = PB.PBListFolder(identifier="stale")

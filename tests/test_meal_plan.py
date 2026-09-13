@@ -231,6 +231,7 @@ async def test_event_label_change_clears_normal_event_label_sort_and_recomputes_
 @pytest.mark.asyncio
 async def test_root_template_group_uses_official_deterministic_identifier(fake_transport) -> None:
     from uuid import UUID
+
     from anylist_sdk.identifiers import uuid5_hex
 
     state = AnyListState(user_id="user", meal_plan_calendar_id="cal")

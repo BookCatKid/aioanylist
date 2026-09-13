@@ -44,9 +44,8 @@ async def test_sign_in_uses_official_form_and_parses_auth_payload() -> None:
 
     app = web.Application()
     app.router.add_post("/auth/token", token)
-    async with server(app) as base:
-        async with AnyListTransport(base_url=base) as transport:
-            tokens = await transport.sign_in("a@example.com", "secret")
+    async with server(app) as base, AnyListTransport(base_url=base) as transport:
+        tokens = await transport.sign_in("a@example.com", "secret")
     assert seen == {"email": "a@example.com", "password": "secret"}
     assert tokens == AuthTokens("user", "access", "refresh", True, "de-DE")
 
@@ -69,14 +68,16 @@ async def test_authenticated_request_refreshes_once_and_retries_with_new_token()
     app = web.Application()
     app.router.add_post("/auth/token/refresh", refresh)
     app.router.add_post("/protected", protected)
-    async with server(app) as base:
-        async with AnyListTransport(
+    async with (
+        server(app) as base,
+        AnyListTransport(
             base_url=base,
             client_id="0123456789abcdef0123456789abcdef",
             tokens=AuthTokens("user", "old", "refresh"),
-        ) as transport:
-            raw = await transport.request("POST", "/protected", fields={"x": "y"})
-            assert transport.tokens.access_token == "new"
+        ) as transport,
+    ):
+        raw = await transport.request("POST", "/protected", fields={"x": "y"})
+        assert transport.tokens.access_token == "new"
     assert raw == b"ok"
     assert refresh_forms == [{"refresh_token": "refresh"}]
     assert len(protected_calls) == 2
@@ -98,17 +99,19 @@ async def test_concurrent_refreshes_are_serialized_and_share_rotated_token() -> 
 
     app = web.Application()
     app.router.add_post("/auth/token/refresh", refresh)
-    async with server(app) as base:
-        async with AnyListTransport(
+    async with (
+        server(app) as base,
+        AnyListTransport(
             base_url=base,
             tokens=AuthTokens("user", "old", "refresh"),
-        ) as transport:
-            import asyncio
+        ) as transport,
+    ):
+        import asyncio
 
-            a, b = await asyncio.gather(
-                transport.refresh_access_token(stale_token="old"),
-                transport.refresh_access_token(stale_token="old"),
-            )
+        a, b = await asyncio.gather(
+            transport.refresh_access_token(stale_token="old"),
+            transport.refresh_access_token(stale_token="old"),
+        )
     assert calls == 1
     assert a.access_token == b.access_token == "new"
 
@@ -117,7 +120,10 @@ async def test_concurrent_refreshes_are_serialized_and_share_rotated_token() -> 
 async def test_token_logout_is_local_only_because_official_token_client_has_no_logout_request(
     monkeypatch,
 ) -> None:
-    transport = AnyListTransport(tokens=AuthTokens("user", "access", "refresh"))
+    published = []
+    transport = AnyListTransport(
+        tokens=AuthTokens("user", "access", "refresh"), token_callback=published.append
+    )
     calls = []
 
     async def request(*args, **kwargs):
@@ -130,6 +136,7 @@ async def test_token_logout_is_local_only_because_official_token_client_has_no_l
 
     assert transport.tokens is None
     assert calls == []
+    assert published == [None]
 
 
 @pytest.mark.asyncio
@@ -143,14 +150,14 @@ async def test_multipart_numeric_scalar_is_sent_as_normal_text_field() -> None:
 
     app = web.Application()
     app.router.add_post("/numeric", endpoint)
-    async with server(app) as base:
-        async with AnyListTransport(
+    async with (
+        server(app) as base,
+        AnyListTransport(
             base_url=base,
             tokens=AuthTokens("user", "access", "refresh"),
-        ) as transport:
-            result = await transport.request(
-                "POST", "/numeric", fields={"event_type": 1, "scale": 1.5}
-            )
+        ) as transport,
+    ):
+        result = await transport.request("POST", "/numeric", fields={"event_type": 1, "scale": 1.5})
 
     assert result == b"ok"
     assert seen == {"event_type": "1", "scale": "1.5"}
@@ -174,13 +181,15 @@ async def test_protobuf_multipart_fields_are_not_file_uploads() -> None:
 
     app = web.Application()
     app.router.add_post("/operations", endpoint)
-    async with server(app) as base:
-        async with AnyListTransport(
+    async with (
+        server(app) as base,
+        AnyListTransport(
             base_url=base, tokens=AuthTokens("user", "access", "refresh")
-        ) as transport:
-            result = await transport.request(
-                "POST", "/operations", fields={"operations": b"\x00\x01proto"}
-            )
+        ) as transport,
+    ):
+        result = await transport.request(
+            "POST", "/operations", fields={"operations": b"\x00\x01proto"}
+        )
 
     assert result == b"ok"
     assert seen["content_type"] == ("multipart/form-data; boundary=Boundary+0xAbCdEfGbOuNdArY")
@@ -197,17 +206,19 @@ async def test_timestamped_proto_read_treats_http_304_as_official_noop() -> None
 
     app = web.Application()
     app.router.add_post("/unchanged", unchanged)
-    async with server(app) as base:
-        async with AnyListTransport(
+    async with (
+        server(app) as base,
+        AnyListTransport(
             base_url=base,
             tokens=AuthTokens("user", "access", "refresh"),
-        ) as transport:
-            with pytest.raises(NotModifiedError):
-                await transport.request("POST", "/unchanged", fields={})
-            response = await transport.post_proto(
-                "/unchanged",
-                fields={"timestamp": PB.PBTimestamp(timestamp=1)},
-                response_type="PBIdentifierList",
-            )
+        ) as transport,
+    ):
+        with pytest.raises(NotModifiedError):
+            await transport.request("POST", "/unchanged", fields={})
+        response = await transport.post_proto(
+            "/unchanged",
+            fields={"timestamp": PB.PBTimestamp(timestamp=1)},
+            response_type="PBIdentifierList",
+        )
 
     assert response is None

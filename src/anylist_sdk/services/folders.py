@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
+
 from google.protobuf.message import Message
 
 from ..identifiers import uuid4_hex
@@ -239,6 +240,15 @@ class FoldersService(OperationService):
             flush=flush,
         )
 
+    async def delete_list(self, list_id: str, parent_id: str, *, flush: bool = True) -> None:
+        """Delete one shopping list through AnyList Web's folder-owned removal path."""
+
+        self._require(parent_id)
+        if self.on_list_removed is not None:
+            await self.on_list_removed(list_id, False)
+        item = PB.PBListFolderItem(identifier=list_id, itemType=0)
+        await self.delete_items([item], parent_id, flush=flush)
+
     async def delete_folder(self, folder_id: str, parent_id: str, *, flush: bool = True) -> None:
         """Recursively delete a folder exactly like the AnyList Web folder manager.
 
@@ -260,10 +270,7 @@ class FoldersService(OperationService):
         # folder manager to remove the corresponding ListType item.  Preserve the one-op
         # per direct list behavior rather than collapsing the recursive delete into one op.
         for list_id in direct_list_ids:
-            if self.on_list_removed is not None:
-                await self.on_list_removed(list_id, False)
-            item = PB.PBListFolderItem(identifier=list_id, itemType=0)
-            await self.delete_items([item], folder_id, flush=False)
+            await self.delete_list(list_id, folder_id, flush=False)
 
         for child_id in child_folder_ids:
             if child_id in self.state.list_folders:

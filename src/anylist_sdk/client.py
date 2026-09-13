@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 import aiohttp
 
@@ -19,23 +19,23 @@ from .services import (
     CategorizedItemsService,
     FoldersService,
     ListSettingsService,
-    UserCategoriesService,
     MealPlanService,
     MobileSettingsService,
     PhotosService,
     RawAPI,
     RecipesService,
     SharingService,
-    WebStateService,
     ShoppingListsService,
     StarterListsService,
+    UserCategoriesService,
+    WebStateService,
 )
+from .services.base import OperationService
 from .state import AnyListState
 from .sync import SyncCoordinator
 from .tag_data import TagDataManager
-from .transport import AnyListTransport
+from .transport import AnyListTransport, TokenCallback
 from .types import AuthTokens, Domain
-from .services.base import OperationService
 
 
 class AnyListClient:
@@ -67,12 +67,17 @@ class AnyListClient:
         client_id: str | None = None,
         cache_dir: str | Path | None = None,
         journal: OperationJournal | None = None,
+        token_callback: TokenCallback | None = None,
         base_url: str = "https://www.anylist.com",
     ) -> None:
         self._sign_in_email: str | None = user_email
         self.cache_dir = Path(cache_dir) if cache_dir is not None else None
         self.transport = AnyListTransport(
-            session, base_url=base_url, client_id=client_id, tokens=tokens
+            session,
+            base_url=base_url,
+            client_id=client_id,
+            tokens=tokens,
+            token_callback=token_callback,
         )
         self.state = AnyListState(user_id=(tokens.user_id if tokens else None))
         self.sync = SyncCoordinator(self.transport, self.state)
@@ -280,10 +285,12 @@ class AnyListClient:
         self.tag_data.locale = tokens.user_locale or "en-US"
         # A client instance can be reused after logout. Never expose data from a previous
         # account through the new account's services.
-        if previous_user is not None and previous_user != tokens.user_id:
-            self.state = AnyListState(user_id=tokens.user_id)
-            self.sync = SyncCoordinator(self.transport, self.state)
-        elif self.state.loaded_once and previous_user != tokens.user_id:
+        if (
+            previous_user is not None
+            and previous_user != tokens.user_id
+            or self.state.loaded_once
+            and previous_user != tokens.user_id
+        ):
             self.state = AnyListState(user_id=tokens.user_id)
             self.sync = SyncCoordinator(self.transport, self.state)
         self._install_services(tokens.user_id)
@@ -455,7 +462,7 @@ class AnyListClient:
             if self.account:
                 try:
                     await self.account.get()
-                except Exception:
+                except Exception:  # noqa: BLE001,S110 - account refresh is best-effort
                     pass
             return
         # Aggregate sync carries all invalidated domains and coalesces concurrent refresh events.
@@ -477,7 +484,7 @@ class AnyListClient:
             await self.realtime.stop()
             await self.transport.close()
 
-    async def __aenter__(self) -> "AnyListClient":
+    async def __aenter__(self) -> Self:
         return self
 
     async def __aexit__(self, *_: object) -> None:

@@ -16,7 +16,7 @@ This is the authoritative verification checklist for the SDK. **Official executa
 
 ## Current checkpoint
 
-- Offline suite: **476 passing** at the latest local SDK gate.
+- Default offline/local suite: **480 passing** at the latest repository gate.
 - Current read-only live suite: **12/12 passing** with the corrected multipart transport, including live autocomplete/categorization against official English/German tag resources plus live sync-hook, raw-API, service-view, and transport-close coverage.
 - Guarded live mutation suite: **48 passed, 1 safely skipped without writing** in the latest complete run. In addition to the disposable shopping-list ecosystem, coverage now includes uniquely identified disposable global categories/groupings and learned categorization memory, disposable recipes/collections with exact collection-order restoration, disposable per-recipe cooking-state add/remove with byte-for-byte preservation of every pre-existing cooking-state record, disposable meal-plan events/labels/list-items, disposable templates/template events/template groups with exact root-item restoration, and recipe-linked deletion across both normal and template event stores.
 - The reusable server-side disposable list **`AnyList SDK Conformance Test`** exists and is retained for future verification. Mutation guards require both its reserved ID and exact name before any write.
@@ -26,6 +26,12 @@ This is the authoritative verification checklist for the SDK. **Official executa
 - Live conformance also found and fixed a cross-service flush bug: `clear()` and `remove_checked()` could commit the shopping-list removal while leaving their required Recent Items promotion queued locally. Both now propagate the caller's flush request to the Recent/Favorite starter queue, matching the official web flow; offline regressions and live readback confirm the fix.
 - Known official quirk: `ShoppingListsResponse.orderedIds` is populated on a full response and empty on unchanged deltas; `app.js` stores its private `$oj$JK` value but never reads it. Real ordering is folder-managed.
 - Known official contradiction: `set-web-selected-meal-plan-event-id` exists in JavaScript but `PBMobileAppSettings` has no `webSelectedMealPlanEventId` field.
+
+### Native iOS capture observation (not behavioral authority)
+
+A current AnyList iOS 7.1 network capture was compared with the web-derived SDK during the repository quality audit. The native app still uses API version `3` and the same core token/data paths represented here: `/auth/token`, `/auth/token/refresh`, `/data/user-data/get`, `/data/account/info`, and `/data/add-user-listener`. Its production host is `production.anylist.com` rather than the web client's `www.anylist.com`, and it adds native-app request headers plus mobile-specific endpoints for push tokens, app notices, locale/version handling, and analytics.
+
+The capture also shows a native `POST /data/auth/sign-out` request carrying bearer authentication and multipart fields named `refresh_token`, `push_token`, and `push_token_type`. That is strong evidence that the native client has a token-session sign-out path distinct from the web browser's `_xsrf`-protected `/auth/logout` form. An unauthenticated probe returned HTTP `401` from the same `/data/auth/sign-out` path on both `production.anylist.com` and `www.anylist.com`, confirming that the route exists on the normal web hostname too rather than being production-host-only. It is intentionally **not** implemented as SDK logout behavior at this checkpoint: this project's behavioral authority remains the official web application source, and one captured native request plus route existence is not being promoted into web-parity semantics without corresponding source/behavioral evidence. The observation is recorded here so the distinction is explicit rather than lost.
 
 ## Client
 
@@ -273,6 +279,7 @@ This is the authoritative verification checklist for the SDK. **Official executa
 | `FoldersService.reorder()` | ✅ LIVE VERIFIED | Reordered only items inside the temporary disposable folder and restored the original parent ordering exactly. |
 | `FoldersService.move()` | ✅ LIVE VERIFIED | Moved only the disposable shopping list into and back out of the temporary folder; fresh reads confirmed both directions. |
 | `FoldersService.delete_items()` | ✅ LIVE VERIFIED | Exercised by recursive disposable-folder cleanup; fresh read confirmed removed folder items were absent. |
+| `FoldersService.delete_list()` | ✅ LIVE VERIFIED | Convenience wrapper for the same web folder-manager list-removal path exercised by recursive disposable-folder cleanup. It performs the local list/settings cleanup callback before queueing the exact `delete-folder-items` operation. |
 | `FoldersService.delete_folder()` | ✅ LIVE VERIFIED | Recursively removed the temporary child/parent folder tree; final fresh state matched the exact original folder tree. |
 
 ## Starter / Favorites / Recents
@@ -618,15 +625,29 @@ This is the authoritative verification checklist for the SDK. **Official executa
 | 48 official endpoint strings accounted for | ✅ LOCAL VERIFIED | `/auth/logout` is intentionally not used by token auth because official bearer-token flow has no such request. |
 | Wheel build / external import | ✅ LOCAL VERIFIED | Correct `anylist_sdk-0.1.0` wheel built, installed and imported outside source tree at the last release gate. |
 
-## Live verification order
+## Running live conformance tests
 
-1. Re-run the full read-only suite once AnyList `/auth/token` stops returning 503.
-2. Create/confirm exactly one server-side list named **`AnyList SDK Conformance Test`** using the reserved ID; verify from a fresh client/token-backed state.
-3. Lock every mutation test to both that exact ID and exact name. If either check fails, abort all writes.
-4. Verify reversible shopping-list/item mutations that do not touch Recent Items; use `remember_recent=False` for cleanup.
-5. Verify list-local stores, store filters, category groups/categories/rules and per-list settings, restoring/deleting temporary objects afterward.
-6. Do **not** mutate Starter/Favorites/Recents, folders, recipes, meal plan, global categories/settings, account, sharing, email, photos, Alexa, or web-state endpoints until scope is explicitly expanded.
-7. For each write: require processed operation acknowledgment **and** a fresh-client server readback before changing its row to ✅ LIVE VERIFIED.
+The live harness is intentionally outside the default pytest `testpaths`, so `pytest` never
+contacts AnyList on its own. Read-only/auth/realtime checks require explicit credentials and opt-in:
+
+```text
+ANYLIST_LIVE=1
+ANYLIST_EMAIL=...
+ANYLIST_PASSWORD=...
+```
+
+Run the read-only suite explicitly:
+
+```bash
+python -m pytest -q live_tests/test_live_readonly.py
+```
+
+Mutation tests require the additional `ANYLIST_LIVE_MUTATIONS=1` guard plus the reserved disposable
+shopping-list ID expected by the harness. Every supported mutation test is constrained to disposable
+resources, checks operation acknowledgement, verifies the result from a fresh server read, and cleans
+up what it created. Tests that would alter pre-existing account-wide state, another user, quota, email,
+sharing, Alexa, iCalendar state, or another external/irreversible side effect remain intentionally
+disabled unless their row above says otherwise.
 
 ## Parsing API
 

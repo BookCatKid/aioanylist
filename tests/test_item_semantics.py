@@ -1,10 +1,10 @@
 from anylist_sdk.item_semantics import (
     EXCLUDE_DETAILS,
     EXCLUDE_EVENT_ID,
+    EXCLUDE_ITEM_QUANTITY,
     EXCLUDE_NAME,
     EXCLUDE_PACKAGE_SIZE,
     EXCLUDE_RECIPE_ID,
-    EXCLUDE_ITEM_QUANTITY,
     apply_properties_from_item,
     item_hash,
     items_equal,

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
-from google.protobuf.message import Message
-
 from uuid import UUID
+
+from google.protobuf.message import Message
 
 from ..identifiers import uuid4_hex, uuid5_hex
 from ..operations import OperationJournal, QueueSpec
@@ -960,13 +960,9 @@ class MealPlanService(OperationService):
             return
 
         candidates: list[PBCalendarEvent]
-        if event_type == int(PB.PBCalendarEventType.MealPlanQueueEvent):
-            candidates = [
-                value
-                for value in self.state.meal_plan_events.values()
-                if int(value.eventType) == event_type
-            ]
-        elif event_type == int(PB.PBCalendarEventType.MealPlanFavoriteEvent):
+        if event_type == int(PB.PBCalendarEventType.MealPlanQueueEvent) or event_type == int(
+            PB.PBCalendarEventType.MealPlanFavoriteEvent
+        ):
             candidates = [
                 value
                 for value in self.state.meal_plan_events.values()

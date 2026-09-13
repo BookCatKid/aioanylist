@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""A user-facing Textual example client for ``anylist-sdk``.
+"""User-facing Textual example client for ``anylist-sdk``.
 
-The SDK exposes many protocol-oriented services.  This example intentionally does not mirror
-those service boundaries in its navigation.  Its primary UI follows the three concepts a normal
-AnyList user expects: Lists, Recipes, and Meal Plan.  Less-common list settings live behind a
-contextual screen, and editing uses focused forms instead of one overloaded text box.
+The UI follows the three concepts a normal AnyList user expects: Lists, Recipes, and Meal Plan.
+Less-common list settings live behind contextual screens instead of exposing SDK service boundaries.
 
 Install and run with::
 
@@ -55,7 +53,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover - friendly optional-extra
         "Textual is required for this example. Install with: pip install -e '.[tui]'"
     ) from exc
 
-from anylist_sdk import AnyListClient
+from anylist_sdk import AnyListClient, AuthenticationError
 from anylist_sdk.derived import effective_recipe_scale_factor, recipe_servings_after_scaling
 from anylist_sdk.normalization import canonical_category_match_id
 from anylist_sdk.parsing.ingredient import parse_ingredient_lines, parse_recipe_steps
@@ -109,6 +107,24 @@ def _save_token_cache(path: Path, email: str, tokens: AuthTokens) -> None:
             temporary.unlink()
         except FileNotFoundError:
             pass
+
+
+def _token_cache_callback(path: Path, email: str) -> Callable[[AuthTokens | None], None]:
+    """Persist every published token pair, including refresh-token rotation."""
+
+    def save(tokens: AuthTokens | None) -> None:
+        if tokens is None:
+            path.unlink(missing_ok=True)
+        else:
+            _save_token_cache(path, email, tokens)
+
+    return save
+
+
+def _month_day(value: date) -> str:
+    """Portable ``Mon D`` formatting (``%-d`` is not supported on Windows)."""
+
+    return f"{value.strftime('%b')} {value.day}"
 
 
 def _message_name(value: object, default: str = "") -> str:
@@ -455,6 +471,8 @@ class FormModal(ModalScreen[FormResult | None]):
         key = getattr(event, "key", "")
         if key == "escape":
             self.dismiss(None)
+        elif key == "ctrl+enter":
+            self.dismiss(self._values())
         elif key == "down" and self.autocomplete is not None:
             name = self.query_one("#field-name", Input)
             table = self.query_one("#form-autocomplete", DataTable)
@@ -489,6 +507,10 @@ class ConfirmModal(ModalScreen[bool]):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         self.dismiss(event.button.id == "confirm-ok")
+
+    def on_key(self, event: object) -> None:
+        if getattr(event, "key", "") == "escape":
+            self.dismiss(False)
 
 
 class SDKPanel(Vertical):
@@ -586,6 +608,7 @@ class ListsPanel(SDKPanel):
         with Horizontal(classes="toolbar"):
             yield Button("New list", id="lists-new", variant="success")
             yield Button("Edit list", id="lists-edit")
+            yield Button("Delete list", id="lists-delete", variant="error")
             yield Button("Add item", id="items-new", variant="success")
             yield Button("Edit item", id="items-edit")
             yield Button("Toggle done", id="items-toggle")
@@ -647,10 +670,21 @@ class ListsPanel(SDKPanel):
         stores = self.client.state.list_stores.get(self.current_list_id, {})
         categories = self.client.state.list_categories.get(self.current_list_id, {})
         old_item = _selected_id(table, self.item_ids)
-        items = list(current.items)
+        hide_completed = self._effective_list_setting_bool(
+            self.current_list_id, "shouldHideCompletedItems"
+        )
+        hide_categories = self._effective_list_setting_bool(
+            self.current_list_id, "shouldHideCategories"
+        )
+        hide_store_names = self._effective_list_setting_bool(
+            self.current_list_id, "shouldHideStoreNames"
+        )
+        items = [item for item in current.items if not (hide_completed and bool(item.checked))]
         self.item_ids = [str(item.identifier) for item in items]
 
         def category_name(item: object) -> str:
+            if hide_categories:
+                return ""
             for assignment in getattr(item, "categoryAssignments", ()):
                 category = categories.get(str(assignment.categoryId))
                 if category is not None:
@@ -659,6 +693,8 @@ class ListsPanel(SDKPanel):
             return raw.replace("-", " ").title() if raw else ""
 
         def store_names(item: object) -> str:
+            if hide_store_names:
+                return ""
             names = [
                 str(stores[store_id].name)
                 for store_id in getattr(item, "storeIds", ())
@@ -686,7 +722,7 @@ class ListsPanel(SDKPanel):
             keep_id=old_item,
         )
 
-    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         if event.data_table.id == "lists-table":
             self.current_list_id = _selected_id(event.data_table, self.list_ids)
             self._refresh_items()
@@ -1089,6 +1125,25 @@ class ListsPanel(SDKPanel):
                     ),
                 ],
                 self._edit_list,
+            )
+        elif button_id == "lists-delete":
+            if not list_id:
+                return self.error("Select a list")
+            current = service.get(list_id)
+            folders = self.client.folders
+            parent_id = _list_folder_id(self.client, list_id)
+            if current is None or folders is None or not parent_id:
+                return self.error("That list cannot be deleted")
+
+            async def delete_list() -> None:
+                await folders.delete_list(list_id, parent_id)
+                self.current_list_id = None
+                await self.refresh_view()
+
+            self.confirm(
+                "Delete list",
+                f"Delete “{current.name}” and all of its items?",
+                delete_list,
             )
         elif button_id == "items-new":
             if not list_id:
@@ -1707,7 +1762,7 @@ class SavedItemsPanel(SDKPanel):
             keep_id=old,
         )
 
-    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         if event.data_table.id == "saved-lists":
             self.current_list_id = _selected_id(event.data_table, self.list_ids)
             self._refresh_items()
@@ -1997,20 +2052,6 @@ class ListBehaviorPanel(SDKPanel):
             False,
             True,
         ),
-        (
-            "behavior-show-prices",
-            "Show item prices",
-            "shouldHidePrices",
-            False,
-            True,
-        ),
-        (
-            "behavior-show-running-totals",
-            "Show running totals",
-            "shouldHideRunningTotals",
-            False,
-            True,
-        ),
     )
 
     def __init__(self, list_id: str) -> None:
@@ -2019,9 +2060,7 @@ class ListBehaviorPanel(SDKPanel):
 
     def compose(self) -> ComposeResult:
         yield Label("List behavior")
-        yield Static(
-            "These are the per-list switches AnyList uses for suggestions and list presentation."
-        )
+        yield Static("Only settings that directly affect this terminal client are shown here.")
         for widget_id, label, _field, _default, _inverted in self._FIELDS:
             yield Checkbox(label, id=widget_id)
         yield Button("Save behavior", id="behavior-save", variant="primary")
@@ -2111,6 +2150,10 @@ class ListSettingsScreen(ModalScreen[None]):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "tools-close":
+            self.dismiss(None)
+
+    def on_key(self, event: object) -> None:
+        if getattr(event, "key", "") == "escape":
             self.dismiss(None)
 
 
@@ -2815,6 +2858,10 @@ class LabelsScreen(ModalScreen[None]):
         if event.button.id == "labels-close":
             self.dismiss(None)
 
+    def on_key(self, event: object) -> None:
+        if getattr(event, "key", "") == "escape":
+            self.dismiss(None)
+
 
 class MealPlanPanel(SDKPanel):
     DEFAULT_CSS = """
@@ -3082,7 +3129,7 @@ class MealPlanPanel(SDKPanel):
             (
                 (
                     value.strftime("%a"),
-                    value.strftime("%b %-d"),
+                    _month_day(value),
                     len(self._calendar_events_for_date(value.isoformat())),
                 )
                 for value in days
@@ -3091,7 +3138,7 @@ class MealPlanPanel(SDKPanel):
             keep_id=self.selected_date,
         )
         self.query_one("#meal-week-title", Label).update(
-            f"Week of {self.week_start.strftime('%b %-d, %Y')}"
+            f"Week of {_month_day(self.week_start)}, {self.week_start.year}"
         )
         self._refresh_planner_events()
 
@@ -3116,7 +3163,8 @@ class MealPlanPanel(SDKPanel):
         )
         self.current_event_id = _selected_id(table, self.event_ids)
         try:
-            pretty = date.fromisoformat(self.selected_date).strftime("%A, %b %-d")
+            selected = date.fromisoformat(self.selected_date)
+            pretty = f"{selected.strftime('%A')}, {_month_day(selected)}"
         except ValueError:
             pretty = self.selected_date
         self.query_one("#meal-selected-day-title", Label).update(pretty)
@@ -4358,6 +4406,10 @@ class InfoScreen(ModalScreen[None]):
         if event.button.id == "info-close":
             self.dismiss(None)
 
+    def on_key(self, event: object) -> None:
+        if getattr(event, "key", "") == "escape":
+            self.dismiss(None)
+
 
 class AnyListTUI(App[None]):
     TITLE = "AnyList"
@@ -4440,21 +4492,33 @@ async def _authenticated_client(
     cached = None if force_login else _load_token_cache(cache_path)
     if cached is not None:
         email, tokens = cached
-        client = AnyListClient(tokens=tokens, user_email=email, cache_dir=SDK_CACHE)
+        client = AnyListClient(
+            tokens=tokens,
+            user_email=email,
+            cache_dir=SDK_CACHE,
+            token_callback=_token_cache_callback(cache_path, email),
+        )
         try:
             await client.load(realtime=True, load_tag_data=False, restore_pending=True)
             if client.tokens is not None:
                 _save_token_cache(cache_path, email, client.tokens)
             return client, email
-        except Exception as exc:  # noqa: BLE001 - failed cached session falls back to login
-            print(f"Cached AnyList session failed ({exc}); signing in again.", file=sys.stderr)
+        except AuthenticationError:
             await client.close()
+            print("Cached AnyList session expired; sign in again.", file=sys.stderr)
+        except Exception:
+            await client.close()
+            raise
 
     email = input("AnyList email: ").strip()
     password = getpass("AnyList password: ")
     if not email or not password:
         raise SystemExit("Email and password are required")
-    client = AnyListClient(user_email=email, cache_dir=SDK_CACHE)
+    client = AnyListClient(
+        user_email=email,
+        cache_dir=SDK_CACHE,
+        token_callback=_token_cache_callback(cache_path, email),
+    )
     try:
         tokens = await client.sign_in(email, password)
         _save_token_cache(cache_path, email, tokens)

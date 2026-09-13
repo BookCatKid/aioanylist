@@ -4,9 +4,10 @@ import asyncio
 import base64
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Protocol
+from typing import Any, Protocol
 
 from google.protobuf.message import Message
 
@@ -194,13 +195,12 @@ class OperationQueue:
                 await self.journal.clear(self.spec.queue_id)
                 return 0
 
-        async with self._flush_lock:
-            async with self._state_lock:
-                self._pending = []
-                for op in restored.operations:
-                    clone = message_class(self.spec.operation_type)()
-                    clone.CopyFrom(op)
-                    self._pending.append(clone)
+        async with self._flush_lock, self._state_lock:
+            self._pending = []
+            for op in restored.operations:
+                clone = message_class(self.spec.operation_type)()
+                clone.CopyFrom(op)
+                self._pending.append(clone)
         return len(self._pending)
 
     async def flush(self) -> OperationAck | None:

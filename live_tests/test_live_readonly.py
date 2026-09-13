@@ -15,7 +15,6 @@ from anylist_sdk.proto import PB, decode
 from anylist_sdk.tag_data import TagDataManager
 from anylist_sdk.types import Domain
 
-
 pytestmark = pytest.mark.live
 
 

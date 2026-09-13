@@ -1,19 +1,19 @@
 from __future__ import annotations
 
-import json
 import inspect
+import json
 from collections.abc import Awaitable, Callable, Mapping
 from typing import cast
 
 import aiohttp
 from google.protobuf.message import Message
 
+from ..exceptions import TransportError
 from ..identifiers import uuid4_hex
 from ..normalization import localized_sort_key
 from ..proto import PB, PBAccountInfoResponse, PBShareListOperationResponse, decode, encode
 from ..state import AnyListState, clone
-from ..exceptions import TransportError
-from ..transport import AnyListTransport, PHOTOS_BASE_URL
+from ..transport import PHOTOS_BASE_URL, AnyListTransport
 from ..types import JSONMapping
 
 
@@ -176,7 +176,7 @@ class SharingService:
                         refresh = self.on_refresh_requested()
                         if inspect.isawaitable(refresh):
                             await refresh
-                    except Exception:
+                    except Exception:  # noqa: BLE001,S110 - reconciliation is best-effort
                         # The share already succeeded; the official follow-up refresh is a
                         # best-effort reconciliation and does not turn it into a failed share.
                         pass
