@@ -36,17 +36,6 @@ async def test_list_settings_does_not_invent_handler_for_schema_only_field(fake_
 
 
 @pytest.mark.asyncio
-async def test_mobile_settings_does_not_invent_handler_for_read_only_web_field(
-    fake_transport,
-) -> None:
-    state = AnyListState(user_id="user")
-    state.mobile_app_settings = PB.PBMobileAppSettings(identifier="user", timestamp=1)
-    service = MobileSettingsService(fake_transport, state, user_id="user")
-    with pytest.raises(ValueError):
-        await service.set("webCurrencyCode", "EUR")
-
-
-@pytest.mark.asyncio
 async def test_web_selected_meal_plan_event_handler_is_blocked_by_official_schema_gap(
     fake_transport,
 ) -> None:
@@ -451,6 +440,18 @@ async def test_mobile_recipe_collection_layout_setter_compares_raw_optional_fiel
 @pytest.mark.parametrize(
     ("field", "value", "handler"),
     [
+        ("crossOffGesture", "ALCrossOffGestureSwipe", "set-cross-off-gesture"),
+        (
+            "keepScreenOnBehavior",
+            PB.PBMobileAppSettings.KeepScreenOnBehavior.Always,
+            "set-keep-screen-on-behavior",
+        ),
+        ("mealPlanWeekStartDay", 1, "set-meal-plan-week-start-day"),
+        ("isOnlineShoppingDisabled", True, "set-online-shopping-disabled"),
+        ("shouldUseMetricUnits", True, "set-should-use-metric-units"),
+        ("webDecimalSeparator", ",", "set-web-decimal-separator"),
+        ("webCurrencyCode", "EUR", "set-web-currency-code"),
+        ("webCurrencySymbol", "€", "set-web-currency-symbol"),
         ("listIdForRecipeIngredients", "list", "set-list-id-for-recipe-ingredients"),
         ("webSelectedListId", "list", "set-web-selected-list-id"),
         ("webSelectedRecipeId", "recipe", "set-web-selected-recipe-id"),
@@ -526,6 +527,26 @@ async def test_mobile_settings_scalar_handler_contracts(
         "timestamp",
         field,
     }
+
+
+@pytest.mark.asyncio
+async def test_native_mobile_settings_effective_defaults_suppress_noops(fake_transport) -> None:
+    state = AnyListState(user_id="user")
+    state.mobile_app_settings = PB.PBMobileAppSettings(identifier="mobile", timestamp=1.0)
+    service = MobileSettingsService(fake_transport, state, user_id="user")
+
+    await service.set("crossOffGesture", "ALCrossOffGestureTap")
+    await service.set(
+        "keepScreenOnBehavior",
+        PB.PBMobileAppSettings.KeepScreenOnBehavior.WhileCooking,
+    )
+    await service.set("mealPlanWeekStartDay", 0)
+    await service.set("isOnlineShoppingDisabled", False)
+    await service.set("webDecimalSeparator", ".")
+    await service.set("webCurrencyCode", "USD")
+    await service.set("webCurrencySymbol", "$")
+
+    assert fake_transport.calls == []
 
 
 @pytest.mark.asyncio

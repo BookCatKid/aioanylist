@@ -17,7 +17,7 @@ This project does not use unofficial AnyList clients as protocol authority and i
 - PEP 561 typing with schema-generated protobuf stubs.
 - Full-featured Textual example application, kept outside the installable SDK package.
 
-The default repository test suite currently passes **517/517** tests. Detailed source/live verification evidence is tracked in [`docs/conformance.md`](docs/conformance.md).
+The default repository test suite currently passes **527/527** tests. Detailed source/live verification evidence is tracked in [`docs/conformance.md`](docs/conformance.md).
 
 ## Requirements
 
@@ -161,6 +161,7 @@ python -m ruff format --check .
 - [`docs/usage.md`](docs/usage.md) — practical SDK patterns for integrations and applications.
 - [`docs/tui.md`](docs/tui.md) — terminal-client setup and day-to-day usage.
 - [`docs/conformance.md`](docs/conformance.md) — exhaustive verified public surface and live/offline evidence.
+- [`docs/protocol-coverage.md`](docs/protocol-coverage.md) — generated merged Web/Android route and operation-handler coverage audit.
 - [`docs/visual-assets.md`](docs/visual-assets.md) — official icon catalogs, asset URLs, themes, palettes, and effective visual fallbacks.
 - [`docs/usability-audit.md`](docs/usability-audit.md) — protocol-complete surfaces that still need higher-level domain ergonomics.
 

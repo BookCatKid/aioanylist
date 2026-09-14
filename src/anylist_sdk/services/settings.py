@@ -67,6 +67,29 @@ def _set_proto_field(message: Message, field: str, value: Any) -> None:
 
 def _mobile_effective_value(settings: Message, field: str) -> Any:
     raw = _present_value(settings, field)
+    if field == "crossOffGesture":
+        return raw or "ALCrossOffGestureTap"
+    if field == "keepScreenOnBehavior":
+        if raw is not None:
+            return raw
+        legacy = _present_value(settings, "shouldPreventScreenAutolock")
+        if legacy is not None:
+            return (
+                PB.PBMobileAppSettings.KeepScreenOnBehavior.Always
+                if legacy
+                else PB.PBMobileAppSettings.KeepScreenOnBehavior.Never
+            )
+        return PB.PBMobileAppSettings.KeepScreenOnBehavior.WhileCooking
+    if field == "mealPlanWeekStartDay":
+        return 0 if raw is None else raw
+    if field == "isOnlineShoppingDisabled":
+        return False if raw is None else raw
+    if field == "webDecimalSeparator":
+        return raw or "."
+    if field == "webCurrencyCode":
+        return raw or "USD"
+    if field == "webCurrencySymbol":
+        return raw or "$"
     if field == "webSelectedListId":
         return raw or (_present_value(settings, "defaultListId") or None)
     if field in {
@@ -482,6 +505,14 @@ class MobileSettingsService(OperationService):
         # AnyList Web's UT() helper seeds every mobile-settings operation with both
         # identifier and the current timestamp before setting the changed field.
         names = {
+            "crossOffGesture": "set-cross-off-gesture",
+            "keepScreenOnBehavior": "set-keep-screen-on-behavior",
+            "mealPlanWeekStartDay": "set-meal-plan-week-start-day",
+            "isOnlineShoppingDisabled": "set-online-shopping-disabled",
+            "shouldUseMetricUnits": "set-should-use-metric-units",
+            "webDecimalSeparator": "set-web-decimal-separator",
+            "webCurrencyCode": "set-web-currency-code",
+            "webCurrencySymbol": "set-web-currency-symbol",
             "listIdForRecipeIngredients": "set-list-id-for-recipe-ingredients",
             "webSelectedListId": "set-web-selected-list-id",
             "webSelectedRecipeId": "set-web-selected-recipe-id",
@@ -513,6 +544,14 @@ class MobileSettingsService(OperationService):
                     "pass an explicitly proven handler_id only when reproducing an official operation"
                 )
         no_op_fields = {
+            "crossOffGesture",
+            "keepScreenOnBehavior",
+            "mealPlanWeekStartDay",
+            "isOnlineShoppingDisabled",
+            "shouldUseMetricUnits",
+            "webDecimalSeparator",
+            "webCurrencyCode",
+            "webCurrencySymbol",
             "webSelectedListId",
             "webSelectedRecipeId",
             "webSelectedRecipeCollectionId",

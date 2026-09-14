@@ -1076,6 +1076,35 @@ async def test_notification_location_add_operation_contract(fake_transport) -> N
 
 
 @pytest.mark.asyncio
+async def test_notification_location_remove_operation_contract(fake_transport) -> None:
+    svc = service(fake_transport)
+    svc.state.shopping_lists["list"] = PB.ShoppingList(
+        identifier="list",
+        notificationLocations=[
+            PB.PBNotificationLocation(
+                identifier="one", name="Market", address="123 Main", latitude=32.1, longitude=-117.2
+            ),
+            PB.PBNotificationLocation(
+                identifier="two", name="Other", address="456 Main", latitude=32.2, longitude=-117.3
+            ),
+        ],
+    )
+
+    removed = await svc.remove_notification_location("list", "one")
+
+    assert removed is not None and removed.identifier == "one"
+    assert [x.identifier for x in svc.state.shopping_lists["list"].notificationLocations] == ["two"]
+    op = fake_transport.calls[-1][1]["operations"].operations[0]
+    assert op.metadata.handlerId == "remove-list-notification-location"
+    assert op.listId == "list"
+    assert op.notificationLocation.identifier == "one"
+
+    calls = len(fake_transport.calls)
+    assert await svc.remove_notification_location("list", "missing") is None
+    assert len(fake_transport.calls) == calls
+
+
+@pytest.mark.asyncio
 async def test_quantity_update_keeps_legacy_quantity_and_skips_identical_updates(
     fake_transport,
 ) -> None:

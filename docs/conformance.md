@@ -16,7 +16,7 @@ This is the authoritative verification checklist for the SDK. **Official executa
 
 ## Current checkpoint
 
-- Default offline/local suite: **517 passing** at the latest repository gate.
+- Default offline/local suite: **527 passing** at the latest repository gate.
 - Current read-only live suite: **12/12 passing** with the corrected multipart transport, including live autocomplete/categorization against official English/German tag resources plus live sync-hook, raw-API, service-view, and transport-close coverage.
 - Native token-session sign-out: **2/2 passing** against both `www.anylist.com` and `production.anylist.com`. In both cases `/data/auth/sign-out` revoked the supplied refresh token immediately while the already-issued access token remained accepted by `/data/account/info` immediately after logout.
 - Guarded live mutation suite: **48 passed, 1 safely skipped without writing** in the latest complete run. In addition to the disposable shopping-list ecosystem, coverage now includes uniquely identified disposable global categories/groupings and learned categorization memory, disposable recipes/collections with exact collection-order restoration, disposable per-recipe cooking-state add/remove with byte-for-byte preservation of every pre-existing cooking-state record, disposable meal-plan events/labels/list-items, disposable templates/template events/template groups with exact root-item restoration, and recipe-linked deletion across both normal and template event stores.
@@ -27,6 +27,7 @@ This is the authoritative verification checklist for the SDK. **Official executa
 - Live conformance also found and fixed a cross-service flush bug: `clear()` and `remove_checked()` could commit the shopping-list removal while leaving their required Recent Items promotion queued locally. Both now propagate the caller's flush request to the Recent/Favorite starter queue, matching the official web flow; offline regressions and live readback confirm the fix.
 - Known official quirk: `ShoppingListsResponse.orderedIds` is populated on a full response and empty on unchanged deltas; `app.js` stores its private `$oj$JK` value but never reads it. Real ordering is folder-managed.
 - Known official contradiction: `set-web-selected-meal-plan-event-id` exists in JavaScript but `PBMobileAppSettings` has no `webSelectedMealPlanEventId` field.
+- The generated merged protocol audit currently accounts for **72 endpoint/method rows** (54 implemented, 18 intentionally excluded) and **202 proven operation handlers** (195 implemented, 7 intentionally excluded), with **zero unknown rows** and zero unreviewed Android action-like candidates. The concise checked-in report is [`protocol-coverage.md`](protocol-coverage.md); `tools/protocol_coverage.py` can emit the full machine-readable JSON evidence on demand.
 
 ### Free-account server entitlement sweep (2026-09-13)
 
@@ -235,6 +236,7 @@ The Android source also reveals account/signup/password/subuser/delete/purchase 
 | `ShoppingListsService.uncheck_all()` | ✅ LIVE VERIFIED | Temporary checked items were uncrossed without Recent Items writes and verified on a fresh read. |
 | `ShoppingListsService.unshare()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Could affect another user/share relationship; intentionally not exercised. |
 | `ShoppingListsService.add_notification_location()` | ✅ LIVE VERIFIED | On the disposable non-premium account, a notification location was added to a newly-created list and confirmed from a fresh client together with `locationNotificationsEnabled`; deleting the entire disposable list provided exact cleanup. |
+| `ShoppingListsService.remove_notification_location()` | 🧪 OFFLINE VERIFIED | Exact Android `remove-list-notification-location` contract is regression-tested: removal is a local no-op when the ID is absent; otherwise the removed full `PBNotificationLocation` is carried in the list operation. |
 | `ShoppingListsService.add_store_ids_to_items()` | ✅ LIVE VERIFIED | Temporary item/store association persisted on fresh read. |
 | `ShoppingListsService.remove_store_ids_from_items()` | ✅ LIVE VERIFIED | Temporary association removal persisted on fresh read. |
 | `ShoppingListsService.remove_store_id_from_all_items()` | ✅ LIVE VERIFIED | Temporary store cleanup persisted on fresh read. |
@@ -290,7 +292,7 @@ The Android source also reveals account/signup/password/subuser/delete/purchase 
 |---|---|---|
 | `MobileSettingsService.refresh()` | ✅ LIVE VERIFIED | Called against the real endpoint and decoded/applied successfully. |
 | `MobileSettingsService.get()` | ✅ LIVE VERIFIED | Returned the real synchronized mobile-settings object from live state. |
-| `MobileSettingsService.set()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
+| `MobileSettingsService.set()` | 🧪 OFFLINE VERIFIED / 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Web handlers plus Android-native `crossOffGesture`, `keepScreenOnBehavior`, `mealPlanWeekStartDay`, `isOnlineShoppingDisabled`, `shouldUseMetricUnits`, `webDecimalSeparator`, `webCurrencyCode`, and `webCurrencySymbol` mutations are source-derived and regression-tested. Live mutation is intentionally avoided because this is pre-existing account-wide state without an isolated cleanup scope. |
 | `MobileSettingsService.save_recipe_cooking_states()` | ✅ LIVE VERIFIED | Added one cooking-state record keyed only to a disposable recipe, verified its fields from a fresh client, and proved every pre-existing cooking-state protobuf remained byte-for-byte identical. |
 | `MobileSettingsService.remove_recipe_cooking_states()` | ✅ LIVE VERIFIED | Removed only the disposable recipe's cooking-state key; fresh state exactly matched the complete pre-test cooking-state snapshot. |
 

@@ -1632,6 +1632,36 @@ class ShoppingListsService(OperationService):
         )
         return lst.notificationLocations[-1]
 
+    async def remove_notification_location(
+        self,
+        list_id: str,
+        location_id: str,
+        *,
+        flush: bool = True,
+    ) -> PBNotificationLocation | None:
+        """Remove a list notification location using Android's native operation contract."""
+
+        lst = self._require_list(list_id)
+        removed: PBNotificationLocation | None = None
+        kept: list[PBNotificationLocation] = []
+        for location in lst.notificationLocations:
+            if removed is None and str(location.identifier) == location_id:
+                removed = clone_message(location)
+            else:
+                kept.append(clone_message(location))
+        if removed is None:
+            return None
+        del lst.notificationLocations[:]
+        for location in kept:
+            lst.notificationLocations.add().CopyFrom(location)
+        await self.operation(
+            "remove-list-notification-location",
+            listId=list_id,
+            notificationLocation=removed,
+            flush=flush,
+        )
+        return removed
+
     async def add_store_ids_to_items(
         self, list_id: str, item_ids: Sequence[str], store_ids: Sequence[str], *, flush: bool = True
     ) -> None:
