@@ -6,9 +6,19 @@ from anylist_sdk.item_semantics import (
     EXCLUDE_PACKAGE_SIZE,
     EXCLUDE_RECIPE_ID,
     apply_properties_from_item,
+    deprecated_display_quantity,
+    deprecated_quantity_unit_display_string,
+    deprecated_quantity_value,
+    deprecated_quantity_without_unit,
+    is_valid_legacy_quantity,
     item_hash,
+    item_is_bare,
     items_equal,
+    package_size_not_empty,
+    price_has_amount,
+    price_has_details,
     prices_match,
+    quantity_not_empty,
 )
 from anylist_sdk.proto import PB
 
@@ -151,3 +161,41 @@ def test_quantity_deprecated_string_matches_legacy_lb_kg_rules() -> None:
     )
     assert quantity_to_deprecated_string(PB.PBItemQuantity(amount="2", unit="kg")) == "2 kg"
     assert quantity_to_deprecated_string(PB.PBItemQuantity(amount="2", unit="cups")) == ""
+
+
+def test_legacy_quantity_helpers_match_web_semantics() -> None:
+    legacy = item()
+    legacy.deprecatedQuantity = "1.5 lb"
+    assert is_valid_legacy_quantity("1.5 lb")
+    assert is_valid_legacy_quantity("½ kg")
+    assert is_valid_legacy_quantity("lb")
+    assert not is_valid_legacy_quantity("2 cups")
+    assert deprecated_quantity_without_unit(legacy) == "1.5"
+    assert deprecated_quantity_value(legacy) == 1.5
+    assert deprecated_display_quantity(legacy) == "1.5\N{NO-BREAK SPACE}lb"
+    assert deprecated_display_quantity(legacy, decimal_separator=",") == "1,5\N{NO-BREAK SPACE}lb"
+    assert deprecated_quantity_unit_display_string(legacy) == "lb"
+
+    legacy.deprecatedQuantity = "kg"
+    assert deprecated_display_quantity(legacy) == ""
+    assert deprecated_quantity_unit_display_string(legacy) == ""
+
+
+def test_presence_and_bare_item_helpers_match_web() -> None:
+    price = PB.PBItemPrice()
+    assert not price_has_amount(price) and not price_has_details(price)
+    price.amount = 0
+    assert price_has_amount(price)
+    price.details = "sale"
+    assert price_has_details(price)
+
+    quantity = PB.PBItemQuantity(amount="1")
+    package = PB.PBItemPackageSize(rawPackageSize="12 oz")
+    assert quantity_not_empty(quantity)
+    assert package_size_not_empty(package)
+
+    bare = item()
+    bare.quantityPb.amount = "1"
+    assert item_is_bare(bare)
+    bare.photoIds.append("photo")
+    assert not item_is_bare(bare)

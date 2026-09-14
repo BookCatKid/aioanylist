@@ -247,6 +247,8 @@ class ThemeStyle:
     background_texture_url: str | None
     background_image: str | None
     cell_texture: str | None
+    table_background_css: str
+    is_dark: bool
 
 
 def _parse_icon(value: dict[str, Any]) -> IconEntry:
@@ -750,7 +752,47 @@ class VisualsService:
             ),
             background_image=str(theme.backgroundImage) if theme.backgroundImage else None,
             cell_texture=str(theme.cellTexture) if theme.cellTexture else None,
+            table_background_css=self.table_background_css_property(theme),
+            is_dark=self.is_dark_theme(theme),
         )
+
+    def table_background_css_property(self, theme: PBListTheme) -> str:
+        """Port ``PBListTheme.tableBackgroundCSSProperty`` with an absolute asset URL."""
+        texture = str(theme.tableTexture) if theme.tableTexture else None
+        if texture:
+            return f'url("{self.texture_url(texture)}")'
+        color = str(theme.tableHexColor or theme.backgroundHexColor or "FFFFFF").removeprefix("#")
+        return f"#{color.lower()}"
+
+    @staticmethod
+    def font_style_for_font_name(font_name: str | None) -> str:
+        if font_name in {"Chalkboard SE", "Noteworthy"}:
+            return "Casual"
+        if font_name == "Courier":
+            return "Monospace"
+        if font_name == "Iowan Old Style":
+            return "Serif"
+        return "Default"
+
+    @staticmethod
+    def font_name_for_font_style(font_style: str) -> str:
+        if font_style == "Casual":
+            return "Chalkboard SE"
+        if font_style == "Monospace":
+            return "Courier"
+        if font_style == "Serif":
+            return "Iowan Old Style"
+        return "ALSystemFont"
+
+    @staticmethod
+    def item_name_font_weight(font_name: str | None, *, mac_browser: bool = False) -> int:
+        family = VisualsService.font_family(font_name)
+        return 500 if mac_browser and family.startswith("system-ui") else 600
+
+    @staticmethod
+    def is_dark_theme(theme: PBListTheme) -> bool:
+        value = str(theme.navigationBarHexColor or "")
+        return bool(value) and _brightness(value) <= 0.7
 
     @staticmethod
     def font_family(font_name: str | None) -> str:

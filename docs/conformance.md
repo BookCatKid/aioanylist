@@ -16,7 +16,7 @@ This is the authoritative verification checklist for the SDK. **Official executa
 
 ## Current checkpoint
 
-- Default offline/local suite: **508 passing** at the latest repository gate.
+- Default offline/local suite: **514 passing** at the latest repository gate.
 - Current read-only live suite: **12/12 passing** with the corrected multipart transport, including live autocomplete/categorization against official English/German tag resources plus live sync-hook, raw-API, service-view, and transport-close coverage.
 - Native token-session sign-out: **2/2 passing** against both `www.anylist.com` and `production.anylist.com`. In both cases `/data/auth/sign-out` revoked the supplied refresh token immediately while the already-issued access token remained accepted by `/data/account/info` immediately after logout.
 - Guarded live mutation suite: **48 passed, 1 safely skipped without writing** in the latest complete run. In addition to the disposable shopping-list ecosystem, coverage now includes uniquely identified disposable global categories/groupings and learned categorization memory, disposable recipes/collections with exact collection-order restoration, disposable per-recipe cooking-state add/remove with byte-for-byte preservation of every pre-existing cooking-state record, disposable meal-plan events/labels/list-items, disposable templates/template events/template groups with exact root-item restoration, and recipe-linked deletion across both normal and template event stores.
@@ -135,6 +135,11 @@ The Android source also reveals account/signup/password/subuser/delete/purchase 
 | `VisualsService.resolve_recipe_collection_icon()` | 🧪 OFFLINE VERIFIED | Official catalog validation and stack-of-recipe-cards fallback match app.js and are regression-tested. |
 | `VisualsService.theme_style()` | 🧪 OFFLINE VERIFIED | Web defaults for effective colors, font family, texture URL and tile size are source-derived and regression-tested. |
 | `VisualsService.font_family()` | 🧪 OFFLINE VERIFIED | Exact current web font-family mappings are reconstructed from app.js. |
+| `VisualsService.table_background_css_property()` | 🧪 OFFLINE VERIFIED | Reproduces `PBListTheme.tableBackgroundCSSProperty()`: texture URL wins, otherwise the effective table/background color is emitted. |
+| `VisualsService.font_style_for_font_name()` | 🧪 OFFLINE VERIFIED | Exact web font-style labels (`Casual`, `Monospace`, `Serif`, `Default`) are regression-tested. |
+| `VisualsService.font_name_for_font_style()` | 🧪 OFFLINE VERIFIED | Exact inverse mapping back to the web/native font identifiers is regression-tested. |
+| `VisualsService.item_name_font_weight()` | 🧪 OFFLINE VERIFIED | Matches the web helper's normal 600 weight and the macOS system-font exception of 500. |
+| `VisualsService.is_dark_theme()` | 🧪 OFFLINE VERIFIED | Matches the web client's navigation-bar HSV-value threshold (`v <= 0.7`). |
 
 ## Autocomplete
 
@@ -566,7 +571,7 @@ Official Android 3.0.3 source provides exact request/response behavior for `/aut
 | `derived.same_recipe_ingredient()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
 | `derived.add_item_ingredient()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
 | `derived.remove_item_ingredient()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
-| `derived.item_quantity()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
+| `derived.item_quantity()` | 🧪 OFFLINE VERIFIED | Matches the official legacy fallback: an absent `quantityPb` is reconstructed from valid `deprecatedQuantity` lb/kg data before falling back to an empty quantity. |
 | `derived.item_category_id()` | 🧪 OFFLINE VERIFIED | `categoryMatchId` -> legacy category -> `other` fallback matches app.js. |
 | `derived.item_event_id()` | 🧪 OFFLINE VERIFIED | Empty event ID -> `None` semantics match app.js. |
 | `derived.item_photo_id()` | 🧪 OFFLINE VERIFIED | Exact first-photo-ID helper from app.js is regression-tested. |
@@ -585,6 +590,8 @@ Official Android 3.0.3 source provides exact request/response behavior for `/aut
 | `derived.active_package_size()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
 | `derived.unit_price()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
 | `derived.display_quantity_and_package_size()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
+| `derived.shopping_list_quantity_text()` | 🧪 OFFLINE VERIFIED | Exact shopping-cell quantity/package display composition, including parenthesizing and NBSP mode, is source-derived and regression-tested. |
+| `derived.user_category_is_system()` | 🧪 OFFLINE VERIFIED | Exact non-empty `systemCategory` predicate from the official protobuf helper is regression-tested. |
 | `derived.event_list_item_to_item_ingredient()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
 | `derived.recipe_servings_after_scaling()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
 | `derived.recipe_ingredients_excluding_headings()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
@@ -625,6 +632,8 @@ Official Android 3.0.3 source provides exact request/response behavior for `/aut
 | `item_semantics.quantity_equal()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
 | `item_semantics.package_size_equal()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
 | `item_semantics.price_empty()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
+| `item_semantics.price_has_amount()` | 🧪 OFFLINE VERIFIED | Uses protobuf field presence rather than numeric truthiness, matching `PBItemPrice.hasAmount()`. |
+| `item_semantics.price_has_details()` | 🧪 OFFLINE VERIFIED | Matches the official non-empty-details predicate. |
 | `item_semantics.price_equal()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
 | `item_semantics.prices_match()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
 | `item_semantics.ingredient_equal()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
@@ -635,7 +644,15 @@ Official Android 3.0.3 source provides exact request/response behavior for `/aut
 | `item_semantics.items_equal()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
 | `item_semantics.apply_properties_from_item()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
 | `item_semantics.quantity_empty()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
+| `item_semantics.quantity_not_empty()` | 🧪 OFFLINE VERIFIED | Exact inverse convenience semantics are regression-tested. |
 | `item_semantics.package_size_empty()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
+| `item_semantics.package_size_not_empty()` | 🧪 OFFLINE VERIFIED | Exact inverse convenience semantics are regression-tested. |
+| `item_semantics.is_valid_legacy_quantity()` | 🧪 OFFLINE VERIFIED | Ports the official pre-protobuf `ListItem.isValidRawQuantity()` grammar for decimals, vulgar fractions, lb and kg. |
+| `item_semantics.deprecated_quantity_without_unit()` | 🧪 OFFLINE VERIFIED | Reproduces the legacy lb/kg suffix stripping helper. |
+| `item_semantics.deprecated_quantity_value()` | 🧪 OFFLINE VERIFIED | Parses the numeric component with the same quantity-number semantics used by the reconstructed client. |
+| `item_semantics.deprecated_display_quantity()` | 🧪 OFFLINE VERIFIED | Reproduces the legacy display helper's unit-only suppression, first-space NBSP and decimal-separator localization. |
+| `item_semantics.deprecated_quantity_unit_display_string()` | 🧪 OFFLINE VERIFIED | Exact legacy lb/kg display-unit extraction is regression-tested. |
+| `item_semantics.item_is_bare()` | 🧪 OFFLINE VERIFIED | Ports `ListItem.isBareItem()` and is now shared by the Recents/Favorites projection instead of duplicated privately. |
 | `item_semantics.quantity_to_deprecated_string()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
 
 ## Normalization / search helpers

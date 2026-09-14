@@ -9,6 +9,10 @@ from urllib.parse import urlparse
 from uuid import UUID
 
 from .identifiers import uuid4_hex, uuid5_hex
+from .item_semantics import (
+    deprecated_quantity_unit_display_string,
+    deprecated_quantity_without_unit,
+)
 from .normalization import (
     collapse_whitespace,
     localized_sort_key,
@@ -49,6 +53,7 @@ from .proto import (
     PBRecipeCollectionSettings,
     PBRecipeCookingState,
     PBStore,
+    PBUserCategory,
 )
 from .stemming import stem_words
 
@@ -511,8 +516,23 @@ def remove_item_ingredient(item: ListItem, ingredient: PBItemIngredient) -> bool
     return False
 
 
-def item_quantity(item: ListItem) -> PBItemQuantity:
-    return item.quantityPb if item.HasField("quantityPb") else PB.PBItemQuantity()
+def item_quantity(item: ListItem, *, decimal_separator: str = ".") -> PBItemQuantity:
+    """Return AnyList's effective item quantity, including legacy-field migration fallback."""
+    if item.HasField("quantityPb"):
+        return item.quantityPb
+    amount = deprecated_quantity_without_unit(item)
+    unit = deprecated_quantity_unit_display_string(item, decimal_separator=decimal_separator)
+    if not amount and not unit:
+        return PB.PBItemQuantity()
+    out = PB.PBItemQuantity()
+    if amount:
+        if decimal_separator != ".":
+            amount = amount.replace(".", decimal_separator, 1)
+        out.amount = amount
+        out.rawQuantity = f"{amount} {unit}" if unit else amount
+    if unit:
+        out.unit = unit
+    return out
 
 
 def item_category_id(item: ListItem) -> str:
@@ -687,14 +707,49 @@ def unit_price(item: ListItem, price: PBItemPrice) -> float:
 
 
 def display_quantity_and_package_size(
-    quantity: PBItemQuantity | None, package: PBItemPackageSize | None
+    quantity: PBItemQuantity | None,
+    package: PBItemPackageSize | None,
+    *,
+    nonbreaking: bool = False,
+    parenthesize: bool = False,
 ) -> str:
-    """Plain-text form used by AnyList when a meal-plan list item becomes an ingredient."""
-    q = (getattr(quantity, "rawQuantity", "") or "") if quantity is not None else ""
-    p = (getattr(package, "rawPackageSize", "") or "") if package is not None else ""
+    """Port AnyList Web's ``displayTextForQuantityAndPackageSize`` helper."""
+    q = (
+        abbreviate_units_in_text(getattr(quantity, "rawQuantity", "") or "")
+        if quantity is not None
+        else ""
+    )
+    p = (
+        abbreviate_units_in_text(getattr(package, "rawPackageSize", "") or "")
+        if package is not None
+        else ""
+    )
+    if nonbreaking:
+        q = q[:10].replace(" ", "\N{NO-BREAK SPACE}") + q[10:]
+        p = p[:10].replace(" ", "\N{NO-BREAK SPACE}") + p[10:]
     if q and p:
-        return f"{q} × {p}"
-    return q or p
+        separator = "\N{NO-BREAK SPACE}×\N{NO-BREAK SPACE}" if nonbreaking else " × "
+        result = f"{q}{separator}{p}"
+    else:
+        result = q or p
+    if result and parenthesize:
+        return f"({result})"
+    return result
+
+
+def shopping_list_quantity_text(item: ListItem, *, nonbreaking: bool = False) -> str:
+    """Port ``ListItem.quantityTextForShoppingListCell``."""
+    package = item.packageSizePb if item.HasField("packageSizePb") else PB.PBItemPackageSize()
+    return display_quantity_and_package_size(
+        list_quantity(item),
+        package,
+        nonbreaking=nonbreaking,
+        parenthesize=True,
+    )
+
+
+def user_category_is_system(category: PBUserCategory) -> bool:
+    return bool(category.systemCategory)
 
 
 def event_list_item_to_item_ingredient(

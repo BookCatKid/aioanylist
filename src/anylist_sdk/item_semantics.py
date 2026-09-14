@@ -91,6 +91,19 @@ def price_empty(price: Message) -> bool:
     return not has_amount and not (getattr(price, "details", "") or "")
 
 
+def price_has_amount(price: Message) -> bool:
+    """Match ``PBItemPrice.hasAmount``: protobuf presence, not truthiness/non-zero."""
+    return (
+        price.HasField("amount")
+        if "amount" in price.DESCRIPTOR.fields_by_name
+        else getattr(price, "amount", None) is not None
+    )
+
+
+def price_has_details(price: Message) -> bool:
+    return bool(getattr(price, "details", "") or "")
+
+
 def price_equal(a: Message, b: Message) -> bool:
     a_has = a.HasField("amount") if "amount" in a.DESCRIPTOR.fields_by_name else True
     b_has = b.HasField("amount") if "amount" in b.DESCRIPTOR.fields_by_name else True
@@ -295,8 +308,88 @@ def quantity_empty(quantity: Message) -> bool:
     return not (quantity.amount or quantity.unit or quantity.rawQuantity)
 
 
+def quantity_not_empty(quantity: Message) -> bool:
+    return not quantity_empty(quantity)
+
+
 def package_size_empty(package: Message) -> bool:
     return not (package.size or package.unit or package.packageType or package.rawPackageSize)
+
+
+def package_size_not_empty(package: Message) -> bool:
+    return not package_size_empty(package)
+
+
+def is_valid_legacy_quantity(value: str | None) -> bool:
+    """Port ``ListItem.isValidRawQuantity`` for the pre-quantity-protobuf field."""
+    import re
+
+    text = value or ""
+    vulgar = r"(?:\d*(?:½|⅓|⅔|¼|¾|⅕|⅖|⅗|⅘|⅙|⅚|⅛|⅜|⅝|⅞))"
+    decimal = r"(?:(?:\d+(?:\.\d+)?)|(?:\.\d+))"
+    unit = r"(?:lb|kg)"
+    return (
+        re.fullmatch(rf"(?:(?:{vulgar}|{decimal})(?: {unit})?|{unit})", text, re.IGNORECASE)
+        is not None
+    )
+
+
+def deprecated_quantity_without_unit(item: Message) -> str:
+    import re
+
+    value = str(getattr(item, "deprecatedQuantity", "") or "")
+    return re.sub(r"(lb|kg)$", "", value, flags=re.IGNORECASE).strip()
+
+
+def deprecated_quantity_value(item: Message) -> float:
+    return amount_as_float(str(getattr(item, "deprecatedQuantity", "") or ""))
+
+
+def deprecated_display_quantity(item: Message, *, decimal_separator: str = ".") -> str | None:
+    """Port ``ListItem.deprecatedDisplayQuantity`` including its NBSP behavior."""
+    import re
+
+    value = str(getattr(item, "deprecatedQuantity", "") or "")
+    if not value:
+        return None
+    match = re.search(r"(lb|kg)$", value, re.IGNORECASE)
+    if match and match.group(1) == value:
+        value = ""
+    value = value.replace(" ", "\N{NO-BREAK SPACE}", 1)
+    if value and decimal_separator != ".":
+        value = value.replace(".", decimal_separator, 1)
+    return value
+
+
+def deprecated_quantity_unit_display_string(item: Message, *, decimal_separator: str = ".") -> str:
+    import re
+
+    value = deprecated_display_quantity(item, decimal_separator=decimal_separator)
+    if not value:
+        return ""
+    match = re.search(r"(lb|kg)$", value, re.IGNORECASE)
+    return match.group(1) if match else ""
+
+
+def item_is_bare(item: Message) -> bool:
+    """Port ``ListItem.isBareItem`` used by Favorites/Recents/autocomplete logic."""
+    quantity = _quantity(item, "quantityPb")
+    price_quantity = _quantity(item, "priceQuantityPb")
+    package = _package(item, "packageSizePb")
+    price_package = _package(item, "pricePackageSizePb")
+    return (
+        not bool(getattr(item, "details", "") or "")
+        and not bool(getattr(item, "deprecatedQuantity", "") or "")
+        and quantity_not_empty(quantity)
+        and quantity_empty(price_quantity)
+        and package_size_empty(package)
+        and package_size_empty(price_package)
+        and not bool(getattr(item, "ingredients", ()))
+        and not bool(getattr(item, "photoIds", ()))
+        and not bool(getattr(item, "recipeId", "") or "")
+        and not bool(getattr(item, "storeIds", ()))
+        and not any(not price_empty(price) for price in getattr(item, "prices", ()))
+    )
 
 
 def quantity_to_deprecated_string(quantity: Message) -> str:

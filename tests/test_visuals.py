@@ -149,6 +149,35 @@ def test_effective_theme_icon_and_style_resolution() -> None:
     assert style.table_texture_url.endswith("/wood@2x.png")
     assert style.table_background_size == "512px, 512px"
     assert style.font_family.startswith('"Palatino"')
+    assert style.table_background_css.endswith('/wood@2x.png")')
+    assert not style.is_dark
+
+
+def test_theme_rendering_helpers_match_web_client() -> None:
+    visuals = VisualsService(AnyListTransport(base_url="https://www.anylist.com"))
+    plain = PB.PBListTheme(tableHexColor="AABBCC")
+    assert visuals.table_background_css_property(plain) == "#aabbcc"
+
+    textured = PB.PBListTheme(tableTexture="wood")
+    assert visuals.table_background_css_property(textured) == (
+        'url("https://www.anylist.com/static/webapp/img/shopping-list-textures/wood@2x.png")'
+    )
+
+    assert visuals.font_style_for_font_name("Chalkboard SE") == "Casual"
+    assert visuals.font_style_for_font_name("Courier") == "Monospace"
+    assert visuals.font_style_for_font_name("Iowan Old Style") == "Serif"
+    assert visuals.font_style_for_font_name("Avenir") == "Default"
+    assert visuals.font_name_for_font_style("Casual") == "Chalkboard SE"
+    assert visuals.font_name_for_font_style("Monospace") == "Courier"
+    assert visuals.font_name_for_font_style("Serif") == "Iowan Old Style"
+    assert visuals.font_name_for_font_style("Default") == "ALSystemFont"
+    assert visuals.item_name_font_weight(None, mac_browser=True) == 500
+    assert visuals.item_name_font_weight("Courier", mac_browser=True) == 600
+
+    dark = PB.PBListTheme(navigationBarHexColor="3B3B41")
+    light = PB.PBListTheme(navigationBarHexColor="FFFFFF")
+    assert visuals.is_dark_theme(dark)
+    assert not visuals.is_dark_theme(light)
 
 
 def test_custom_dark_theme_wins_and_missing_dark_variant_is_derived() -> None:

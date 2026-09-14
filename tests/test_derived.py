@@ -53,6 +53,51 @@ def test_total_ingredient_quantity_uses_display_abbreviation_before_pluralizatio
     assert total.unit == "Dosen"
 
 
+def test_item_quantity_falls_back_to_legacy_quantity_like_web() -> None:
+    from anylist_sdk.derived import item_quantity
+
+    item = PB.ListItem(identifier="item", deprecatedQuantity="1.5 lb")
+    quantity = item_quantity(item)
+    assert quantity.amount == "1.5"
+    assert quantity.unit == "lb"
+    assert quantity.rawQuantity == "1.5 lb"
+
+    localized = item_quantity(item, decimal_separator=",")
+    assert localized.amount == "1,5"
+    assert localized.unit == "lb"
+    assert localized.rawQuantity == "1,5 lb"
+
+    item.quantityPb.amount = "2"
+    item.quantityPb.unit = "cups"
+    assert item_quantity(item) is item.quantityPb
+
+
+def test_display_quantity_package_and_cell_text_match_web() -> None:
+    from anylist_sdk.derived import display_quantity_and_package_size, shopping_list_quantity_text
+
+    quantity = PB.PBItemQuantity(rawQuantity="2 tablespoons")
+    package = PB.PBItemPackageSize(rawPackageSize="12 ounces jars")
+    assert display_quantity_and_package_size(quantity, package) == "2 Tbsp × 12 oz jars"
+    assert display_quantity_and_package_size(
+        quantity, package, nonbreaking=True, parenthesize=True
+    ) == (
+        "(2\N{NO-BREAK SPACE}Tbsp\N{NO-BREAK SPACE}×\N{NO-BREAK SPACE}"
+        "12\N{NO-BREAK SPACE}oz\N{NO-BREAK SPACE}jars)"
+    )
+
+    item = PB.ListItem(identifier="item")
+    item.quantityPb.CopyFrom(quantity)
+    item.packageSizePb.CopyFrom(package)
+    assert shopping_list_quantity_text(item) == "(2 Tbsp × 12 oz jars)"
+
+
+def test_user_category_system_predicate_matches_web() -> None:
+    from anylist_sdk.derived import user_category_is_system
+
+    assert user_category_is_system(PB.PBUserCategory(systemCategory="produce"))
+    assert not user_category_is_system(PB.PBUserCategory(name="Custom"))
+
+
 def test_recipe_source_alias_and_collection_identifier() -> None:
     recipe = PB.PBRecipe(sourceUrl="https://www.allrecipes.com/foo")
     assert source_domain(recipe) == "allrecipes.com"

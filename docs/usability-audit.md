@@ -48,6 +48,12 @@ because all of their raw fields were already present. The SDK now ports:
 - state-aware recipe attachment detection (`hasRecipe`);
 - ingredient grocery-tag classification convenience;
 - category-group category resolution with synchronized list/category context;
+- legacy `deprecatedQuantity` compatibility, validation, display and modern `PBItemQuantity`
+  reconstruction;
+- shopping-cell quantity/package display formatting;
+- `PBItemPrice` amount/details presence semantics and the remaining small quantity/package
+  predicates used by the official clients;
+- effective theme CSS background, dark-theme detection and font style/weight helpers;
 - folder child/list lookup helpers and effective list/folder sort defaults.
 
 These are local derived helpers; they do not add server operations.
@@ -60,7 +66,6 @@ wrapper:
 | Area | Missing ergonomic behavior | Why it is not blindly ported yet |
 |---|---|---|
 | Localized date display | `PBItemIngredient.eventDateDisplayString()` | Depends on AnyList's locale/date-format manager. The raw ISO event date is exposed; exact display parity belongs with a future localization layer. |
-| Sort-order subtitles | Collection settings subtitle/display strings | These are localized UI labels, not data semantics. Useful for a UI helper layer, but lower priority than actual behavior. |
 
 ## Intentionally not promoted
 
@@ -68,6 +73,12 @@ Some official helpers exist solely to render AnyList Web itself. Examples includ
 indicator image filenames/sizes (`ALItemIconPrice@2x.png`, toolbar/disclosure images), table-cell
 CSS classes, popup geometry, promo/welcome artwork, and browser-specific presentation workarounds.
 Those are not missing SDK functionality merely because they are present in `app.js`.
+
+The recipe-collection sort-order subtitle/name helpers are also intentionally left out of the core
+SDK. Their only behavior is mapping enum values to i18next presentation labels such as `By Name`
+and `By Rating`; the underlying sort-order semantics are already exposed. In this captured web
+build, ordinary text translations are limited to English/German, while dates use Moment with the
+full app locale, so those two localization concerns should not be conflated.
 
 Likewise, the SDK does not package AnyList's icon/texture/category image binaries. It preserves the
 official metadata and URL construction so a downstream UI can request the current resources from

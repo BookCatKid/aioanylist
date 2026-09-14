@@ -8,10 +8,9 @@ from google.protobuf.message import Message
 
 from ..identifiers import uuid4_hex, uuid5_hex
 from ..item_semantics import (
+    item_is_bare,
     items_equal,
-    package_size_empty,
     package_size_equal,
-    quantity_empty,
     quantity_equal,
     quantity_to_deprecated_string,
 )
@@ -221,7 +220,7 @@ class StarterListsService(OperationService):
         for item in reversed(lst.items):
             if item.recipeId or item.ingredients:
                 continue
-            bare = self._is_bare_item(item)
+            bare = item_is_bare(item)
             name = str(item.name)
             if not bare and name in seen_enriched_names:
                 continue
@@ -958,32 +957,6 @@ class StarterListsService(OperationService):
     @staticmethod
     def _is_recent(lst: StarterList) -> bool:
         return int(lst.starterListType) == int(PB.StarterList.Type.RecentItemsType)
-
-    @staticmethod
-    def _is_bare_item(item: ListItem) -> bool:
-        quantity = item.quantityPb if item.HasField("quantityPb") else PB.PBItemQuantity()
-        price_quantity = (
-            item.priceQuantityPb if item.HasField("priceQuantityPb") else PB.PBItemQuantity()
-        )
-        package = item.packageSizePb if item.HasField("packageSizePb") else PB.PBItemPackageSize()
-        price_package = (
-            item.pricePackageSizePb
-            if item.HasField("pricePackageSizePb")
-            else PB.PBItemPackageSize()
-        )
-        return (
-            not item.details
-            and not item.deprecatedQuantity
-            and not quantity_empty(quantity)
-            and quantity_empty(price_quantity)
-            and package_size_empty(package)
-            and package_size_empty(price_package)
-            and not item.ingredients
-            and not item.photoIds
-            and not item.recipeId
-            and not item.storeIds
-            and not item.prices
-        )
 
     def _require(self, list_id: str) -> StarterList:
         x = self.get(list_id)

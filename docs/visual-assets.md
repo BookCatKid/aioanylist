@@ -98,6 +98,13 @@ URL, and texture tile size. Raw optional theme fields such as `backgroundImage`,
 and `cellTexture` remain available without inventing defaults that the official client does not
 define.
 
+The service also exposes the source-derived rendering helpers used by the web client: effective
+table-background CSS (texture URL or color), theme darkness from navigation-bar HSV brightness,
+font-style/name mapping, and the item-name font-weight rule. `backgroundImage` is deliberately
+left raw: this web build copies the protobuf field through the custom-theme editor, but its actual
+`PBListTheme` rendering helpers do not resolve it into an asset URL or use it as the list/table
+background. The SDK therefore does not invent a resource convention for it.
+
 ## Effective list theme and icon
 
 `resolve_list_theme(settings, dark=False)` follows the official selection fallback:
@@ -124,4 +131,3 @@ Folder color/icon and recipe-collection icon fallbacks are exposed as well.
 When `AnyListClient(cache_dir=...)` is used, downloaded icon JSON is cached under the client's
 `visuals/` cache directory with the same 24-hour/stale-on-network-error behavior used by the
 official tag-data loader. Image binaries themselves are never cached or packaged by this SDK.
-
