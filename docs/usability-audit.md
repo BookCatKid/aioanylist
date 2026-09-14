@@ -48,6 +48,9 @@ because all of their raw fields were already present. The SDK now ports:
 - state-aware recipe attachment detection (`hasRecipe`);
 - ingredient grocery-tag classification convenience;
 - category-group category resolution with synchronized list/category context;
+- category-assignment map and item-ingredient field/matching helpers;
+- recipe/event-aware ingredient quantity scaling and full display-string composition;
+- create-if-missing item-price convenience matching the official detached-price behavior;
 - legacy `deprecatedQuantity` compatibility, validation, display and modern `PBItemQuantity`
   reconstruction;
 - shopping-cell quantity/package display formatting;
@@ -66,6 +69,10 @@ wrapper:
 | Area | Missing ergonomic behavior | Why it is not blindly ported yet |
 |---|---|---|
 | Localized date display | `PBItemIngredient.eventDateDisplayString()` | Depends on AnyList's locale/date-format manager. The raw ISO event date is exposed; exact display parity belongs with a future localization layer. |
+
+The current protobuf convenience-method audit is otherwise closed for meaningful domain behavior.
+Remaining official prototype methods either map to SDK service mutations already exposed elsewhere,
+are direct protobuf field access with no additional semantics, or are presentation-only helpers.
 
 ## Intentionally not promoted
 

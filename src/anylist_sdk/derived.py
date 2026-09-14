@@ -381,6 +381,48 @@ def full_ingredient_string(ingredient: PBIngredient, *, quantity: str | None = N
     return value
 
 
+def ingredient_quantity_after_scaling(
+    ingredient: PBIngredient,
+    recipe: PBRecipe | None = None,
+    event: PBCalendarEvent | None = None,
+    *,
+    abbreviated_units: bool = False,
+) -> str:
+    """Port AnyList Web's ingredient quantity scaling helper.
+
+    A meal-plan event scale factor wins over the recipe scale factor when both are supplied.
+    """
+    quantity = str(getattr(ingredient, "quantity", "") or "")
+    if not quantity:
+        return ""
+    if abbreviated_units:
+        quantity = abbreviate_units_in_text(quantity)
+    factor = (
+        effective_event_scale_factor(event)
+        if event is not None
+        else effective_recipe_scale_factor(recipe)
+    )
+    return scale_quantity_text(quantity, factor) if factor != 1 else quantity
+
+
+def full_ingredient_string_after_scaling(
+    ingredient: PBIngredient,
+    recipe: PBRecipe | None = None,
+    event: PBCalendarEvent | None = None,
+    *,
+    abbreviated_units: bool = False,
+) -> str:
+    return full_ingredient_string(
+        ingredient,
+        quantity=ingredient_quantity_after_scaling(
+            ingredient,
+            recipe,
+            event,
+            abbreviated_units=abbreviated_units,
+        ),
+    )
+
+
 def ingredient_to_item_ingredient(
     ingredient: PBIngredient, recipe: PBRecipe, event: PBCalendarEvent | None = None
 ) -> PBItemIngredient:
@@ -500,6 +542,35 @@ def same_recipe_ingredient(a: PBItemIngredient, b: PBItemIngredient) -> bool:
     )
 
 
+def item_ingredient_quantity(item_ingredient: PBItemIngredient) -> PBItemQuantity:
+    return (
+        item_ingredient.quantityPb
+        if item_ingredient.HasField("quantityPb")
+        else PB.PBItemQuantity()
+    )
+
+
+def item_ingredient_package_size(item_ingredient: PBItemIngredient) -> PBItemPackageSize:
+    return (
+        item_ingredient.packageSizePb
+        if item_ingredient.HasField("packageSizePb")
+        else PB.PBItemPackageSize()
+    )
+
+
+def item_ingredient_ingredient(item_ingredient: PBItemIngredient) -> PBIngredient:
+    return (
+        item_ingredient.ingredient if item_ingredient.HasField("ingredient") else PB.PBIngredient()
+    )
+
+
+def index_of_matching_item_ingredient(item: ListItem, target: PBItemIngredient) -> int:
+    for index, existing in enumerate(item.ingredients):
+        if same_recipe_ingredient(existing, target):
+            return index
+    return -1
+
+
 def add_item_ingredient(item: ListItem, ingredient: PBItemIngredient) -> None:
     for index, existing in enumerate(item.ingredients):
         if same_recipe_ingredient(existing, ingredient):
@@ -572,6 +643,24 @@ def item_price_for_store_id(item: ListItem, store_id: str | None) -> PBItemPrice
         if (price.storeId or "") == target:
             return price
     return None
+
+
+def item_price_for_store_id_or_new(item: ListItem, store_id: str | None) -> PBItemPrice:
+    existing = item_price_for_store_id(item, store_id)
+    if existing is not None:
+        return existing
+    price = PB.PBItemPrice()
+    if store_id:
+        price.storeId = store_id
+    return price
+
+
+def item_category_assignments_map(item: ListItem) -> dict[str, str]:
+    """Return the official category-group -> category lookup for a shopping item."""
+    return {
+        str(assignment.categoryGroupId): str(assignment.categoryId)
+        for assignment in item.categoryAssignments
+    }
 
 
 def item_price_store_id_from_store_ids(item: ListItem, store_ids: list[str]) -> str | None:

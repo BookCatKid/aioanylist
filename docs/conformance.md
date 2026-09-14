@@ -16,7 +16,7 @@ This is the authoritative verification checklist for the SDK. **Official executa
 
 ## Current checkpoint
 
-- Default offline/local suite: **514 passing** at the latest repository gate.
+- Default offline/local suite: **517 passing** at the latest repository gate.
 - Current read-only live suite: **12/12 passing** with the corrected multipart transport, including live autocomplete/categorization against official English/German tag resources plus live sync-hook, raw-API, service-view, and transport-close coverage.
 - Native token-session sign-out: **2/2 passing** against both `www.anylist.com` and `production.anylist.com`. In both cases `/data/auth/sign-out` revoked the supplied refresh token immediately while the already-issued access token remained accepted by `/data/account/info` immediately after logout.
 - Guarded live mutation suite: **48 passed, 1 safely skipped without writing** in the latest complete run. In addition to the disposable shopping-list ecosystem, coverage now includes uniquely identified disposable global categories/groupings and learned categorization memory, disposable recipes/collections with exact collection-order restoration, disposable per-recipe cooking-state add/remove with byte-for-byte preservation of every pre-existing cooking-state record, disposable meal-plan events/labels/list-items, disposable templates/template events/template groups with exact root-item restoration, and recipe-linked deletion across both normal and template event stores.
@@ -565,10 +565,16 @@ Official Android 3.0.3 source provides exact request/response behavior for `/aut
 | `derived.effective_recipe_scale_factor()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
 | `derived.effective_event_scale_factor()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
 | `derived.full_ingredient_string()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
+| `derived.ingredient_quantity_after_scaling()` | 🧪 OFFLINE VERIFIED | Ports the official recipe/event scale-factor precedence, optional unit abbreviation, and quantity scaling behavior. |
+| `derived.full_ingredient_string_after_scaling()` | 🧪 OFFLINE VERIFIED | Composes the source-derived scaled quantity with the exact ingredient name/note formatting helper. |
 | `derived.ingredient_to_item_ingredient()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
 | `derived.normalized_raw_package_size()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
 | `derived.recipe_list_item_identifier()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
 | `derived.same_recipe_ingredient()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
+| `derived.item_ingredient_quantity()` | 🧪 OFFLINE VERIFIED | Exact `PBItemIngredient.quantityPB()` field-or-empty-message fallback is regression-tested. |
+| `derived.item_ingredient_package_size()` | 🧪 OFFLINE VERIFIED | Exact `PBItemIngredient.packageSizePB()` field-or-empty-message fallback is regression-tested. |
+| `derived.item_ingredient_ingredient()` | 🧪 OFFLINE VERIFIED | Exact `PBItemIngredient.ingredientPB()` field-or-empty-message fallback is regression-tested. |
+| `derived.index_of_matching_item_ingredient()` | 🧪 OFFLINE VERIFIED | Ports `ListItem.indexOfMatchingItemIngredient()` using the official recipe/event/ingredient identity rule. |
 | `derived.add_item_ingredient()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
 | `derived.remove_item_ingredient()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
 | `derived.item_quantity()` | 🧪 OFFLINE VERIFIED | Matches the official legacy fallback: an absent `quantityPb` is reconstructed from valid `deprecatedQuantity` lb/kg data before falling back to an empty quantity. |
@@ -580,7 +586,9 @@ Official Android 3.0.3 source provides exact request/response behavior for `/aut
 | `derived.item_has_price()` | 🧪 OFFLINE VERIFIED | Matches official non-empty price semantics (amount presence or details). |
 | `derived.item_is_ingredient_item()` | 🧪 OFFLINE VERIFIED | Matches official non-empty item-ingredient-array semantics. |
 | `derived.item_price_for_store_id()` | 🧪 OFFLINE VERIFIED | Exact store-ID price lookup, including empty-store ID semantics, is regression-tested. |
+| `derived.item_price_for_store_id_or_new()` | 🧪 OFFLINE VERIFIED | Ports the official non-mutating create-if-missing price convenience; an existing price is returned directly and a missing store gets a detached blank `PBItemPrice`. |
 | `derived.item_price_store_id_from_store_ids()` | 🧪 OFFLINE VERIFIED | Official unique-price-store inference and single-store fallback are regression-tested. |
+| `derived.item_category_assignments_map()` | 🧪 OFFLINE VERIFIED | Exact category-group -> category mapping from repeated item assignments is regression-tested. |
 | `derived.item_store_names_display_string()` | 🧪 OFFLINE VERIFIED | Resolves present store names, locale-sorts, and comma-joins like app.js. |
 | `derived.ingredient_package_size()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
 | `derived.total_ingredient_quantity()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |

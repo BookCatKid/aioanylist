@@ -53,6 +53,24 @@ def test_total_ingredient_quantity_uses_display_abbreviation_before_pluralizatio
     assert total.unit == "Dosen"
 
 
+def test_ingredient_scaling_helpers_match_web_precedence_and_abbreviation() -> None:
+    from anylist_sdk.derived import (
+        full_ingredient_string_after_scaling,
+        ingredient_quantity_after_scaling,
+    )
+
+    ingredient = PB.PBIngredient(quantity="2 tablespoons", name="oil", note="divided")
+    recipe = PB.PBRecipe(scaleFactor=2)
+    event = PB.PBCalendarEvent(recipeScaleFactor=0.5)
+
+    assert ingredient_quantity_after_scaling(ingredient, recipe) == "4 tablespoons"
+    assert ingredient_quantity_after_scaling(ingredient, recipe, abbreviated_units=True) == "4 Tbsp"
+    assert ingredient_quantity_after_scaling(ingredient, recipe, event) == "1 tablespoons"
+    assert full_ingredient_string_after_scaling(ingredient, recipe, event) == (
+        "1 tablespoons oil, divided"
+    )
+
+
 def test_item_quantity_falls_back_to_legacy_quantity_like_web() -> None:
     from anylist_sdk.derived import item_quantity
 
@@ -89,6 +107,41 @@ def test_display_quantity_package_and_cell_text_match_web() -> None:
     item.quantityPb.CopyFrom(quantity)
     item.packageSizePb.CopyFrom(package)
     assert shopping_list_quantity_text(item) == "(2 Tbsp × 12 oz jars)"
+
+
+def test_item_ingredient_and_category_lookup_helpers_match_web() -> None:
+    from anylist_sdk.derived import (
+        index_of_matching_item_ingredient,
+        item_category_assignments_map,
+        item_ingredient_ingredient,
+        item_ingredient_package_size,
+        item_ingredient_quantity,
+    )
+
+    item = PB.ListItem(identifier="item")
+    first = item.ingredients.add(recipeId="recipe")
+    first.ingredient.identifier = "ingredient"
+    first.quantityPb.amount = "2"
+    first.packageSizePb.rawPackageSize = "12 oz"
+    target = PB.PBItemIngredient(recipeId="recipe")
+    target.ingredient.identifier = "ingredient"
+
+    assert index_of_matching_item_ingredient(item, target) == 0
+    assert item_ingredient_quantity(first).amount == "2"
+    assert item_ingredient_package_size(first).rawPackageSize == "12 oz"
+    assert item_ingredient_ingredient(first).identifier == "ingredient"
+    item.categoryAssignments.add(categoryGroupId="group", categoryId="produce")
+    assert item_category_assignments_map(item) == {"group": "produce"}
+
+
+def test_item_price_for_store_id_or_new_matches_web() -> None:
+    from anylist_sdk.derived import item_price_for_store_id_or_new
+
+    item = PB.ListItem(identifier="item")
+    fresh = item_price_for_store_id_or_new(item, "store")
+    assert fresh.storeId == "store" and len(item.prices) == 0
+    stored = item.prices.add(storeId="store", amount=2.5)
+    assert item_price_for_store_id_or_new(item, "store") is stored
 
 
 def test_user_category_system_predicate_matches_web() -> None:
