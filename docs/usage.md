@@ -23,6 +23,40 @@ await client.close()
 
 `cache_dir` enables durable operation-journal replay and tag-data caching. `load()` performs the initial synchronized account load; `realtime=True` also starts the WebSocket invalidation client.
 
+`client.visuals` is available even before authentication because the official icon metadata and
+image resources are public static AnyList resources. With `cache_dir`, its JSON catalogs are cached
+alongside tag data; image binaries are never bundled or copied into the SDK.
+
+## Icons, images, colors, and themes
+
+Use `client.visuals` rather than hard-coding AnyList asset paths or theme IDs:
+
+```python
+from anylist_sdk import IconContext
+
+catalog = await client.visuals.icon_catalog(IconContext.LIST)
+paint = next(icon for icon in catalog.unique_entries() if icon.icon_name == "emoji/1f3a8")
+
+print(client.visuals.icon_url(paint))
+print(client.visuals.category_icon_url("produce"))
+
+assert client.list_settings is not None
+settings = client.list_settings.get(list_id)
+theme = client.visuals.resolve_list_theme(settings, dark=False)
+dark_theme = client.visuals.resolve_list_theme(settings, dark=True)
+icon = client.visuals.resolve_list_icon(settings)
+style = client.visuals.theme_style(theme)
+
+print(style.control_hex_color, style.table_texture_url, style.font_family)
+```
+
+The icon index is fetched from the same official JSON resources used by AnyList Web, so the SDK
+does not freeze a particular Android APK's drawable inventory and does not redistribute AnyList's
+PNG artwork. Context-specific catalogs reproduce the official pickers for lists, folders, recipes,
+recipe collections, meal-plan notes, and meal-plan templates. See
+[`visual-assets.md`](visual-assets.md) for the exact paths, theme palettes, dark-mode behavior, and
+fallback rules.
+
 ## Reusing a signed-in session
 
 The password is only needed to obtain the first `AuthTokens` bundle. Persist the newest token bundle in your application's credential store and pass it back on the next launch:

@@ -39,6 +39,7 @@ from .sync import SyncCoordinator
 from .tag_data import TagDataManager
 from .transport import AnyListTransport, TokenCallback
 from .types import AuthTokens, Domain
+from .visuals import VisualsService
 
 
 class AnyListClient:
@@ -62,6 +63,7 @@ class AnyListClient:
     alexa: AlexaService | None
     web_state: WebStateService | None
     config: NativeConfigService
+    visuals: VisualsService
     raw: RawAPI
 
     def __init__(
@@ -96,6 +98,11 @@ class AnyListClient:
             self.transport,
             locale=(tokens.user_locale if tokens and tokens.user_locale else "en-US"),
             cache_dir=(self.cache_dir / "tags" if self.cache_dir else None),
+        )
+        self.visuals = VisualsService(
+            self.transport,
+            locale=(tokens.user_locale if tokens and tokens.user_locale else "en-US"),
+            cache_dir=(self.cache_dir / "visuals" if self.cache_dir else None),
         )
         self.categorizer = Categorizer(self.tag_data)
         self.autocomplete = AutocompleteEngine(self.tag_data)
@@ -292,6 +299,7 @@ class AnyListClient:
         tokens = await self.transport.sign_in(email, password)
         self._sign_in_email = email
         self.tag_data.locale = tokens.user_locale or "en-US"
+        self.visuals.locale = tokens.user_locale or "en-US"
         # A client instance can be reused after logout. Never expose data from a previous
         # account through the new account's services.
         if (

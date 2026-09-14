@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Awaitable, Callable, Iterable, Sequence
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 from uuid import UUID
 
@@ -9,12 +10,15 @@ import aiohttp
 from google.protobuf.message import Message
 
 from ..derived import (
+    active_package_size,
+    active_quantity_for_total_cost,
     add_item_ingredient,
     event_list_item_to_item_ingredient,
     ingredient_to_item_ingredient,
     normalized_raw_package_size,
     recipe_list_item_identifier,
     remove_item_ingredient,
+    unit_price,
 )
 from ..identifiers import uuid4_hex, uuid5_hex
 from ..item_semantics import (
@@ -24,13 +28,14 @@ from ..item_semantics import (
     EXCLUDE_PRICE_QUANTITY,
     apply_properties_from_item,
     items_equal,
+    package_size_empty,
     package_size_equal,
     quantity_equal,
     quantity_to_deprecated_string,
 )
 from ..normalization import canonical_category_match_id
 from ..operations import OperationJournal, QueueSpec
-from ..parsing.quantity import normalize_unit
+from ..parsing.quantity import abbreviate_units_in_text, normalize_unit, singularize_units_in_text
 from ..proto import (
     PB,
     ListItem,
@@ -335,6 +340,95 @@ class ShoppingListsService(OperationService):
     def item(self, list_id: str, item_id: str) -> ListItem | None:
         return self.state.get_item(list_id, item_id)
 
+    def _web_number_format(self) -> tuple[str, str]:
+        settings = self.state.mobile_app_settings
+        decimal_separator = "."
+        currency_symbol = "$"
+        if settings is not None:
+            if settings.HasField("webDecimalSeparator") and settings.webDecimalSeparator:
+                decimal_separator = str(settings.webDecimalSeparator)
+            if settings.HasField("webCurrencySymbol") and settings.webCurrencySymbol:
+                currency_symbol = str(settings.webCurrencySymbol)
+        return decimal_separator, currency_symbol
+
+    @staticmethod
+    def _js_to_fixed(value: float, digits: int) -> str:
+        """Match JavaScript Number.toFixed rounding for ordinary finite AnyList prices."""
+
+        quantum = Decimal(1).scaleb(-digits)
+        decimal = Decimal.from_float(float(value)).quantize(quantum, rounding=ROUND_HALF_UP)
+        return f"{decimal:.{digits}f}"
+
+    def _currency_string(self, amount: float, max_decimal_places: int) -> str:
+        # AnyList Web's formatter returns an empty string for zero/falsy amounts.
+        if not amount:
+            return ""
+        decimal_separator, symbol = self._web_number_format()
+        if symbol == "kr":
+            number = self._js_to_fixed(amount, 2).replace(".", decimal_separator)
+            return f"{number} {symbol}"
+        number = self._js_to_fixed(amount, max_decimal_places).replace(".", decimal_separator)
+        return f"{symbol}{number}"
+
+    async def _format_currency_with_price_unit(
+        self,
+        amount: float,
+        price_unit: str | None,
+        *,
+        compact: bool,
+        max_decimal_places: int,
+    ) -> str:
+        value = self._currency_string(amount, max_decimal_places)
+        if price_unit is None:
+            return value
+        if compact:
+            template = (
+                "{{currencyString}}/ea" if price_unit == "" else "{{currencyString}}/{{priceUnit}}"
+            )
+        else:
+            template = (
+                "{{currencyString}} each"
+                if price_unit == ""
+                else "{{currencyString}} per {{priceUnit}}"
+            )
+        translated = await self._localized_string(template)
+        return (
+            translated.replace("{{currencyString}}", value)
+            .replace("{{- currencyString}}", value)
+            .replace("{{priceUnit}}", price_unit)
+            .replace("{{- priceUnit}}", price_unit)
+        )
+
+    @staticmethod
+    def _abbreviated_singular_unit(unit: str) -> str:
+        return singularize_units_in_text(abbreviate_units_in_text(unit or ""))
+
+    async def item_price_string(self, item: ListItem, price: PBItemPrice | None) -> str | None:
+        """Port ``ListItem.itemPriceStringForItemPrice`` from AnyList Web."""
+
+        if price is None or not price.HasField("amount"):
+            return None
+        quantity = active_quantity_for_total_cost(item)
+        unit = self._abbreviated_singular_unit(str(quantity.unit or ""))
+        return await self._format_currency_with_price_unit(
+            float(price.amount), unit, compact=True, max_decimal_places=2
+        )
+
+    async def unit_price_string(self, item: ListItem, price: PBItemPrice | None) -> str | None:
+        """Port ``ListItem.unitPriceStringForItemPrice`` from AnyList Web."""
+
+        if price is None or not price.HasField("amount"):
+            return None
+        package = active_package_size(item)
+        if not package_size_empty(package):
+            raw_unit = str(package.unit or "")
+        else:
+            raw_unit = str(active_quantity_for_total_cost(item).unit or "")
+        unit = self._abbreviated_singular_unit(raw_unit)
+        return await self._format_currency_with_price_unit(
+            unit_price(item, price), unit, compact=False, max_decimal_places=3
+        )
+
     def has_pending_new_list(self) -> bool:
         return any(
             str(op.metadata.handlerId) == "new-shopping-list" for op in self.legacy_queue._pending
@@ -541,6 +635,41 @@ class ShoppingListsService(OperationService):
             if selected is not None:
                 return selected
         return self._default_category_group(list_id)
+
+    def category_id_for_group(self, list_id: str, item: ListItem, category_group_id: str) -> str:
+        """Resolve ``ListItem.categoryIDForCategoryGroupID`` using synchronized list context.
+
+        AnyList first honors an explicit per-item assignment. When no explicit assignment exists,
+        it uses ``categoryMatchId`` to find the category in the requested group whose system/
+        normalized match ID is the same. ``other`` and missing match IDs deliberately do not
+        synthesize a fallback category.
+        """
+
+        for assignment in item.categoryAssignments:
+            if str(assignment.categoryGroupId) == category_group_id:
+                return str(assignment.categoryId or "")
+
+        match_id = str(item.categoryMatchId or "")
+        if not match_id or match_id == "other":
+            return ""
+        for category in self._category_index(list_id).values():
+            if str(category.categoryGroupId) != category_group_id:
+                continue
+            if self._category_match_id(category) == match_id:
+                return str(category.identifier)
+        return ""
+
+    def item_has_recipe(self, item: ListItem) -> bool:
+        """Return AnyList Web's state-aware ``ListItem.hasRecipe()`` value.
+
+        Ingredient-derived shopping items count as recipe items immediately. Otherwise a stored
+        ``recipeId`` only counts while that ID resolves in the synchronized recipe manager.
+        """
+
+        if item.ingredients:
+            return True
+        recipe_id = str(item.recipeId or "")
+        return bool(recipe_id and recipe_id in self.state.recipes)
 
     def _category_assignments_for_new_item(
         self,

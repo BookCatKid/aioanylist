@@ -12,11 +12,12 @@ This project does not use unofficial AnyList clients as protocol authority and i
 - Incremental synchronization plus WebSocket invalidation/reconnect handling.
 - Durable operation journals for replay after interrupted sessions.
 - Shopping lists, Favorites/Recents, folders, stores, categories, recipes, meal planning, photos, sharing, account data, native search/lookup, remote config, and auxiliary endpoints.
-- Client-side AnyList behavior including autocomplete, grocery categorization, quantity/package parsing, recipe parsing, normalization, stemming, derived totals, and deterministic identifiers.
+- Client-side AnyList behavior including autocomplete, grocery categorization, quantity/package parsing, recipe parsing, normalization, stemming, derived totals, deterministic identifiers, and official visual/theme resolution.
+- Current AnyList icon metadata/catalog access and canonical asset URLs without bundling or redistributing AnyList artwork.
 - PEP 561 typing with schema-generated protobuf stubs.
 - Full-featured Textual example application, kept outside the installable SDK package.
 
-The default repository test suite currently passes **490/490** tests. Detailed source/live verification evidence is tracked in [`docs/conformance.md`](docs/conformance.md).
+The default repository test suite currently passes **508/508** tests. Detailed source/live verification evidence is tracked in [`docs/conformance.md`](docs/conformance.md).
 
 ## Requirements
 
@@ -160,6 +161,8 @@ python -m ruff format --check .
 - [`docs/usage.md`](docs/usage.md) — practical SDK patterns for integrations and applications.
 - [`docs/tui.md`](docs/tui.md) — terminal-client setup and day-to-day usage.
 - [`docs/conformance.md`](docs/conformance.md) — exhaustive verified public surface and live/offline evidence.
+- [`docs/visual-assets.md`](docs/visual-assets.md) — official icon catalogs, asset URLs, themes, palettes, and effective visual fallbacks.
+- [`docs/usability-audit.md`](docs/usability-audit.md) — protocol-complete surfaces that still need higher-level domain ergonomics.
 
 ## Scope
 

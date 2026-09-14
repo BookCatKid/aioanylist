@@ -16,7 +16,7 @@ This is the authoritative verification checklist for the SDK. **Official executa
 
 ## Current checkpoint
 
-- Default offline/local suite: **490 passing** at the latest repository gate.
+- Default offline/local suite: **508 passing** at the latest repository gate.
 - Current read-only live suite: **12/12 passing** with the corrected multipart transport, including live autocomplete/categorization against official English/German tag resources plus live sync-hook, raw-API, service-view, and transport-close coverage.
 - Native token-session sign-out: **2/2 passing** against both `www.anylist.com` and `production.anylist.com`. In both cases `/data/auth/sign-out` revoked the supplied refresh token immediately while the already-issued access token remained accepted by `/data/account/info` immediately after logout.
 - Guarded live mutation suite: **48 passed, 1 safely skipped without writing** in the latest complete run. In addition to the disposable shopping-list ecosystem, coverage now includes uniquely identified disposable global categories/groupings and learned categorization memory, disposable recipes/collections with exact collection-order restoration, disposable per-recipe cooking-state add/remove with byte-for-byte preservation of every pre-existing cooking-state record, disposable meal-plan events/labels/list-items, disposable templates/template events/template groups with exact root-item restoration, and recipe-linked deletion across both normal and template event stores.
@@ -108,6 +108,34 @@ The Android source also reveals account/signup/password/subuser/delete/purchase 
 | `TagDataManager.get()` | ✅ LIVE VERIFIED | English and German official resources both loaded live; German missing tagKeywordsIndex behavior is covered. |
 | `TagDataManager.active_and_english()` | ✅ LIVE VERIFIED | English and German official resources both loaded live; German missing tagKeywordsIndex behavior is covered. |
 
+## Visual catalogs and themes
+
+| Functionality | Status | Evidence / next check |
+|---|---|---|
+| `IconEntry.as_pb_icon()` | 🧪 OFFLINE VERIFIED | Exact `PBIcon` construction from the official catalog entry/tint representation is regression-tested. |
+| `IconCatalog.entries()` | 🧪 OFFLINE VERIFIED | Official catalog groups, entries, and variations are parsed and flattened in source-derived tests. |
+| `IconCatalog.unique_entries()` | ✅ LIVE VERIFIED | Current live English AnyList resources produced 3,485 unique icon names across 26 groups. |
+| `IconCatalog.search()` | 🧪 OFFLINE VERIFIED | Keyword/name matching over official catalog metadata is regression-tested. |
+| `visuals.built_in_themes()` | 🧪 OFFLINE VERIFIED | Exact current web theme IDs/names/colors/textures/fonts are reconstructed from the official bundle and regression-tested. |
+| `VisualsService.language()` | 🧪 OFFLINE VERIFIED | Locale-to-language derivation mirrors the static-resource loader and is exercised through catalog tests. |
+| `VisualsService.catalog_path()` | ✅ LIVE VERIFIED | Paths reconstructed from current app.js loaded the real public AnyList icon JSON resources. |
+| `VisualsService.absolute_url()` | 🧪 OFFLINE VERIFIED | Host-relative resource composition is regression-tested for the configured AnyList base URL. |
+| `VisualsService.icon_url()` | ✅ LIVE VERIFIED | Canonical web path was verified against a real public AnyList PNG (`emoji/1f3a8`). |
+| `VisualsService.texture_url()` | ✅ LIVE VERIFIED | Canonical texture path matches current web construction; live `wood@2x.png` resource path was resolved during the audit. |
+| `VisualsService.category_icon_url()` | ✅ LIVE VERIFIED | Canonical shopping-category path was verified with the real public `produce@2x.png` resource. |
+| `VisualsService.get_icon_set()` | ✅ LIVE VERIFIED | Loaded current live English emoji, food/cooking, and classic recipe JSON resources without authentication. |
+| `VisualsService.icon_catalog()` | ✅ LIVE VERIFIED | Current live combined catalog returned 26 groups / 3,485 unique icon names; contextual compositions are additionally regression-tested against app.js. |
+| `VisualsService.built_in_themes()` | 🧪 OFFLINE VERIFIED | Thin public service wrapper over the exact source-derived theme catalog. |
+| `VisualsService.built_in_theme()` | 🧪 OFFLINE VERIFIED | Built-in lookup plus Android-derived dark variants are regression-tested. |
+| `VisualsService.selected_theme_id()` | 🧪 OFFLINE VERIFIED | `listThemeId` -> legacy `listColorType` -> Aqua fallback reconstructed from official clients. |
+| `VisualsService.resolve_list_theme()` | 🧪 OFFLINE VERIFIED | Built-in/custom/custom-dark selection and native dark derivation are covered by source-derived tests. |
+| `VisualsService.resolve_list_icon()` | 🧪 OFFLINE VERIFIED | Explicit icon and default-list-icon/theme-tint fallback match native source and are regression-tested. |
+| `VisualsService.folder_hex_color()` | 🧪 OFFLINE VERIFIED | Exact web default `16A1E0` and explicit folder color behavior are regression-tested. |
+| `VisualsService.resolve_folder_icon()` | 🧪 OFFLINE VERIFIED | Explicit icon and default-folder-icon/color fallback match app.js and are regression-tested. |
+| `VisualsService.resolve_recipe_collection_icon()` | 🧪 OFFLINE VERIFIED | Official catalog validation and stack-of-recipe-cards fallback match app.js and are regression-tested. |
+| `VisualsService.theme_style()` | 🧪 OFFLINE VERIFIED | Web defaults for effective colors, font family, texture URL and tile size are source-derived and regression-tested. |
+| `VisualsService.font_family()` | 🧪 OFFLINE VERIFIED | Exact current web font-family mappings are reconstructed from app.js. |
+
 ## Autocomplete
 
 | Functionality | Status | Evidence / next check |
@@ -120,6 +148,7 @@ The Android source also reveals account/signup/password/subuser/delete/purchase 
 |---|---|---|
 | `Categorizer.classify_with()` | ✅ LIVE VERIFIED | Classified a real German normalized display-name entry from AnyList's official live tag resource to its exact tag. |
 | `Categorizer.classify()` | ✅ LIVE VERIFIED | Live German classification succeeded and English fallback correctly classified an English-only official tag-data entry. |
+| `Categorizer.classify_ingredient()` | 🧪 OFFLINE VERIFIED | Exact convenience port of `PBIngredient.groceryItemTag()`: classifies the ingredient name through the same cached active/English categorizer and returns `None` for empty names or misses. |
 
 ## Operation queue
 
@@ -154,6 +183,10 @@ The Android source also reveals account/signup/password/subuser/delete/purchase 
 | `ShoppingListsService.all()` | ✅ LIVE VERIFIED | Compared directly with the synchronized real shopping-list state. |
 | `ShoppingListsService.get()` | ✅ LIVE VERIFIED | Used by the guarded disposable-list tests and fresh-session server readback. |
 | `ShoppingListsService.item()` | ✅ LIVE VERIFIED | Used repeatedly for live temporary-item verification and cleanup. |
+| `ShoppingListsService.item_price_string()` | 🧪 OFFLINE VERIFIED | Ports AnyList Web's item-price display formatter using synchronized web currency/decimal settings, quantity unit abbreviation/singularization, JS-style fixed decimals, and localized templates. |
+| `ShoppingListsService.unit_price_string()` | 🧪 OFFLINE VERIFIED | Ports AnyList Web's per-unit price formatter, including active package/quantity-unit selection, 3-decimal maximum formatting, stored currency/decimal settings, and localized templates. |
+| `ShoppingListsService.category_id_for_group()` | 🧪 OFFLINE VERIFIED | Ports `ListItem.categoryIDForCategoryGroupID()` with synchronized category context: explicit assignment wins, then category-match/system-category mapping, then empty string. |
+| `ShoppingListsService.item_has_recipe()` | 🧪 OFFLINE VERIFIED | Ports the state-aware `ListItem.hasRecipe()` rule: ingredient-derived items count immediately; otherwise `recipeId` counts only when it resolves in synchronized recipe state. |
 | `ShoppingListsService.has_pending_new_list()` | ✅ LOCAL VERIFIED | Explicit regression verifies false → true while a `new-shopping-list` operation is pending on the legacy queue → false after removal. |
 | `ShoppingListsService.remove_list_local()` | ✅ LOCAL VERIFIED | Explicit regression verifies removal from shopping state, duplicate ordered IDs, and all list-local indexes without any server mutation. |
 | `ShoppingListsService.refresh()` | ✅ LIVE VERIFIED | Called against the real endpoint and decoded/applied successfully. |
@@ -518,6 +551,11 @@ Official Android 3.0.3 source provides exact request/response behavior for `/aut
 | `derived.recipes_not_in_collection()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
 | `derived.not_in_collection_smart_collection()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
 | `derived.duplicate_recipe_ids()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
+| `derived.account_full_name()` | 🧪 OFFLINE VERIFIED | Exact account first/last-name composition from app.js is regression-tested. |
+| `derived.email_user_display_name()` | 🧪 OFFLINE VERIFIED | Exact full-name then email fallback from app.js is regression-tested. |
+| `derived.recipe_collection_sort_order()` | 🧪 OFFLINE VERIFIED | Effective Manual default and explicit collection sort order match the official helper. |
+| `derived.recipe_photo_id()` | 🧪 OFFLINE VERIFIED | Exact first-photo-ID helper from app.js is regression-tested. |
+| `derived.recipe_photo_url()` | 🧪 OFFLINE VERIFIED | Exact first-photo-URL helper from app.js is regression-tested. |
 | `derived.sort_recipes()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
 | `derived.effective_recipe_scale_factor()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
 | `derived.effective_event_scale_factor()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
@@ -529,6 +567,16 @@ Official Android 3.0.3 source provides exact request/response behavior for `/aut
 | `derived.add_item_ingredient()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
 | `derived.remove_item_ingredient()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
 | `derived.item_quantity()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
+| `derived.item_category_id()` | 🧪 OFFLINE VERIFIED | `categoryMatchId` -> legacy category -> `other` fallback matches app.js. |
+| `derived.item_event_id()` | 🧪 OFFLINE VERIFIED | Empty event ID -> `None` semantics match app.js. |
+| `derived.item_photo_id()` | 🧪 OFFLINE VERIFIED | Exact first-photo-ID helper from app.js is regression-tested. |
+| `derived.item_has_photo()` | 🧪 OFFLINE VERIFIED | Exact repeated-photo presence semantics are regression-tested. |
+| `derived.item_has_store()` | 🧪 OFFLINE VERIFIED | Exact store-ID presence semantics are regression-tested. |
+| `derived.item_has_price()` | 🧪 OFFLINE VERIFIED | Matches official non-empty price semantics (amount presence or details). |
+| `derived.item_is_ingredient_item()` | 🧪 OFFLINE VERIFIED | Matches official non-empty item-ingredient-array semantics. |
+| `derived.item_price_for_store_id()` | 🧪 OFFLINE VERIFIED | Exact store-ID price lookup, including empty-store ID semantics, is regression-tested. |
+| `derived.item_price_store_id_from_store_ids()` | 🧪 OFFLINE VERIFIED | Official unique-price-store inference and single-store fallback are regression-tested. |
+| `derived.item_store_names_display_string()` | 🧪 OFFLINE VERIFIED | Resolves present store names, locale-sorts, and comma-joins like app.js. |
 | `derived.ingredient_package_size()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
 | `derived.total_ingredient_quantity()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
 | `derived.list_quantity()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
@@ -547,6 +595,11 @@ Official Android 3.0.3 source provides exact request/response behavior for `/aut
 | `derived.duplicate_recipe()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
 | `derived.cooking_states_equal()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
 | `derived.icons_equal()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
+| `derived.folder_index_of_list_id()` | 🧪 OFFLINE VERIFIED | Exact folder child list lookup by type + identifier is regression-tested. |
+| `derived.folder_index_of_folder_id()` | 🧪 OFFLINE VERIFIED | Exact nested-folder lookup by type + identifier is regression-tested. |
+| `derived.folder_index_of_item()` | 🧪 OFFLINE VERIFIED | Exact folder item type/identifier equality lookup is regression-tested. |
+| `derived.folder_lists_sort_order()` | 🧪 OFFLINE VERIFIED | Effective Manual default for an absent folder setting matches app.js. |
+| `derived.folder_sort_position()` | 🧪 OFFLINE VERIFIED | Effective After Lists default for an absent folder setting matches app.js. |
 | `derived.icon_resource_path()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
 | `derived.calendar_event_descriptor()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |
 | `derived.descriptor_for_calendar_event()` | 🧪 OFFLINE VERIFIED | Pure/local semantics; covered by source-derived tests. Live mutation proof is not applicable or will be obtained indirectly through the owning service. |

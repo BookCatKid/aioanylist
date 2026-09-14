@@ -62,8 +62,12 @@ Several visible AnyList features are computed locally rather than by the server.
 - normalization, stemming, and search helpers;
 - deterministic IDs used by official data structures;
 - recipe/meal-plan/pricing derived values.
+- AnyList-owned visual catalogs, asset URL resolution, built-in themes, and effective visual fallbacks.
 
 The exhaustive evidence level for each public callable is tracked in [`conformance.md`](conformance.md).
+The separate [`usability-audit.md`](usability-audit.md) tracks cases where raw protocol coverage
+exists but a downstream application would otherwise still need to reconstruct official client-side
+semantics itself.
 
 ## Source authority
 

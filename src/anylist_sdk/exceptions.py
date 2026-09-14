@@ -31,3 +31,7 @@ class SyncError(AnyListError):
 
 class TagDataError(AnyListError):
     """Official tag-data resource could not be loaded or validated."""
+
+
+class VisualDataError(AnyListError):
+    """Official visual metadata resource could not be loaded or validated."""

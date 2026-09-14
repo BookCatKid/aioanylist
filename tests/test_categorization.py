@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from anylist_sdk.categorization import Categorizer
+from anylist_sdk.proto import PB
 from anylist_sdk.tag_data import TagData
 
 
@@ -69,3 +70,12 @@ async def test_non_english_classifier_uses_local_index_then_english_fallback() -
     assert await categorizer.classify("birne") is None
     assert await categorizer.classify("apfel") == "apples"
     assert await categorizer.classify("apple") == "apples"
+
+
+@pytest.mark.asyncio
+async def test_ingredient_grocery_tag_uses_shared_classifier() -> None:
+    english = data(language="en")
+    categorizer = Categorizer(Manager(english, english))
+
+    assert await categorizer.classify_ingredient(PB.PBIngredient(name="apples")) == "apples"
+    assert await categorizer.classify_ingredient(PB.PBIngredient()) is None

@@ -66,6 +66,45 @@ def test_duplicate_recipe_ids() -> None:
     assert duplicate_recipe_ids(collection) == ["a", "a"]
 
 
+def test_account_and_share_display_names_match_web_helpers() -> None:
+    from anylist_sdk.derived import account_full_name, email_user_display_name
+
+    assert account_full_name(PB.PBAccountInfoResponse(firstName="Ada", lastName="Lovelace")) == (
+        "Ada Lovelace"
+    )
+    assert account_full_name(PB.PBAccountInfoResponse(firstName="Ada")) == "Ada"
+    assert account_full_name(PB.PBAccountInfoResponse()) is None
+    assert (
+        email_user_display_name(PB.PBEmailUserIDPair(email="ada@example.test", fullName="Ada"))
+        == "Ada"
+    )
+    assert email_user_display_name(PB.PBEmailUserIDPair(email="ada@example.test")) == (
+        "ada@example.test"
+    )
+
+
+def test_recipe_photo_and_collection_sort_helpers_match_web_defaults() -> None:
+    from anylist_sdk.derived import recipe_collection_sort_order, recipe_photo_id, recipe_photo_url
+
+    recipe = PB.PBRecipe(photoIds=["photo-a", "photo-b"], photoUrls=["https://example/a.jpg"])
+    assert recipe_photo_id(recipe) == "photo-a"
+    assert recipe_photo_url(recipe) == "https://example/a.jpg"
+    assert recipe_photo_id(PB.PBRecipe()) is None
+
+    collection = PB.PBRecipeCollection()
+    assert (
+        recipe_collection_sort_order(collection)
+        == PB.PBRecipeCollectionSettings.SortOrder.ManualSortOrder
+    )
+    collection.collectionSettings.recipesSortOrder = (
+        PB.PBRecipeCollectionSettings.SortOrder.RatingSortOrder
+    )
+    assert (
+        recipe_collection_sort_order(collection)
+        == PB.PBRecipeCollectionSettings.SortOrder.RatingSortOrder
+    )
+
+
 def test_source_smart_collections_keep_first_seen_order() -> None:
     from anylist_sdk.derived import source_collection_identifier, source_smart_collections
 
@@ -118,6 +157,73 @@ def test_total_cost_quantity_override() -> None:
     item.quantityPb.amount = "2"
     price = PB.PBItemPrice(amount=3.5)
     assert total_cost(item, price) == 7.0
+
+
+def test_list_item_convenience_helpers_match_web_semantics() -> None:
+    from anylist_sdk.derived import (
+        item_category_id,
+        item_event_id,
+        item_has_photo,
+        item_has_price,
+        item_has_store,
+        item_is_ingredient_item,
+        item_photo_id,
+        item_price_for_store_id,
+        item_price_store_id_from_store_ids,
+        item_store_names_display_string,
+    )
+
+    item = PB.ListItem(category="produce", eventId="event", photoIds=["photo"], storeIds=["b", "a"])
+    item.prices.add(storeId="a", amount=2.5)
+    item.ingredients.add(recipeId="recipe")
+    assert item_category_id(item) == "produce"
+    item.categoryMatchId = "apple"
+    assert item_category_id(item) == "apple"
+    assert item_event_id(item) == "event"
+    assert item_photo_id(item) == "photo" and item_has_photo(item)
+    assert item_has_store(item) and item_has_price(item) and item_is_ingredient_item(item)
+    assert item_price_for_store_id(item, "a") is item.prices[0]
+    assert item_price_for_store_id(item, "missing") is None
+    assert item_price_store_id_from_store_ids(item, ["a"]) == "a"
+    assert item_price_store_id_from_store_ids(item, ["a", "b"]) == "a"
+    item.prices.add(storeId="b", details="sale")
+    assert item_price_store_id_from_store_ids(item, ["a", "b"]) is None
+    stores = [PB.PBStore(identifier="a", name="Alpha"), PB.PBStore(identifier="b", name="Beta")]
+    assert item_store_names_display_string(item, stores) == "Alpha, Beta"
+
+
+def test_folder_index_and_effective_sort_helpers_match_web_defaults() -> None:
+    from anylist_sdk.derived import (
+        folder_index_of_folder_id,
+        folder_index_of_item,
+        folder_index_of_list_id,
+        folder_lists_sort_order,
+        folder_sort_position,
+    )
+
+    folder = PB.PBListFolder()
+    folder.items.add(identifier="list", itemType=PB.PBListFolderItem.ItemType.ListType)
+    child = folder.items.add(identifier="folder", itemType=PB.PBListFolderItem.ItemType.FolderType)
+    assert folder_index_of_list_id(folder, "list") == 0
+    assert folder_index_of_folder_id(folder, "folder") == 1
+    assert folder_index_of_item(folder, child) == 1
+    assert folder_index_of_list_id(folder, "missing") == -1
+    assert folder_lists_sort_order(folder) == PB.PBListFolderSettings.SortOrder.ManualSortOrder
+    assert (
+        folder_sort_position(folder)
+        == PB.PBListFolderSettings.FolderSortPosition.FolderSortPositionAfterLists
+    )
+    folder.folderSettings.listsSortOrder = PB.PBListFolderSettings.SortOrder.AlphabeticalSortOrder
+    folder.folderSettings.folderSortPosition = (
+        PB.PBListFolderSettings.FolderSortPosition.FolderSortPositionBeforeLists
+    )
+    assert (
+        folder_lists_sort_order(folder) == PB.PBListFolderSettings.SortOrder.AlphabeticalSortOrder
+    )
+    assert (
+        folder_sort_position(folder)
+        == PB.PBListFolderSettings.FolderSortPosition.FolderSortPositionBeforeLists
+    )
 
 
 def _recipe(rid: str, name: str, **fields):

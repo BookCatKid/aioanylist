@@ -34,6 +34,7 @@ def test_authenticated_constructor_installs_complete_service_surface() -> None:
         "alexa",
         "web_state",
         "config",
+        "visuals",
         "raw",
     ):
         assert getattr(client, name) is not None
@@ -42,6 +43,7 @@ def test_authenticated_constructor_installs_complete_service_surface() -> None:
 def test_unauthenticated_constructor_keeps_public_config_surface_only() -> None:
     client = AnyListClient()
     assert client.config is not None
+    assert client.visuals is not None
     assert client.raw is not None
     assert client.products is None
 

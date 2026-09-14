@@ -881,6 +881,52 @@ async def test_fresh_add_builds_category_metadata_before_single_add_operation(
     assert op.listItem == item
 
 
+def test_category_id_for_group_matches_official_assignment_then_match_id_fallback(
+    fake_transport,
+) -> None:
+    svc = service(fake_transport)
+    svc.state.list_categories["list"] = {
+        "produce": PB.PBListCategory(
+            identifier="produce",
+            listId="list",
+            categoryGroupId="group",
+            name="Produce",
+            systemCategory="produce",
+        ),
+        "custom": PB.PBListCategory(
+            identifier="custom",
+            listId="list",
+            categoryGroupId="group",
+            name="Home Office",
+        ),
+    }
+
+    explicit = PB.ListItem(categoryMatchId="produce")
+    explicit.categoryAssignments.add(categoryGroupId="group", categoryId="custom")
+    assert svc.category_id_for_group("list", explicit, "group") == "custom"
+
+    generic = PB.ListItem(categoryMatchId="produce")
+    assert svc.category_id_for_group("list", generic, "group") == "produce"
+
+    normalized = PB.ListItem(categoryMatchId="home-office")
+    assert svc.category_id_for_group("list", normalized, "group") == "custom"
+
+    assert svc.category_id_for_group("list", PB.ListItem(categoryMatchId="other"), "group") == ""
+
+
+def test_item_has_recipe_matches_recipe_manager_resolution(fake_transport) -> None:
+    svc = service(fake_transport)
+    svc.state.recipes["recipe"] = PB.PBRecipe(identifier="recipe")
+
+    ingredient_item = PB.ListItem()
+    ingredient_item.ingredients.add(recipeId="missing")
+    assert svc.item_has_recipe(ingredient_item)
+
+    assert svc.item_has_recipe(PB.ListItem(recipeId="recipe"))
+    assert not svc.item_has_recipe(PB.ListItem(recipeId="missing"))
+    assert not svc.item_has_recipe(PB.ListItem())
+
+
 @pytest.mark.asyncio
 async def test_autocomplete_add_merges_saved_metadata_only_on_selected_suggestion_branch(
     fake_transport,
@@ -1141,6 +1187,52 @@ async def test_save_price_updates_and_removes_optimistic_price_state(fake_transp
     calls = len(fake_transport.calls)
     await svc.save_price("list", "item", PB.PBItemPrice(storeId="missing"))
     assert len(fake_transport.calls) == calls
+
+
+@pytest.mark.asyncio
+async def test_price_display_matches_web_currency_and_unit_formatting(fake_transport) -> None:
+    svc = service(fake_transport)
+    item = PB.ListItem()
+    item.quantityPb.amount = "2"
+    item.quantityPb.unit = "pounds"
+    item.packageSizePb.size = "4"
+    item.packageSizePb.unit = "ounces"
+    price = PB.PBItemPrice(amount=3.5)
+
+    assert await svc.item_price_string(item, price) == "$3.50/lb"
+    assert await svc.unit_price_string(item, price) == "$0.875 per oz"
+    assert await svc.item_price_string(item, PB.PBItemPrice()) is None
+
+
+@pytest.mark.asyncio
+async def test_price_display_uses_synced_web_number_settings_and_i18next_template(
+    fake_transport,
+) -> None:
+    svc = ShoppingListsService(
+        fake_transport,
+        AnyListState(user_id="user"),
+        user_id="user",
+        user_email="user@example.com",
+        user_locale="de-DE",
+    )
+    svc.state.mobile_app_settings = PB.PBMobileAppSettings(
+        webDecimalSeparator=",", webCurrencySymbol="kr"
+    )
+    svc._localized_strings = {
+        "{{currencyString}}/ea": "{{- currencyString}}/Stk",
+        "{{currencyString}}/{{priceUnit}}": "{{- currencyString}}/{{- priceUnit}}",
+        "{{currencyString}} each": "{{- currencyString}} pro Stück",
+        "{{currencyString}} per {{priceUnit}}": "{{- currencyString}} pro {{- priceUnit}}",
+    }
+
+    item = PB.ListItem()
+    assert await svc.item_price_string(item, PB.PBItemPrice(amount=3.5)) == "3,50 kr/Stk"
+    assert await svc.unit_price_string(item, PB.PBItemPrice(amount=3.5)) == "3,50 kr pro Stück"
+
+
+def test_js_to_fixed_matches_web_binary_float_rounding(fake_transport) -> None:
+    svc = service(fake_transport)
+    assert svc._currency_string(1.005, 2) == "$1.00"
 
 
 @pytest.mark.asyncio

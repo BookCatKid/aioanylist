@@ -30,20 +30,25 @@ from .parsing.quantity import (
 from .proto import (
     PB,
     ListItem,
+    PBAccountInfoResponse,
     PBCalendarEvent,
     PBCalendarEventDescriptor,
     PBCalendarEventListItem,
+    PBEmailUserIDPair,
     PBIcon,
     PBIngredient,
     PBItemIngredient,
     PBItemPackageSize,
     PBItemPrice,
     PBItemQuantity,
+    PBListFolder,
+    PBListFolderItem,
     PBMealPlanTemplateGroupItem,
     PBRecipe,
     PBRecipeCollection,
     PBRecipeCollectionSettings,
     PBRecipeCookingState,
+    PBStore,
 )
 from .stemming import stem_words
 
@@ -56,6 +61,18 @@ _NOT_IN_COLLECTION_ID = "74267bf441d04dbc9dda96910dd3ba58"
 def recipe_source_aliases() -> dict[str, str]:
     path = Path(__file__).with_name("data") / "recipe_source_aliases.json"
     return cast(dict[str, str], json.loads(path.read_text(encoding="utf-8")))
+
+
+def account_full_name(info: PBAccountInfoResponse) -> str | None:
+    first = str(getattr(info, "firstName", "") or "")
+    last = str(getattr(info, "lastName", "") or "")
+    if first and last:
+        return f"{first} {last}"
+    return first or last or None
+
+
+def email_user_display_name(value: PBEmailUserIDPair) -> str:
+    return str(getattr(value, "fullName", "") or getattr(value, "email", "") or "")
 
 
 def source_domain(recipe: PBRecipe) -> str | None:
@@ -198,6 +215,25 @@ def duplicate_recipe_ids(collection: PBRecipeCollection) -> list[str]:
             dupes.append(recipe_id)
         seen.add(recipe_id)
     return dupes
+
+
+def recipe_collection_sort_order(collection: PBRecipeCollection) -> int:
+    settings = collection.collectionSettings if collection.HasField("collectionSettings") else None
+    if (
+        settings is None
+        or not settings.HasField("recipesSortOrder")
+        or not settings.recipesSortOrder
+    ):
+        return PB.PBRecipeCollectionSettings.SortOrder.ManualSortOrder
+    return int(settings.recipesSortOrder)
+
+
+def recipe_photo_id(recipe: PBRecipe) -> str | None:
+    return str(recipe.photoIds[0]) if recipe.photoIds else None
+
+
+def recipe_photo_url(recipe: PBRecipe) -> str | None:
+    return str(recipe.photoUrls[0]) if recipe.photoUrls else None
 
 
 def _recipe_name_compare(a: PBRecipe, b: PBRecipe) -> int:
@@ -479,6 +515,71 @@ def item_quantity(item: ListItem) -> PBItemQuantity:
     return item.quantityPb if item.HasField("quantityPb") else PB.PBItemQuantity()
 
 
+def item_category_id(item: ListItem) -> str:
+    return str(item.categoryMatchId or item.category or "other")
+
+
+def item_event_id(item: ListItem) -> str | None:
+    return str(item.eventId) if item.eventId else None
+
+
+def item_photo_id(item: ListItem) -> str | None:
+    return str(item.photoIds[0]) if item.photoIds else None
+
+
+def item_has_photo(item: ListItem) -> bool:
+    return bool(item.photoIds)
+
+
+def item_has_store(item: ListItem) -> bool:
+    return bool(item.storeIds)
+
+
+def item_has_price(item: ListItem) -> bool:
+    for price in item.prices:
+        if price.HasField("amount") or bool(price.details):
+            return True
+    return False
+
+
+def item_is_ingredient_item(item: ListItem) -> bool:
+    return bool(item.ingredients)
+
+
+def item_price_for_store_id(item: ListItem, store_id: str | None) -> PBItemPrice | None:
+    target = store_id or ""
+    for price in item.prices:
+        if (price.storeId or "") == target:
+            return price
+    return None
+
+
+def item_price_store_id_from_store_ids(item: ListItem, store_ids: list[str]) -> str | None:
+    if not store_ids:
+        return None
+    match: str | None = None
+    for store_id in store_ids:
+        if item_price_for_store_id(item, store_id) is None:
+            continue
+        if match is not None:
+            return None
+        match = store_id
+    if match is None and len(store_ids) == 1:
+        return store_ids[0]
+    return match
+
+
+def item_store_names_display_string(item: ListItem, stores: list[PBStore]) -> str:
+    by_id = {str(store.identifier): store for store in stores}
+    names = [
+        str(by_id[store_id].name)
+        for store_id in item.storeIds
+        if store_id in by_id and by_id[store_id].name
+    ]
+    names.sort(key=localized_sort_key)
+    return ", ".join(names)
+
+
 def ingredient_package_size(item: ListItem) -> PBItemPackageSize:
     if item.ingredients and item.ingredients[0].HasField("packageSizePb"):
         return item.ingredients[0].packageSizePb
@@ -730,6 +831,46 @@ def icons_equal(a: PBIcon, b: PBIcon | None) -> bool:
     return (getattr(a, "iconName", "") or "") == (getattr(b, "iconName", "") or "") and (
         getattr(a, "tintHexColor", "") or ""
     ) == (getattr(b, "tintHexColor", "") or "")
+
+
+def folder_index_of_list_id(folder: PBListFolder, list_id: str) -> int:
+    for index, item in enumerate(folder.items):
+        if item.itemType == PB.PBListFolderItem.ItemType.ListType and item.identifier == list_id:
+            return index
+    return -1
+
+
+def folder_index_of_folder_id(folder: PBListFolder, folder_id: str) -> int:
+    for index, item in enumerate(folder.items):
+        if (
+            item.itemType == PB.PBListFolderItem.ItemType.FolderType
+            and item.identifier == folder_id
+        ):
+            return index
+    return -1
+
+
+def folder_index_of_item(folder: PBListFolder, target: PBListFolderItem) -> int:
+    for index, item in enumerate(folder.items):
+        if item.itemType == target.itemType and item.identifier == target.identifier:
+            return index
+    return -1
+
+
+def folder_lists_sort_order(folder: PBListFolder) -> int:
+    if not folder.HasField("folderSettings") or not folder.folderSettings.HasField(
+        "listsSortOrder"
+    ):
+        return PB.PBListFolderSettings.SortOrder.ManualSortOrder
+    return int(folder.folderSettings.listsSortOrder)
+
+
+def folder_sort_position(folder: PBListFolder) -> int:
+    if not folder.HasField("folderSettings") or not folder.folderSettings.HasField(
+        "folderSortPosition"
+    ):
+        return PB.PBListFolderSettings.FolderSortPosition.FolderSortPositionAfterLists
+    return int(folder.folderSettings.folderSortPosition)
 
 
 def icon_resource_path(icon: PBIcon) -> str:

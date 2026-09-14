@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 
 from .normalization import contains_word_or_phrase, remove_diacritics
+from .proto import PBIngredient
 from .stemming import english_stem
 from .tag_data import TagData, TagDataManager
 
@@ -170,3 +171,16 @@ class Categorizer:
                 result = english.normalized_display_names_index.get(normalized)
         self._cache[key] = result
         return result
+
+    async def classify_ingredient(self, ingredient: PBIngredient) -> str | None:
+        """Return the grocery tag used by AnyList for a recipe ingredient.
+
+        This is the SDK equivalent of ``PBIngredient.groceryItemTag()`` in AnyList Web. The
+        official helper is backed by the same shared tag classifier/cache rather than by a field
+        on the ingredient protobuf itself.
+        """
+
+        name = str(ingredient.name or "")
+        if not name:
+            return None
+        return await self.classify(name)
