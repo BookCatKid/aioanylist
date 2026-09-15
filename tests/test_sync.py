@@ -4,10 +4,10 @@ import asyncio
 
 import pytest
 
-from anylist_sdk.proto import PB
-from anylist_sdk.state import AnyListState
-from anylist_sdk.sync import SyncCoordinator
-from anylist_sdk.types import Domain
+from aioanylist.proto import PB
+from aioanylist.state import AnyListState
+from aioanylist.sync import SyncCoordinator
+from aioanylist.types import Domain
 
 
 class BlockingTransport:

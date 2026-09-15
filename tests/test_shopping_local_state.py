@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from anylist_sdk.proto import PB
-from anylist_sdk.services.shopping import ShoppingListsService, category_rule_identifier
-from anylist_sdk.state import AnyListState
+from aioanylist.proto import PB
+from aioanylist.services.shopping import ShoppingListsService, category_rule_identifier
+from aioanylist.state import AnyListState
 
 
 def service(fake_transport):
@@ -749,7 +749,7 @@ async def test_delete_category_group_migrates_filters_to_official_default_group(
     # The deterministic group ID is preferred by AnyList's Q.G fallback selector.
     from uuid import UUID
 
-    from anylist_sdk.identifiers import uuid5_hex
+    from aioanylist.identifiers import uuid5_hex
 
     default_id = uuid5_hex("list", UUID(hex="f656a81f0e0a419aa45121f4f2eac51b"))
     doomed = PB.PBListCategoryGroup(identifier="doomed", listId="list", name="Old")
@@ -1180,7 +1180,7 @@ async def test_category_assignment_uses_deterministic_group_assignment_and_full_
 ) -> None:
     from uuid import UUID
 
-    from anylist_sdk.identifiers import uuid5_hex
+    from aioanylist.identifiers import uuid5_hex
 
     svc = service(fake_transport)
     svc.state.shopping_lists["list"] = PB.ShoppingList(

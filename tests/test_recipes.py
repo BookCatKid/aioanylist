@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from anylist_sdk.proto import PB
-from anylist_sdk.services.recipes import RecipesService
-from anylist_sdk.services.shopping import ShoppingListsService
-from anylist_sdk.state import AnyListState
+from aioanylist.proto import PB
+from aioanylist.services.recipes import RecipesService
+from aioanylist.services.shopping import ShoppingListsService
+from aioanylist.state import AnyListState
 
 
 @pytest.mark.asyncio
@@ -111,8 +111,8 @@ async def test_remove_absent_recipe_from_collection_is_official_noop(fake_transp
 
 @pytest.mark.asyncio
 async def test_recipe_update_reconciles_identity_stable_provenance(fake_transport) -> None:
-    from anylist_sdk.derived import ingredient_to_item_ingredient, recipe_list_item_identifier
-    from anylist_sdk.services.shopping import ShoppingListsService
+    from aioanylist.derived import ingredient_to_item_ingredient, recipe_list_item_identifier
+    from aioanylist.services.shopping import ShoppingListsService
 
     state = AnyListState(user_id="user")
     old_recipe = PB.PBRecipe(identifier="recipe", name="Soup")
@@ -142,8 +142,8 @@ async def test_recipe_update_reconciles_identity_stable_provenance(fake_transpor
 
 @pytest.mark.asyncio
 async def test_recipe_update_moves_identity_changed_provenance(fake_transport) -> None:
-    from anylist_sdk.derived import ingredient_to_item_ingredient, recipe_list_item_identifier
-    from anylist_sdk.services.shopping import ShoppingListsService
+    from aioanylist.derived import ingredient_to_item_ingredient, recipe_list_item_identifier
+    from aioanylist.services.shopping import ShoppingListsService
 
     list_id = "0123456789abcdef0123456789abcdef"
     state = AnyListState(user_id="user")
@@ -183,8 +183,8 @@ async def test_recipe_update_moves_identity_changed_provenance(fake_transport) -
 async def test_recipe_update_does_not_recreate_checked_identity_changed_item(
     fake_transport,
 ) -> None:
-    from anylist_sdk.derived import ingredient_to_item_ingredient, recipe_list_item_identifier
-    from anylist_sdk.services.shopping import ShoppingListsService
+    from aioanylist.derived import ingredient_to_item_ingredient, recipe_list_item_identifier
+    from aioanylist.services.shopping import ShoppingListsService
 
     list_id = "0123456789abcdef0123456789abcdef"
     state = AnyListState(user_id="user")
@@ -213,7 +213,7 @@ async def test_recipe_update_does_not_recreate_checked_identity_changed_item(
 async def test_recipe_item_inherits_favorite_properties_without_overwriting_recipe_quantity(
     fake_transport,
 ) -> None:
-    from anylist_sdk.services.starter import favorite_list_id
+    from aioanylist.services.starter import favorite_list_id
 
     state = AnyListState(user_id="u")
     lst = PB.ShoppingList(identifier="0123456789abcdef0123456789abcdef")
@@ -251,7 +251,7 @@ async def test_recipe_item_inherits_favorite_properties_without_overwriting_reci
 
 @pytest.mark.asyncio
 async def test_recipe_item_prefers_favorite_over_newest_recent(fake_transport) -> None:
-    from anylist_sdk.services.starter import favorite_list_id, recent_list_id
+    from aioanylist.services.starter import favorite_list_id, recent_list_id
 
     state = AnyListState(user_id="u")
     lid = "0123456789abcdef0123456789abcdef"

@@ -67,7 +67,7 @@ def test_internal_source_passes_strict_mypy() -> None:
             "--disable-error-code",
             "attr-defined",
             "--no-error-summary",
-            "src/anylist_sdk",
+            "src/aioanylist",
         ],
         cwd=ROOT,
         env=env,

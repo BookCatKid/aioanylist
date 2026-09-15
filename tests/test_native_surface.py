@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from anylist_sdk.proto import PB, encode
-from anylist_sdk.services.http_api import AlexaService, PhotosService
-from anylist_sdk.services.native import (
+from aioanylist.proto import PB, encode
+from aioanylist.services.http_api import AlexaService, PhotosService
+from aioanylist.services.native import (
     MapsService,
     NativeConfigService,
     ProductsService,

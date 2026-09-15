@@ -2,21 +2,21 @@ from __future__ import annotations
 
 import pytest
 
-from anylist_sdk.proto import PB, decode
-from anylist_sdk.services.categories import CategorizedItemsService, UserCategoriesService
-from anylist_sdk.services.folders import FoldersService
-from anylist_sdk.services.http_api import (
+from aioanylist.proto import PB, decode
+from aioanylist.services.categories import CategorizedItemsService, UserCategoriesService
+from aioanylist.services.folders import FoldersService
+from aioanylist.services.http_api import (
     AlexaService,
     PhotosService,
     SharingService,
     WebStateService,
 )
-from anylist_sdk.services.meal_plan import MealPlanService
-from anylist_sdk.services.recipes import RecipesService
-from anylist_sdk.services.settings import ListSettingsService, MobileSettingsService
-from anylist_sdk.services.shopping import ShoppingListsService
-from anylist_sdk.services.starter import StarterListsService
-from anylist_sdk.state import AnyListState
+from aioanylist.services.meal_plan import MealPlanService
+from aioanylist.services.recipes import RecipesService
+from aioanylist.services.settings import ListSettingsService, MobileSettingsService
+from aioanylist.services.shopping import ShoppingListsService
+from aioanylist.services.starter import StarterListsService
+from aioanylist.state import AnyListState
 
 
 @pytest.mark.asyncio

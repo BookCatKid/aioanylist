@@ -4,9 +4,9 @@ import hashlib
 
 import pytest
 
-from anylist_sdk.proto import PB
-from anylist_sdk.services.categories import CategorizedItemsService, UserCategoriesService
-from anylist_sdk.state import AnyListState
+from aioanylist.proto import PB
+from aioanylist.services.categories import CategorizedItemsService, UserCategoriesService
+from aioanylist.state import AnyListState
 
 
 class DummyTransport:

@@ -29,7 +29,7 @@ behavior:
 - folder effective color/icon fallback;
 - recipe-collection default/valid-icon behavior.
 
-The implementation is in `anylist_sdk.visuals`; no AnyList image binaries are distributed with
+The implementation is in `aioanylist.visuals`; no AnyList image binaries are distributed with
 the package. See [`visual-assets.md`](visual-assets.md).
 
 ## Closed in the same audit: protobuf convenience behavior

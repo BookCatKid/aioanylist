@@ -744,7 +744,7 @@ Official Android 3.0.3 source provides exact request/response behavior for `/aut
 | PEP 561 `py.typed` packaging | ✅ LOCAL VERIFIED | Present in built wheel and recognized by consumer type check. |
 | 185 official operation handler strings accounted for | ✅ LOCAL VERIFIED | Every handler is represented in implementation/tests; one is the documented schema contradiction. |
 | 48 official endpoint strings accounted for | ✅ LOCAL VERIFIED | `/auth/logout` is intentionally not used by token auth because official bearer-token flow has no such request. |
-| Wheel build / external import | ✅ LOCAL VERIFIED | Correct `anylist_sdk-1.0.0` wheel built, installed and imported outside source tree at the release-candidate gate. |
+| Wheel build / external import | ✅ LOCAL VERIFIED | Correct `aioanylist-1.0.0` wheel built, installed and imported outside the source tree at the 1.0.0 release gate. |
 
 ## Running live conformance tests
 

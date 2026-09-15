@@ -1,4 +1,4 @@
-from anylist_sdk.derived import (
+from aioanylist.derived import (
     duplicate_recipe_ids,
     recipe_list_item_identifier,
     source_collection_identifier,
@@ -6,7 +6,7 @@ from anylist_sdk.derived import (
     source_domain,
     total_cost,
 )
-from anylist_sdk.proto import PB
+from aioanylist.proto import PB
 
 
 def _ingredient(name: str, unit: str = "cup"):
@@ -28,7 +28,7 @@ def test_recipe_item_identifier_is_deterministic_and_list_namespaced() -> None:
 
 
 def test_recipe_item_identifier_uses_official_unit_and_package_normalization() -> None:
-    from anylist_sdk.identifiers import uuid5_hex
+    from aioanylist.identifiers import uuid5_hex
 
     ingredient = _ingredient("Beans", "Dosen")
     ingredient.packageSizePb.rawPackageSize = "12 ounces jars"
@@ -39,7 +39,7 @@ def test_recipe_item_identifier_uses_official_unit_and_package_normalization() -
 
 
 def test_total_ingredient_quantity_uses_display_abbreviation_before_pluralization() -> None:
-    from anylist_sdk.derived import total_ingredient_quantity
+    from aioanylist.derived import total_ingredient_quantity
 
     item = PB.ListItem(identifier="item")
     for rid in ("a", "b"):
@@ -54,7 +54,7 @@ def test_total_ingredient_quantity_uses_display_abbreviation_before_pluralizatio
 
 
 def test_ingredient_scaling_helpers_match_web_precedence_and_abbreviation() -> None:
-    from anylist_sdk.derived import (
+    from aioanylist.derived import (
         full_ingredient_string_after_scaling,
         ingredient_quantity_after_scaling,
     )
@@ -72,7 +72,7 @@ def test_ingredient_scaling_helpers_match_web_precedence_and_abbreviation() -> N
 
 
 def test_item_quantity_falls_back_to_legacy_quantity_like_web() -> None:
-    from anylist_sdk.derived import item_quantity
+    from aioanylist.derived import item_quantity
 
     item = PB.ListItem(identifier="item", deprecatedQuantity="1.5 lb")
     quantity = item_quantity(item)
@@ -91,7 +91,7 @@ def test_item_quantity_falls_back_to_legacy_quantity_like_web() -> None:
 
 
 def test_display_quantity_package_and_cell_text_match_web() -> None:
-    from anylist_sdk.derived import display_quantity_and_package_size, shopping_list_quantity_text
+    from aioanylist.derived import display_quantity_and_package_size, shopping_list_quantity_text
 
     quantity = PB.PBItemQuantity(rawQuantity="2 tablespoons")
     package = PB.PBItemPackageSize(rawPackageSize="12 ounces jars")
@@ -110,7 +110,7 @@ def test_display_quantity_package_and_cell_text_match_web() -> None:
 
 
 def test_item_ingredient_and_category_lookup_helpers_match_web() -> None:
-    from anylist_sdk.derived import (
+    from aioanylist.derived import (
         index_of_matching_item_ingredient,
         item_category_assignments_map,
         item_ingredient_ingredient,
@@ -135,7 +135,7 @@ def test_item_ingredient_and_category_lookup_helpers_match_web() -> None:
 
 
 def test_item_price_for_store_id_or_new_matches_web() -> None:
-    from anylist_sdk.derived import item_price_for_store_id_or_new
+    from aioanylist.derived import item_price_for_store_id_or_new
 
     item = PB.ListItem(identifier="item")
     fresh = item_price_for_store_id_or_new(item, "store")
@@ -145,7 +145,7 @@ def test_item_price_for_store_id_or_new_matches_web() -> None:
 
 
 def test_user_category_system_predicate_matches_web() -> None:
-    from anylist_sdk.derived import user_category_is_system
+    from aioanylist.derived import user_category_is_system
 
     assert user_category_is_system(PB.PBUserCategory(systemCategory="produce"))
     assert not user_category_is_system(PB.PBUserCategory(name="Custom"))
@@ -165,7 +165,7 @@ def test_duplicate_recipe_ids() -> None:
 
 
 def test_account_and_share_display_names_match_web_helpers() -> None:
-    from anylist_sdk.derived import account_full_name, email_user_display_name
+    from aioanylist.derived import account_full_name, email_user_display_name
 
     assert account_full_name(PB.PBAccountInfoResponse(firstName="Ada", lastName="Lovelace")) == (
         "Ada Lovelace"
@@ -182,7 +182,7 @@ def test_account_and_share_display_names_match_web_helpers() -> None:
 
 
 def test_recipe_photo_and_collection_sort_helpers_match_web_defaults() -> None:
-    from anylist_sdk.derived import recipe_collection_sort_order, recipe_photo_id, recipe_photo_url
+    from aioanylist.derived import recipe_collection_sort_order, recipe_photo_id, recipe_photo_url
 
     recipe = PB.PBRecipe(photoIds=["photo-a", "photo-b"], photoUrls=["https://example/a.jpg"])
     assert recipe_photo_id(recipe) == "photo-a"
@@ -204,7 +204,7 @@ def test_recipe_photo_and_collection_sort_helpers_match_web_defaults() -> None:
 
 
 def test_source_smart_collections_keep_first_seen_order() -> None:
-    from anylist_sdk.derived import source_collection_identifier, source_smart_collections
+    from aioanylist.derived import source_collection_identifier, source_smart_collections
 
     recipes = [
         PB.PBRecipe(identifier="b1", sourceName="Beta", sourceUrl="https://beta.example/r"),
@@ -234,7 +234,7 @@ def test_source_smart_collections_keep_first_seen_order() -> None:
 
 
 def test_not_in_collection_smart_collection_matches_official_shape() -> None:
-    from anylist_sdk.derived import not_in_collection_smart_collection
+    from aioanylist.derived import not_in_collection_smart_collection
 
     recipes = [PB.PBRecipe(identifier="a"), PB.PBRecipe(identifier="b")]
     user_collection = PB.PBRecipeCollection(identifier="c", recipeIds=["a"])
@@ -258,7 +258,7 @@ def test_total_cost_quantity_override() -> None:
 
 
 def test_list_item_convenience_helpers_match_web_semantics() -> None:
-    from anylist_sdk.derived import (
+    from aioanylist.derived import (
         item_category_id,
         item_event_id,
         item_has_photo,
@@ -291,7 +291,7 @@ def test_list_item_convenience_helpers_match_web_semantics() -> None:
 
 
 def test_folder_index_and_effective_sort_helpers_match_web_defaults() -> None:
-    from anylist_sdk.derived import (
+    from aioanylist.derived import (
         folder_index_of_folder_id,
         folder_index_of_item,
         folder_index_of_list_id,
@@ -332,7 +332,7 @@ def _recipe(rid: str, name: str, **fields):
 
 
 def test_recipe_sorting_matches_official_rating_and_tie_break_rules() -> None:
-    from anylist_sdk.derived import sort_recipes
+    from aioanylist.derived import sort_recipes
 
     settings = PB.PBRecipeCollectionSettings(
         recipesSortOrder=PB.PBRecipeCollectionSettings.SortOrder.RatingSortOrder
@@ -349,7 +349,7 @@ def test_recipe_sorting_matches_official_rating_and_tie_break_rules() -> None:
 
 
 def test_recipe_sorting_prep_time_missing_semantics_match_web() -> None:
-    from anylist_sdk.derived import sort_recipes
+    from aioanylist.derived import sort_recipes
 
     settings = PB.PBRecipeCollectionSettings(
         recipesSortOrder=PB.PBRecipeCollectionSettings.SortOrder.PrepTimeSortOrder
@@ -365,7 +365,7 @@ def test_recipe_sorting_prep_time_missing_semantics_match_web() -> None:
 
 
 def test_recipe_sorting_uses_past_meal_history_for_date_and_count() -> None:
-    from anylist_sdk.derived import sort_recipes
+    from aioanylist.derived import sort_recipes
 
     a = _recipe("a", "A")
     b = _recipe("b", "B")
@@ -391,7 +391,7 @@ def test_recipe_sorting_uses_past_meal_history_for_date_and_count() -> None:
 
 
 def test_recipe_servings_scaling_preserves_text_prefix() -> None:
-    from anylist_sdk.derived import recipe_servings_after_scaling
+    from aioanylist.derived import recipe_servings_after_scaling
 
     recipe = PB.PBRecipe(identifier="r", servings="Serves 4", scaleFactor=1.5)
     assert recipe_servings_after_scaling(recipe) == "Serves 6"
@@ -400,7 +400,7 @@ def test_recipe_servings_scaling_preserves_text_prefix() -> None:
 
 
 def test_recipe_heading_filters_match_official_hash_space_marker() -> None:
-    from anylist_sdk.derived import (
+    from aioanylist.derived import (
         is_recipe_heading,
         recipe_heading_text,
         recipe_ingredients_excluding_headings,
@@ -419,7 +419,7 @@ def test_recipe_heading_filters_match_official_hash_space_marker() -> None:
 
 
 def test_recipe_duplicate_copies_only_official_user_fields_with_fresh_compact_ids() -> None:
-    from anylist_sdk.derived import duplicate_recipe
+    from aioanylist.derived import duplicate_recipe
 
     recipe = PB.PBRecipe(
         identifier="old",
@@ -456,7 +456,7 @@ def test_recipe_duplicate_copies_only_official_user_fields_with_fresh_compact_id
 
 
 def test_cooking_state_icon_descriptor_and_template_group_helpers() -> None:
-    from anylist_sdk.derived import (
+    from aioanylist.derived import (
         cooking_states_equal,
         descriptor_for_calendar_event,
         descriptor_for_queue_event,
@@ -502,7 +502,7 @@ def test_cooking_state_icon_descriptor_and_template_group_helpers() -> None:
 
 
 def test_event_list_item_equality_supports_official_normalized_mode() -> None:
-    from anylist_sdk.derived import event_list_item_arrays_equal, event_list_items_equal
+    from aioanylist.derived import event_list_item_arrays_equal, event_list_items_equal
 
     a = PB.PBCalendarEventListItem(identifier="a", name="Crème Sugar", details="Fine cut")
     b = PB.PBCalendarEventListItem(identifier="a", name="creme sugar", details="fine cut")

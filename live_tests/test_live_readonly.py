@@ -8,12 +8,12 @@ from typing import Any
 import pytest
 from google.protobuf.message import Message
 
-from anylist_sdk import AnyListClient
-from anylist_sdk.autocomplete import AutocompleteEngine
-from anylist_sdk.categorization import Categorizer
-from anylist_sdk.proto import PB, decode
-from anylist_sdk.tag_data import TagDataManager
-from anylist_sdk.types import Domain
+from aioanylist import AnyListClient
+from aioanylist.autocomplete import AutocompleteEngine
+from aioanylist.categorization import Categorizer
+from aioanylist.proto import PB, decode
+from aioanylist.tag_data import TagDataManager
+from aioanylist.types import Domain
 
 pytestmark = pytest.mark.live
 

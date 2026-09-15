@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from anylist_sdk.proto import PB, encode
-from anylist_sdk.services.http_api import AccountService, SharingService
-from anylist_sdk.state import AnyListState
+from aioanylist.proto import PB, encode
+from aioanylist.services.http_api import AccountService, SharingService
+from aioanylist.state import AnyListState
 
 
 class FakeTransport:
@@ -156,7 +156,7 @@ async def test_share_list_response_email_uses_localized_compare() -> None:
 
 
 def test_photo_url_uses_official_s3_base_with_separator() -> None:
-    from anylist_sdk.services.http_api import PhotosService
+    from aioanylist.services.http_api import PhotosService
 
     assert PhotosService.url("abc") == "https://photos.anylist.com/abc.jpg"
 
@@ -165,9 +165,9 @@ def test_photo_url_uses_official_s3_base_with_separator() -> None:
 async def test_photo_byte_upload_refreshes_401_and_retries_same_server_filename() -> None:
     from aiohttp import web
 
-    from anylist_sdk.services.http_api import PhotosService
-    from anylist_sdk.transport import AnyListTransport
-    from anylist_sdk.types import AuthTokens
+    from aioanylist.services.http_api import PhotosService
+    from aioanylist.transport import AnyListTransport
+    from aioanylist.types import AuthTokens
 
     seen = []
     refreshes = []

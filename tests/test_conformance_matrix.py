@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "src" / "anylist_sdk"
+SOURCE = ROOT / "src" / "aioanylist"
 MATRIX = ROOT / "docs" / "conformance.md"
 
 

@@ -5,10 +5,10 @@ from contextlib import asynccontextmanager
 import pytest
 from aiohttp import web
 
-from anylist_sdk.exceptions import NotModifiedError
-from anylist_sdk.proto import PB
-from anylist_sdk.transport import AnyListTransport
-from anylist_sdk.types import AuthTokens
+from aioanylist.exceptions import NotModifiedError
+from aioanylist.proto import PB
+from aioanylist.transport import AnyListTransport
+from aioanylist.types import AuthTokens
 
 
 @asynccontextmanager

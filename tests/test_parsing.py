@@ -4,8 +4,8 @@ import math
 
 import pytest
 
-from anylist_sdk.parsing.ingredient import parse_ingredient_line, parse_recipe_steps
-from anylist_sdk.parsing.quantity import (
+from aioanylist.parsing.ingredient import parse_ingredient_line, parse_recipe_steps
+from aioanylist.parsing.quantity import (
     amount_as_float,
     normalize_unit,
     parse_leading_amount,

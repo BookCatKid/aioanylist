@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 from google.protobuf.message import Message
 
-from anylist_sdk.proto import PB, message_class
+from aioanylist.proto import PB, message_class
 
 
 @dataclass

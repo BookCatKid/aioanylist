@@ -5,11 +5,11 @@ import json
 from importlib.resources import files
 from pathlib import Path
 
-from anylist_sdk.proto import PB, message_class
+from aioanylist.proto import PB, message_class
 
 
 def _surface() -> dict:
-    path = files("anylist_sdk").joinpath("official_surface.json")
+    path = files("aioanylist").joinpath("official_surface.json")
     return json.loads(path.read_text("utf-8"))
 
 
@@ -48,7 +48,7 @@ def test_official_surface_counts_and_sdk_structural_coverage() -> None:
     surface = _surface()
     assert len(surface["endpoints"]) == 48
     assert len(surface["operation_handlers"]) == 185
-    root = Path(__file__).parents[1] / "src" / "anylist_sdk"
+    root = Path(__file__).parents[1] / "src" / "aioanylist"
     sdk_text = "\n".join(p.read_text("utf-8") for p in root.rglob("*.py"))
     # /auth/logout is the browser/XSRF form endpoint, not part of the token API. The SDK's
     # token-session logout uses the official native /data/auth/sign-out endpoint instead.
@@ -67,7 +67,7 @@ def test_official_surface_counts_and_sdk_structural_coverage() -> None:
 
 def test_direct_service_operation_fields_exist_in_official_protobuf_schema() -> None:
     """Catch typos/invented fields in direct high-level operation construction."""
-    root = Path(__file__).parents[1] / "src" / "anylist_sdk" / "services"
+    root = Path(__file__).parents[1] / "src" / "aioanylist" / "services"
     operation_types = {
         "ShoppingListsService": "PBListOperation",
         "RecipesService": "PBRecipeOperation",

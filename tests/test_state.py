@@ -1,5 +1,5 @@
-from anylist_sdk.proto import PB
-from anylist_sdk.state import AnyListState
+from aioanylist.proto import PB
+from aioanylist.state import AnyListState
 
 
 def test_list_settings_are_indexed_by_list_id_and_full_refresh_clears() -> None:

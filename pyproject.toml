@@ -3,14 +3,14 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "anylist-sdk"
+name = "aioanylist"
 version = "1.0.0"
 description = "Async-first pure-Python client for AnyList, reconstructed from the official web application"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 license-files = ["LICENSE"]
-authors = [{name = "AnyList SDK contributors"}]
+authors = [{name = "aioanylist contributors"}]
 keywords = ["anylist", "asyncio", "grocery", "shopping-list", "sdk"]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
@@ -31,10 +31,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/BookCatKid/anylist-sdk"
-Documentation = "https://github.com/BookCatKid/anylist-sdk/tree/main/docs"
-Repository = "https://github.com/BookCatKid/anylist-sdk"
-Issues = "https://github.com/BookCatKid/anylist-sdk/issues"
+Homepage = "https://github.com/BookCatKid/aioanylist"
+Documentation = "https://github.com/BookCatKid/aioanylist/tree/main/docs"
+Repository = "https://github.com/BookCatKid/aioanylist"
+Issues = "https://github.com/BookCatKid/aioanylist/issues"
 
 [project.optional-dependencies]
 tui = [
@@ -63,7 +63,7 @@ markers = [
 line-length = 100
 # This file is deterministic generator output; formatting it independently makes
 # tools/generate_proto_stubs.py --check report a false stale-stub failure.
-extend-exclude = ["src/anylist_sdk/proto/__init__.pyi"]
+extend-exclude = ["src/aioanylist/proto/__init__.pyi"]
 
 [tool.mypy]
 strict = true
@@ -80,4 +80,4 @@ include-package-data = true
 where = ["src"]
 
 [tool.setuptools.package-data]
-anylist_sdk = ["py.typed", "proto/schema.json", "proto/*.pyi", "official_surface.json", "data/*.json"]
+aioanylist = ["py.typed", "proto/schema.json", "proto/*.pyi", "official_surface.json", "data/*.json"]

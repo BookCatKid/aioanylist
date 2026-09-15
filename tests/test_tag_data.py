@@ -8,9 +8,9 @@ import pytest
 from aiohttp import web
 from test_transport import server
 
-from anylist_sdk.exceptions import TagDataError
-from anylist_sdk.tag_data import TagData, TagDataManager
-from anylist_sdk.transport import AnyListTransport
+from aioanylist.exceptions import TagDataError
+from aioanylist.tag_data import TagData, TagDataManager
+from aioanylist.transport import AnyListTransport
 
 
 def payload(tag: str = "milk") -> dict:

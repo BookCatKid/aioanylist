@@ -6,9 +6,9 @@ import pytest
 from aiohttp import web
 from test_transport import server
 
-from anylist_sdk.proto import PB
-from anylist_sdk.transport import AnyListTransport
-from anylist_sdk.visuals import (
+from aioanylist.proto import PB
+from aioanylist.transport import AnyListTransport
+from aioanylist.visuals import (
     IconContext,
     IconSetKind,
     VisualsService,

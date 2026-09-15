@@ -22,7 +22,7 @@ from google.protobuf.json_format import MessageToDict
 from mcp.server import MCPServer
 from mcp.server.mcpserver import Context
 
-from anylist_sdk import AnyListClient
+from aioanylist import AnyListClient
 
 
 @dataclass
@@ -47,7 +47,7 @@ async def lifespan(_: MCPServer) -> AsyncIterator[AppContext]:
 
 mcp = MCPServer(
     "AnyList",
-    description="Shopping-list and recipe tools backed by anylist-sdk",
+    description="Shopping-list and recipe tools backed by aioanylist",
     lifespan=lifespan,
 )
 

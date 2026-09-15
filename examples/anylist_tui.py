@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""User-facing Textual example client for ``anylist-sdk``.
+"""User-facing Textual example client for ``aioanylist``.
 
 The UI follows the three concepts a normal AnyList user expects: Lists, Recipes, and Meal Plan.
 Less-common list settings live behind contextual screens instead of exposing SDK service boundaries.
@@ -53,12 +53,12 @@ except ModuleNotFoundError as exc:  # pragma: no cover - friendly optional-extra
         "Textual is required for this example. Install with: pip install -e '.[tui]'"
     ) from exc
 
-from anylist_sdk import AnyListClient, AuthenticationError
-from anylist_sdk.derived import effective_recipe_scale_factor, recipe_servings_after_scaling
-from anylist_sdk.normalization import canonical_category_match_id
-from anylist_sdk.parsing.ingredient import parse_ingredient_lines, parse_recipe_steps
-from anylist_sdk.parsing.quantity import parse_quantity_and_package_size
-from anylist_sdk.proto import (
+from aioanylist import AnyListClient, AuthenticationError
+from aioanylist.derived import effective_recipe_scale_factor, recipe_servings_after_scaling
+from aioanylist.normalization import canonical_category_match_id
+from aioanylist.parsing.ingredient import parse_ingredient_lines, parse_recipe_steps
+from aioanylist.parsing.quantity import parse_quantity_and_package_size
+from aioanylist.proto import (
     PB,
     ListItem,
     PBCalendarEvent,
@@ -67,9 +67,9 @@ from anylist_sdk.proto import (
     PBRecipe,
     StarterList,
 )
-from anylist_sdk.types import AuthTokens, AutocompleteSuggestion
+from aioanylist.types import AuthTokens, AutocompleteSuggestion
 
-APP_DIR = Path.home() / ".config" / "anylist-sdk"
+APP_DIR = Path.home() / ".config" / "aioanylist"
 TOKEN_CACHE = APP_DIR / "tui-tokens.json"
 SDK_CACHE = APP_DIR / "cache"
 AUTO_CATEGORY = "__auto__"
@@ -4553,7 +4553,7 @@ async def _async_main(args: argparse.Namespace) -> None:
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="User-facing Textual example for anylist-sdk")
+    parser = argparse.ArgumentParser(description="User-facing Textual example for aioanylist")
     parser.add_argument(
         "--token-cache",
         default=os.fspath(TOKEN_CACHE),

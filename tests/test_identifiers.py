@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import re
 
-from anylist_sdk.identifiers import uuid4_hex, uuid5_hex
-from anylist_sdk.transport import AnyListTransport
+from aioanylist.identifiers import uuid4_hex, uuid5_hex
+from aioanylist.transport import AnyListTransport
 
 _HEX32 = re.compile(r"^[0-9a-f]{32}$")
 

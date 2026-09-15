@@ -9,7 +9,7 @@ Create one `AnyListClient` per signed-in account and keep it alive for as long a
 ```python
 from pathlib import Path
 
-from anylist_sdk import AnyListClient
+from aioanylist import AnyListClient
 
 
 client = AnyListClient(cache_dir=Path("~/.cache/my-integration").expanduser())
@@ -32,7 +32,7 @@ alongside tag data; image binaries are never bundled or copied into the SDK.
 Use `client.visuals` rather than hard-coding AnyList asset paths or theme IDs:
 
 ```python
-from anylist_sdk import IconContext
+from aioanylist import IconContext
 
 catalog = await client.visuals.icon_catalog(IconContext.LIST)
 paint = next(icon for icon in catalog.unique_entries() if icon.icon_name == "emoji/1f3a8")
@@ -62,7 +62,7 @@ fallback rules.
 The password is only needed to obtain the first `AuthTokens` bundle. Persist the newest token bundle in your application's credential store and pass it back on the next launch:
 
 ```python
-from anylist_sdk import AnyListClient, AuthTokens
+from aioanylist import AnyListClient, AuthTokens
 
 
 def save_tokens(tokens: AuthTokens | None) -> None:
@@ -134,7 +134,7 @@ The synchronized local state is updated optimistically before acknowledgement, m
 The recipe service exposes both CRUD and AnyList's client-derived smart/sorted views:
 
 ```python
-from anylist_sdk.parsing import parse_ingredient_lines, parse_recipe_steps
+from aioanylist.parsing import parse_ingredient_lines, parse_recipe_steps
 
 assert client.recipes is not None
 
@@ -159,7 +159,7 @@ for recipe in client.recipes.sorted(collection_id=collection.identifier):
 Meal-plan events are protobuf models because the official surface carries a rich event shape:
 
 ```python
-from anylist_sdk.proto import PB
+from aioanylist.proto import PB
 
 assert client.meal_plan is not None
 
@@ -253,7 +253,7 @@ For long-running integrations such as Home Assistant, the usual lifecycle is:
 All public SDK failures derive from `AnyListError`:
 
 ```python
-from anylist_sdk import AuthenticationError, TransportError
+from aioanylist import AuthenticationError, TransportError
 
 try:
     await client.refresh()

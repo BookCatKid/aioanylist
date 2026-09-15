@@ -1,4 +1,4 @@
-from anylist_sdk.normalization import (
+from aioanylist.normalization import (
     canonical_category_match_id,
     contains_word_or_phrase,
     normalized_for_search,
@@ -6,8 +6,8 @@ from anylist_sdk.normalization import (
     range_of_word_or_phrase,
     remove_diacritics,
 )
-from anylist_sdk.stemming import english_stem
-from anylist_sdk.types import MatchRange
+from aioanylist.stemming import english_stem
+from aioanylist.types import MatchRange
 
 
 def test_search_folding_and_equivalence() -> None:

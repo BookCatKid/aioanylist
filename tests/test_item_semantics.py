@@ -1,4 +1,4 @@
-from anylist_sdk.item_semantics import (
+from aioanylist.item_semantics import (
     EXCLUDE_DETAILS,
     EXCLUDE_EVENT_ID,
     EXCLUDE_ITEM_QUANTITY,
@@ -20,7 +20,7 @@ from anylist_sdk.item_semantics import (
     prices_match,
     quantity_not_empty,
 )
-from anylist_sdk.proto import PB
+from aioanylist.proto import PB
 
 
 def item(name="Milk"):
@@ -89,7 +89,7 @@ def test_prices_ignore_empty_entries_and_are_order_insensitive() -> None:
 
 
 def test_nested_optional_field_presence_matches_protobufjs_direct_comparisons() -> None:
-    from anylist_sdk.item_semantics import ingredient_equal, price_equal
+    from aioanylist.item_semantics import ingredient_equal, price_equal
 
     a = PB.PBIngredient(name="onion")
     b = PB.PBIngredient(name="onion")
@@ -144,7 +144,7 @@ def test_apply_properties_uses_official_copy_mask() -> None:
 
 
 def test_quantity_replace_amount_falls_back_to_amount_and_unit_when_raw_is_empty() -> None:
-    from anylist_sdk.parsing.quantity import replace_quantity_amount
+    from aioanylist.parsing.quantity import replace_quantity_amount
 
     original = PB.PBItemQuantity(amount="2", unit="cups")
     updated = replace_quantity_amount(original, "1")
@@ -154,7 +154,7 @@ def test_quantity_replace_amount_falls_back_to_amount_and_unit_when_raw_is_empty
 
 
 def test_quantity_deprecated_string_matches_legacy_lb_kg_rules() -> None:
-    from anylist_sdk.item_semantics import quantity_to_deprecated_string
+    from aioanylist.item_semantics import quantity_to_deprecated_string
 
     assert (
         quantity_to_deprecated_string(PB.PBItemQuantity(amount="1 1/2", unit="pounds")) == "1½ lb"

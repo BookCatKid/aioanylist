@@ -1,6 +1,6 @@
 # Architecture
 
-`anylist-sdk` is structured around the same broad responsibilities visible in AnyList Web: token auth, protobuf HTTP transport, synchronized local state, operation queues, and realtime invalidation.
+`aioanylist` is structured around the same broad responsibilities visible in AnyList Web: token auth, protobuf HTTP transport, synchronized local state, operation queues, and realtime invalidation.
 
 ## Authentication
 
@@ -23,7 +23,7 @@ Normal data/edit endpoints use the multipart/protobuf format emitted by AnyList 
 
 The SDK default remains `https://www.anylist.com`. Android hardcodes `production.anylist.com`, but the host is transport configuration rather than protocol semantics; callers can override `base_url` when reproducing a native environment.
 
-The package embeds the official protobuf schema and builds runtime message classes dynamically. Static typing is provided by `src/anylist_sdk/proto/__init__.pyi`, generated deterministically from the same schema.
+The package embeds the official protobuf schema and builds runtime message classes dynamically. Static typing is provided by `src/aioanylist/proto/__init__.pyi`, generated deterministically from the same schema.
 
 ## State and synchronization
 

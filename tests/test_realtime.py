@@ -5,8 +5,8 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from anylist_sdk.realtime import HEARTBEAT, RealtimeClient
-from anylist_sdk.types import AuthTokens, Domain
+from aioanylist.realtime import HEARTBEAT, RealtimeClient
+from aioanylist.types import AuthTokens, Domain
 
 
 @dataclass
@@ -135,7 +135,7 @@ async def test_start_without_authentication_fails_instead_of_hanging() -> None:
     transport = DummyTransport()
     transport.tokens = None
     realtime = RealtimeClient(transport)
-    from anylist_sdk.exceptions import AuthenticationError
+    from aioanylist.exceptions import AuthenticationError
 
     with pytest.raises(AuthenticationError):
         await realtime.start()
@@ -157,7 +157,7 @@ async def test_listener_failure_does_not_prevent_other_listeners_or_kill_dispatc
 
 @pytest.mark.asyncio
 async def test_retry_delay_resets_two_seconds_after_open_independent_of_frames(monkeypatch) -> None:
-    import anylist_sdk.realtime as realtime_module
+    import aioanylist.realtime as realtime_module
 
     monkeypatch.setattr(realtime_module, "RETRY_RESET_DELAY", 0.01)
 
@@ -201,7 +201,7 @@ async def test_retry_delay_resets_two_seconds_after_open_independent_of_frames(m
 
 @pytest.mark.asyncio
 async def test_retry_reset_timer_is_cancelled_when_socket_closes_early(monkeypatch) -> None:
-    import anylist_sdk.realtime as realtime_module
+    import aioanylist.realtime as realtime_module
 
     monkeypatch.setattr(realtime_module, "RETRY_RESET_DELAY", 0.02)
 
@@ -265,7 +265,7 @@ async def test_slow_invalidation_callback_does_not_block_socket_dispatch() -> No
 
 @pytest.mark.asyncio
 async def test_three_missed_heartbeats_force_close_after_two_sends(monkeypatch) -> None:
-    import anylist_sdk.realtime as realtime_module
+    import aioanylist.realtime as realtime_module
 
     monkeypatch.setattr(realtime_module, "HEARTBEAT_INTERVAL", 0.005)
 

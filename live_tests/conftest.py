@@ -8,9 +8,9 @@ from dataclasses import dataclass, field
 import pytest
 import pytest_asyncio
 
-from anylist_sdk import AnyListClient
-from anylist_sdk.transport import AnyListTransport
-from anylist_sdk.types import AuthTokens
+from aioanylist import AnyListClient
+from aioanylist.transport import AnyListTransport
+from aioanylist.types import AuthTokens
 
 
 def _required_env(name: str) -> str:

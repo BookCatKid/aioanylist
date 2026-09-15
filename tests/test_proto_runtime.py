@@ -1,4 +1,4 @@
-from anylist_sdk.proto import PB, decode, encode
+from aioanylist.proto import PB, decode, encode
 
 
 def test_proto2_roundtrip_and_map_fields() -> None:

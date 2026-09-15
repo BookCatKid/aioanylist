@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from anylist_sdk.categorization import Categorizer
-from anylist_sdk.proto import PB
-from anylist_sdk.tag_data import TagData
+from aioanylist.categorization import Categorizer
+from aioanylist.proto import PB
+from aioanylist.tag_data import TagData
 
 
 def data(*, language="en") -> TagData:

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import assert_type
 
-from anylist_sdk import AnyListClient
-from anylist_sdk.proto import (
+from aioanylist import AnyListClient
+from aioanylist.proto import (
     PB,
     ListItem,
     PBCalendarEvent,

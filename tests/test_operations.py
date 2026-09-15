@@ -4,8 +4,8 @@ import asyncio
 
 import pytest
 
-from anylist_sdk.operations import FileOperationJournal, OperationQueue, QueueSpec
-from anylist_sdk.proto import PB
+from aioanylist.operations import FileOperationJournal, OperationQueue, QueueSpec
+from aioanylist.proto import PB
 
 
 @pytest.mark.asyncio
@@ -273,7 +273,7 @@ async def test_restore_ignores_corrupt_archived_operation_payload(tmp_path, fake
 
 @pytest.mark.asyncio
 async def test_transport_failure_retains_pending_operations_for_retry(fake_transport) -> None:
-    from anylist_sdk.exceptions import TransportError
+    from aioanylist.exceptions import TransportError
 
     queue = OperationQueue(
         fake_transport,

@@ -6,17 +6,17 @@ from uuid import uuid4
 
 import pytest
 
-from anylist_sdk import AnyListClient
-from anylist_sdk.derived import (
+from aioanylist import AnyListClient
+from aioanylist.derived import (
     event_list_item_to_item_ingredient,
     ingredient_to_item_ingredient,
 )
-from anylist_sdk.proto import PB, ListItem, ShoppingList
-from anylist_sdk.services.generic import GenericDomainService
-from anylist_sdk.services.meal_plan import MealPlanService
-from anylist_sdk.services.recipes import RecipesService
-from anylist_sdk.services.shopping import category_rule_identifier
-from anylist_sdk.services.starter import favorite_list_id, recent_list_id
+from aioanylist.proto import PB, ListItem, ShoppingList
+from aioanylist.services.generic import GenericDomainService
+from aioanylist.services.meal_plan import MealPlanService
+from aioanylist.services.recipes import RecipesService
+from aioanylist.services.shopping import category_rule_identifier
+from aioanylist.services.starter import favorite_list_id, recent_list_id
 
 DISPOSABLE_LIST_NAME = "AnyList SDK Conformance Test"
 
@@ -1516,7 +1516,7 @@ async def test_live_list_rename_round_trip(live_client, live_mutation_list_id: s
 async def test_live_add_remove_item_round_trip(live_client, live_mutation_list_id: str) -> None:
     await _load_and_require_disposable(live_client, live_mutation_list_id)
     assert live_client.lists is not None
-    marker = f"anylist-sdk-live-{uuid4().hex}"
+    marker = f"aioanylist-live-{uuid4().hex}"
     created = await live_client.lists.add_item(live_mutation_list_id, marker)
     item_id = str(created.identifier)
 

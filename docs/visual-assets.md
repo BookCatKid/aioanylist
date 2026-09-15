@@ -33,7 +33,7 @@ names** across the three catalogs. This live web catalog is the authority rather
 drawable inventory from a particular Android APK version.
 
 ```python
-from anylist_sdk import IconContext
+from aioanylist import IconContext
 
 catalog = await client.visuals.icon_catalog(IconContext.RECIPE)
 for group in catalog.groups:

@@ -12,7 +12,7 @@ The general-purpose libraries identified were:
 
 | Project | Audited revision | Published package | Notes |
 | --- | --- | --- | --- |
-| **This project** | current repository | Python package, release candidate 1.0.0 | Async-first pure Python client |
+| **This project** | current repository | Python package 1.0.0 | Async-first pure Python client |
 | PyPI [`anylist`](https://pypi.org/project/anylist/0.0.1rc1/) | published `0.0.1rc1` artifact (2025-05-31) | PyPI `anylist` 0.0.1rc1 | Very small async Python client; no repository/project URL is published in its package metadata |
 | [`kevdliu/anylist`](https://github.com/kevdliu/anylist/tree/d69278a6a7ec04750dadfdf9c6f8b1b157b3a7e8) | `d69278a` (2026-05-03) | npm `anylist` 0.8.6 | JavaScript client; README explicitly says much of the API is not implemented and list create/remove/update is unavailable |
 | [`phildenhoff/anylist_rs`](https://github.com/phildenhoff/anylist_rs/tree/0698dc9de81dd7a50856f2d890a5397277644251) | `0698dc9` (2026-07-08) | Rust crate `anylist_rs` 0.4.0 | Broad Rust client with shopping, recipes, stores, categories, meal planning, photos, and realtime support |
@@ -73,7 +73,7 @@ Legend: **Yes** = a public, generally usable API is present; **Partial** = some 
 
 This project publishes detailed evidence for reverse-engineered behavior so protocol and implementation claims can be audited.
 
-At the current release-candidate checkpoint:
+At the 1.0.0 release checkpoint:
 
 - **72** method-aware endpoint rows are classified: 54 implemented and 18 intentionally excluded, with zero unknown rows.
 - **202** proven operation handlers are classified: 195 implemented and 7 intentionally excluded, with zero unknown rows.
@@ -93,7 +93,7 @@ so the table mainly reflects end-to-end network-path latency.
 
 Audited versions:
 
-- this project: `1.0.0` release-candidate tree;
+- this project: `1.0.0`;
 - PyPI `anylist`: `0.0.1rc1`;
 - npm `anylist`: `0.8.6`;
 - `pyanylist`: `0.0.6`, which executes the `anylist_rs` Rust core through PyO3.
@@ -114,7 +114,7 @@ resource as part of their list-fetch path.
 
 In these runs, this project's timestamp-based incremental refresh had the lowest
 median warm latency in the measured set while synchronizing the broader account
-state. The minimal PyPI `anylist` release candidate had the fastest cold median.
+state. The minimal PyPI `anylist` 0.0.1rc1 package had the fastest cold median.
 Cached access was negligible for both this project and the npm client, with
 `lists.all()` measuring about three times faster than `getLists(false)` in this
 microbenchmark.

@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from anylist_sdk.client import AnyListClient
-from anylist_sdk.proto import PB
-from anylist_sdk.realtime import RealtimeEvent
-from anylist_sdk.types import AuthTokens, Domain
+from aioanylist.client import AnyListClient
+from aioanylist.proto import PB
+from aioanylist.realtime import RealtimeEvent
+from aioanylist.types import AuthTokens, Domain
 
 
 def tokens(user="user", locale="en-US"):

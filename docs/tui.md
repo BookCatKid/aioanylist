@@ -1,6 +1,6 @@
 # Textual example client
 
-`examples/anylist_tui.py` is a full user-facing frontend built on the SDK. It deliberately remains an example application rather than part of the installable `anylist_sdk` package, so library consumers do not inherit application code they do not need.
+`examples/anylist_tui.py` is a full user-facing frontend built on the SDK. It deliberately remains an example application rather than part of the installable `aioanylist` package, so library consumers do not inherit application code they do not need.
 
 ## Install and run
 
@@ -16,7 +16,7 @@ On the first run, the launcher asks for the AnyList email and password. The pass
 The current email/access-token/refresh-token bundle is stored in:
 
 ```text
-~/.config/anylist-sdk/tui-tokens.json
+~/.config/aioanylist/tui-tokens.json
 ```
 
 The file is written with mode `0600` where supported. When AnyList rotates the token pair, the TUI persists the newest pair so a later launch can continue without another password prompt.

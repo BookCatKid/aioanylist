@@ -4,10 +4,10 @@ from uuid import UUID
 
 import pytest
 
-from anylist_sdk.identifiers import uuid5_hex
-from anylist_sdk.proto import PB
-from anylist_sdk.services.settings import ListSettingsService, MobileSettingsService
-from anylist_sdk.state import AnyListState
+from aioanylist.identifiers import uuid5_hex
+from aioanylist.proto import PB
+from aioanylist.services.settings import ListSettingsService, MobileSettingsService
+from aioanylist.state import AnyListState
 
 
 @pytest.mark.asyncio

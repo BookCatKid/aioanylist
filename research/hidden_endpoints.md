@@ -260,7 +260,7 @@ Full per-endpoint detail (exact fields, response keys, evidence) is in
 ## 6. Protobuf schema findings
 
 - `research/android/model.proto` (156 messages) matches
-  `src/anylist_sdk/proto/schema.json` **exactly** (name-for-name). The
+  `src/aioanylist/proto/schema.json` **exactly** (name-for-name). The
   web-derived schema is complete — no hidden message to harvest there.
 - `research/android/server.proto` adds exactly two messages, both Mixpanel
   people-profile shaped and absent from the SDK schema:

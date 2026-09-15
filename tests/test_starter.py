@@ -4,15 +4,15 @@ import hashlib
 
 import pytest
 
-from anylist_sdk.proto import PB
-from anylist_sdk.services.starter import (
+from aioanylist.proto import PB
+from aioanylist.services.starter import (
     StarterListsService,
     aggregate_favorites_id,
     enrich_item_from_starter,
     favorite_list_id,
     recent_list_id,
 )
-from anylist_sdk.state import AnyListState
+from aioanylist.state import AnyListState
 
 
 class DummyTransport:

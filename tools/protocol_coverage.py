@@ -1,9 +1,9 @@
 """Generate an evidence-backed AnyList protocol coverage report.
 
 Authorities:
-- ``src/anylist_sdk/official_surface.json``: current AnyList Web endpoints/handlers.
+- ``src/aioanylist/official_surface.json``: current AnyList Web endpoints/handlers.
 - ``research/android/endpoints.json``: Android routes, methods, evidence and intentional status.
-- Python source under ``src/anylist_sdk``: implemented SDK literals and their locations.
+- Python source under ``src/aioanylist``: implemented SDK literals and their locations.
 
 The report is intentionally conservative. A route or handler is marked implemented only when an
 exact source literal is found (or an explicit, source-proven override says so). Unknown rows are
@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-SDK_ROOT = ROOT / "src" / "anylist_sdk"
+SDK_ROOT = ROOT / "src" / "aioanylist"
 WEB_SURFACE = SDK_ROOT / "official_surface.json"
 ANDROID_SURFACE = ROOT / "research" / "android" / "endpoints.json"
 

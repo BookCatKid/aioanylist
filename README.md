@@ -1,4 +1,4 @@
-# anylist-sdk
+# aioanylist
 
 Async-first, typed, pure-Python client for AnyList, reconstructed from the **official AnyList web application**, official native-client behavior where the web app has no equivalent surface, the embedded protobuf schema, and AnyList-owned runtime/server behavior.
 
@@ -29,19 +29,19 @@ The default repository test suite currently passes **530/530** tests. Detailed s
 Install the SDK from PyPI:
 
 ```console
-python -m pip install anylist-sdk
+python -m pip install aioanylist
 ```
 
 For the Textual example dependencies:
 
 ```console
-python -m pip install 'anylist-sdk[tui]'
+python -m pip install 'aioanylist[tui]'
 ```
 
 For the optional Model Context Protocol example dependencies:
 
 ```console
-python -m pip install 'anylist-sdk[mcp]'
+python -m pip install 'aioanylist[mcp]'
 ```
 
 For development/testing from a source checkout:
@@ -55,7 +55,7 @@ python -m pip install -e '.[test,tui]'
 ```python
 import asyncio
 
-from anylist_sdk import AnyListClient
+from aioanylist import AnyListClient
 
 
 async def main() -> None:
@@ -85,7 +85,7 @@ recipes = client.recipes.all()
 events = client.meal_plan.events()
 ```
 
-The low-level protobuf namespace is available as `anylist_sdk.proto.PB`. Operation-backed services also expose `operation(...)` as a protocol escape hatch for already-proven official handlers that do not need a dedicated convenience method.
+The low-level protobuf namespace is available as `aioanylist.proto.PB`. Operation-backed services also expose `operation(...)` as a protocol escape hatch for already-proven official handlers that do not need a dedicated convenience method.
 
 ## Authentication and session reuse
 
@@ -99,16 +99,16 @@ See [`docs/architecture.md`](docs/architecture.md) for the transport, sync, oper
 
 ## Example terminal client
 
-[`examples/anylist_tui.py`](examples/anylist_tui.py) is a substantial downstream example built on the SDK. It intentionally stays outside `src/anylist_sdk`, so installing the library for Home Assistant, automation, or another application does not also install an end-user app.
+[`examples/anylist_tui.py`](examples/anylist_tui.py) is a substantial downstream example built on the SDK. It intentionally stays outside `src/aioanylist`, so installing the library for Home Assistant, automation, or another application does not also install an end-user app.
 
 ```console
-git clone https://github.com/BookCatKid/anylist-sdk.git
-cd anylist-sdk
+git clone https://github.com/BookCatKid/aioanylist.git
+cd aioanylist
 python -m pip install -e '.[tui]'
 python examples/anylist_tui.py
 ```
 
-The first run prompts for the AnyList email and password before the TUI starts. The password is never stored. The client caches only the account email plus the current access/refresh token pair under `~/.config/anylist-sdk/`, with the token file written as mode `0600` where supported.
+The first run prompts for the AnyList email and password before the TUI starts. The password is never stored. The client caches only the account email plus the current access/refresh token pair under `~/.config/aioanylist/`, with the token file written as mode `0600` where supported.
 
 The TUI includes:
 
@@ -134,14 +134,14 @@ See [`examples/anylist_mcp.py`](examples/anylist_mcp.py) and [`docs/mcp.md`](doc
 
 The normal client/service/state surface is fully annotated and the package ships a `py.typed` marker.
 
-The protobuf classes are built dynamically at runtime from AnyList's embedded official schema, while `anylist_sdk.proto` ships a generated `.pyi` from that same schema. Editors and type checkers therefore see concrete message fields such as `ShoppingList.items`, `PBRecipe.ingredients`, and `PBCalendarEvent.eventListItems` rather than generic protobuf `Message` values.
+The protobuf classes are built dynamically at runtime from AnyList's embedded official schema, while `aioanylist.proto` ships a generated `.pyi` from that same schema. Editors and type checkers therefore see concrete message fields such as `ShoppingList.items`, `PBRecipe.ingredients`, and `PBCalendarEvent.eventListItems` rather than generic protobuf `Message` values.
 
 The checked-in stub is deterministic. `tools/generate_proto_stubs.py --check` fails if it drifts from the embedded schema, and the default suite runs strict mypy checks against both the SDK and an external consumer fixture.
 
 ## Project layout
 
 ```text
-src/anylist_sdk/        installable SDK, protocol runtime, and services
+src/aioanylist/        installable SDK, protocol runtime, and services
 tests/                  offline/local regression suite
 live_tests/             explicitly opt-in real-service conformance tests
 research/               official-client reverse-engineering evidence and inventories
@@ -168,12 +168,12 @@ Real-service tests live in `live_tests/` and require explicit environment opt-in
 
 ```console
 python -m pytest -q
-python -m mypy --strict --disable-error-code attr-defined src/anylist_sdk
+python -m mypy --strict --disable-error-code attr-defined src/aioanylist
 python tools/generate_proto_stubs.py --check
 python -m ruff format --check .
 ```
 
-`src/anylist_sdk/proto/__init__.pyi` is deterministic generated output and is intentionally excluded from independent Ruff reformatting; the generator check is its source-of-truth validation.
+`src/aioanylist/proto/__init__.pyi` is deterministic generated output and is intentionally excluded from independent Ruff reformatting; the generator check is its source-of-truth validation.
 
 ## Documentation
 

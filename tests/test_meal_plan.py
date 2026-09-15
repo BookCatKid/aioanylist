@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from anylist_sdk.proto import PB
-from anylist_sdk.services.meal_plan import MealPlanService
-from anylist_sdk.state import AnyListState
+from aioanylist.proto import PB
+from aioanylist.services.meal_plan import MealPlanService
+from aioanylist.state import AnyListState
 
 
 @pytest.mark.asyncio
@@ -232,7 +232,7 @@ async def test_event_label_change_clears_normal_event_label_sort_and_recomputes_
 async def test_root_template_group_uses_official_deterministic_identifier(fake_transport) -> None:
     from uuid import UUID
 
-    from anylist_sdk.identifiers import uuid5_hex
+    from aioanylist.identifiers import uuid5_hex
 
     state = AnyListState(user_id="user", meal_plan_calendar_id="cal")
     service = MealPlanService(fake_transport, state, user_id="user")

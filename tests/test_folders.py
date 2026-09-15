@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from anylist_sdk.proto import PB
-from anylist_sdk.services.folders import FoldersService
-from anylist_sdk.state import AnyListState
+from aioanylist.proto import PB
+from aioanylist.services.folders import FoldersService
+from aioanylist.state import AnyListState
 
 
 def _folder_item(identifier: str, item_type: int) -> object:
@@ -231,7 +231,7 @@ async def test_delete_folder_recurses_lists_children_and_parent(fake_transport) 
 
 
 def test_remove_list_local_drops_order_and_list_local_indexes() -> None:
-    from anylist_sdk.services.shopping import ShoppingListsService
+    from aioanylist.services.shopping import ShoppingListsService
 
     class DummyTransport:
         pass

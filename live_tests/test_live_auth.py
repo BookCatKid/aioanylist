@@ -9,8 +9,8 @@ import time
 import pytest
 from conftest import LiveCredentials
 
-from anylist_sdk import AnyListClient, AuthenticationError, PermissionDeniedError
-from anylist_sdk.transport import AnyListTransport
+from aioanylist import AnyListClient, AuthenticationError, PermissionDeniedError
+from aioanylist.transport import AnyListTransport
 
 pytestmark = pytest.mark.live
 

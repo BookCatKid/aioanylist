@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from anylist_sdk.autocomplete import AutocompleteEngine
-from anylist_sdk.proto import PB
-from anylist_sdk.tag_data import TagData
+from aioanylist.autocomplete import AutocompleteEngine
+from aioanylist.proto import PB
+from aioanylist.tag_data import TagData
 
 
 class DataManager:

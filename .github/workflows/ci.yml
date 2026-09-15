@@ -43,7 +43,7 @@ jobs:
       - name: Ruff format
         run: python -m ruff format --check .
       - name: Strict typing
-        run: python -m mypy --strict --disable-error-code attr-defined --no-incremental src/anylist_sdk
+        run: python -m mypy --strict --disable-error-code attr-defined --no-incremental src/aioanylist
       - name: Verify generated protobuf stubs
         run: python tools/generate_proto_stubs.py --check
       - name: Smoke-test MCP example imports
@@ -64,4 +64,4 @@ jobs:
       - name: Smoke-test built wheel
         run: |
           python -m pip install --force-reinstall dist/*.whl
-          python -c "from anylist_sdk import AnyListClient; print(AnyListClient.__name__)"
+          python -c "from aioanylist import AnyListClient; print(AnyListClient.__name__)"
