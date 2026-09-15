@@ -4,6 +4,8 @@ Async-first, typed, pure-Python client for AnyList, reconstructed from the **off
 
 This project does not use unofficial AnyList clients as protocol authority and is not affiliated with or endorsed by AnyList.
 
+> **Built to be the last AnyList client you need.** As of September 2026, an audit of the public general-purpose AnyList client ecosystem found no other library matching this project's combination of protocol coverage, high-level feature breadth, client-side AnyList behavior, realtime/incremental sync, typing, and live conformance testing. The claim is intentionally evidence-backed rather than marketing shorthand; see the [ecosystem comparison](docs/ecosystem-comparison.md) for the exact projects, revisions, methodology, and feature matrix.
+
 ## Highlights
 
 - Typed async API built on `aiohttp`.
@@ -17,7 +19,7 @@ This project does not use unofficial AnyList clients as protocol authority and i
 - PEP 561 typing with schema-generated protobuf stubs.
 - Full-featured Textual example application, kept outside the installable SDK package.
 
-The default repository test suite currently passes **530/530** tests. Detailed source/live verification evidence is tracked in [`docs/conformance.md`](https://github.com/BookCatKid/anylist-sdk/blob/main/docs/conformance.md).
+The default repository test suite currently passes **530/530** tests. Detailed source/live verification evidence is tracked in [`docs/conformance.md`](docs/conformance.md).
 
 ## Requirements
 
@@ -34,6 +36,12 @@ For the Textual example dependencies:
 
 ```console
 python -m pip install 'anylist-sdk[tui]'
+```
+
+For the optional Model Context Protocol example dependencies:
+
+```console
+python -m pip install 'anylist-sdk[mcp]'
 ```
 
 For development/testing from a source checkout:
@@ -87,11 +95,11 @@ AnyList's refresh response rotates **both** the access token and refresh token, 
 
 The SDK never needs to retain the user's password after sign-in. `logout()` performs AnyList's official native token-session sign-out and then clears local credentials; `clear_session()` is available when an application deliberately wants local-only credential removal. Live verification on both AnyList hosts shows that sign-out revokes the refresh token immediately but does not invalidate the already-issued access token, which remains usable until its normal expiry.
 
-See [`docs/architecture.md`](https://github.com/BookCatKid/anylist-sdk/blob/main/docs/architecture.md) for the transport, sync, operation-queue, and realtime model.
+See [`docs/architecture.md`](docs/architecture.md) for the transport, sync, operation-queue, and realtime model.
 
 ## Example terminal client
 
-[`examples/anylist_tui.py`](https://github.com/BookCatKid/anylist-sdk/blob/main/examples/anylist_tui.py) is a substantial downstream example built on the SDK. It intentionally stays outside `src/anylist_sdk`, so installing the library for Home Assistant, automation, or another application does not also install an end-user app.
+[`examples/anylist_tui.py`](examples/anylist_tui.py) is a substantial downstream example built on the SDK. It intentionally stays outside `src/anylist_sdk`, so installing the library for Home Assistant, automation, or another application does not also install an end-user app.
 
 ```console
 git clone https://github.com/BookCatKid/anylist-sdk.git
@@ -110,7 +118,17 @@ The TUI includes:
 
 Use `python examples/anylist_tui.py --login` to ignore a cached session and sign in again, or `python examples/anylist_tui.py --logout` to remove the cached local session.
 
-See [`docs/tui.md`](https://github.com/BookCatKid/anylist-sdk/blob/main/docs/tui.md) for navigation, shortcuts, session behavior, and troubleshooting.
+See [`docs/tui.md`](docs/tui.md) for navigation, shortcuts, session behavior, and troubleshooting.
+
+## Model Context Protocol
+
+There are already community AnyList MCP servers, so MCP is intentionally not baked
+into the core SDK. This repository instead includes a small first-party adapter
+example using the current official MCP Python SDK. It keeps one synchronized
+`AnyListClient` alive for the MCP server lifespan and demonstrates shopping and
+recipe tools without imposing an MCP-specific API on normal SDK users.
+
+See [`examples/anylist_mcp.py`](examples/anylist_mcp.py) and [`docs/mcp.md`](docs/mcp.md).
 
 ## Typing
 
@@ -136,7 +154,7 @@ examples/               downstream example applications
 
 The official executable web-client behavior is the primary specification for shared/web functionality. For native-only functionality that has no web equivalent, decompiled official Android behavior and captured official iOS behavior are used as client authority rather than unofficial third-party libraries. Captured requests or server acceptance alone are not treated as permission to invent semantics.
 
-The full verification matrix, known official-source contradictions, deliberate evidence-backed divergence, and live-test safety boundaries are documented in [`docs/conformance.md`](https://github.com/BookCatKid/anylist-sdk/blob/main/docs/conformance.md).
+The full verification matrix, known official-source contradictions, deliberate evidence-backed divergence, and live-test safety boundaries are documented in [`docs/conformance.md`](docs/conformance.md).
 
 The default test suite is fully offline/local:
 
@@ -159,13 +177,15 @@ python -m ruff format --check .
 
 ## Documentation
 
-- [`docs/architecture.md`](https://github.com/BookCatKid/anylist-sdk/blob/main/docs/architecture.md) — authentication, transport, state, sync, queues, realtime, and typing model.
-- [`docs/usage.md`](https://github.com/BookCatKid/anylist-sdk/blob/main/docs/usage.md) — practical SDK patterns for integrations and applications.
-- [`docs/tui.md`](https://github.com/BookCatKid/anylist-sdk/blob/main/docs/tui.md) — terminal-client setup and day-to-day usage.
-- [`docs/conformance.md`](https://github.com/BookCatKid/anylist-sdk/blob/main/docs/conformance.md) — exhaustive verified public surface and live/offline evidence.
-- [`docs/protocol-coverage.md`](https://github.com/BookCatKid/anylist-sdk/blob/main/docs/protocol-coverage.md) — generated merged Web/Android route and operation-handler coverage audit.
-- [`docs/visual-assets.md`](https://github.com/BookCatKid/anylist-sdk/blob/main/docs/visual-assets.md) — official icon catalogs, asset URLs, themes, palettes, and effective visual fallbacks.
-- [`docs/usability-audit.md`](https://github.com/BookCatKid/anylist-sdk/blob/main/docs/usability-audit.md) — protocol-complete surfaces that still need higher-level domain ergonomics.
+- [`docs/architecture.md`](docs/architecture.md) — authentication, transport, state, sync, queues, realtime, and typing model.
+- [`docs/usage.md`](docs/usage.md) — practical SDK patterns for integrations and applications.
+- [`docs/tui.md`](docs/tui.md) — terminal-client setup and day-to-day usage.
+- [`docs/conformance.md`](docs/conformance.md) — exhaustive verified public surface and live/offline evidence.
+- [`docs/protocol-coverage.md`](docs/protocol-coverage.md) — generated merged Web/Android route and operation-handler coverage audit.
+- [`docs/visual-assets.md`](docs/visual-assets.md) — official icon catalogs, asset URLs, themes, palettes, and effective visual fallbacks.
+- [`docs/usability-audit.md`](docs/usability-audit.md) — protocol-complete surfaces that still need higher-level domain ergonomics.
+- [`docs/ecosystem-comparison.md`](docs/ecosystem-comparison.md) — evidence behind the project's "most complete public AnyList client" positioning.
+- [`docs/mcp.md`](docs/mcp.md) — optional MCP adapter pattern and existing AnyList MCP ecosystem.
 
 ## Scope
 

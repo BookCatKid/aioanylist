@@ -40,6 +40,9 @@ Issues = "https://github.com/BookCatKid/anylist-sdk/issues"
 tui = [
   "textual>=0.70",
 ]
+mcp = [
+  "mcp>=2,<3",
+]
 test = [
   "pytest>=8.2",
   "pytest-asyncio>=0.23",
