@@ -446,7 +446,7 @@
         "research/android/jadx/sources/e7/w5.java:14"
       ],
       "method": "POST",
-      "notes": "Hyphenated field names (unlike sign-out underscores). Sent on login/startup and token refresh; gated on user present. Documented but intentionally not exposed because this is native mobile push-registration lifecycle plumbing.",
+      "notes": "Hyphenated field names (unlike sign-out underscores). Sent on login/startup and token refresh; gated on user present. Not exposed because this is native mobile push-registration lifecycle plumbing.",
       "path": "/data/update-push-token",
       "request": [
         {
@@ -543,7 +543,7 @@
         "research/android/jadx/sources/yc/b.java:32"
       ],
       "method": "POST",
-      "notes": "Operation queue id app-notice-operations; ops serialized as PBAppNoticeOperationList. Official Android handlers are mark-notice-ids-as-read and dismiss-notice-ids. Documented but intentionally not exposed by the SDK because this is native-app UI bookkeeping.",
+      "notes": "Operation queue id app-notice-operations; ops serialized as PBAppNoticeOperationList. Android handlers are mark-notice-ids-as-read and dismiss-notice-ids. Not exposed by the SDK because this is native-app UI bookkeeping.",
       "path": "/data/app-notices/update",
       "request": [
         {
@@ -807,7 +807,7 @@
         "research/android/jadx/sources/cd/q2.java:16"
       ],
       "method": "POST",
-      "notes": "Client refuses duplicate links across lists before calling. Documented but intentionally not exposed because the Google Assistant integration is legacy/shut down.",
+      "notes": "Client refuses duplicate links across lists before calling. Not exposed because the Google Assistant integration is legacy/shut down.",
       "path": "/data/gassistant/link-list",
       "request": [
         {
@@ -835,7 +835,7 @@
         "research/android/jadx/sources/cd/q2.java:52"
       ],
       "method": "POST",
-      "notes": "Response has success flag only. Documented but intentionally not exposed because the Google Assistant integration is legacy/shut down.",
+      "notes": "Response has success flag only. Not exposed because the Google Assistant integration is legacy/shut down.",
       "path": "/data/gassistant/unlink-list",
       "request": [
         {

@@ -1,6 +1,6 @@
 # Textual example client
 
-`examples/anylist_tui.py` is a full user-facing frontend built on the SDK. It deliberately remains an example application rather than part of the installable `aioanylist` package, so library consumers do not inherit application code they do not need.
+`examples/anylist_tui.py` is a user-facing frontend built on the SDK. It stays outside the installable `aioanylist` package so library users do not pull in application code.
 
 ## Install and run
 
@@ -49,7 +49,7 @@ Global shortcuts:
 | `Esc` | Close/cancel the active modal |
 | `Ctrl+Enter` | Submit the active edit form |
 
-Data tables update their dependent pane as the highlighted row changes, so keyboard-only navigation does not require pressing Enter simply to preview/select another list, recipe, meal, or template.
+Data tables update their dependent pane as the highlighted row changes, so keyboard-only navigation does not require pressing Enter to preview or select another list, recipe, meal, or template.
 
 ## Lists
 
@@ -82,9 +82,9 @@ Templates support nested groups, multiple days, recipe/note entries, per-entry i
 
 The terminal UI manages photo references/uploads but does not attempt terminal-specific inline image rendering. Existing image URLs remain visible in detail/edit views.
 
-## Intentionally omitted UI actions
+## UI actions not included
 
-The SDK contains additional source-backed surfaces, but the terminal client intentionally avoids actions with external or hard-to-reverse effects such as sharing/email, Alexa linking, recipe web import, and account-name changes.
+The terminal client leaves out actions with external or hard-to-reverse effects, including sharing/email, Alexa linking, recipe web import, and account-name changes.
 
 ## Troubleshooting
 

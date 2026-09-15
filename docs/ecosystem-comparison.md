@@ -1,6 +1,6 @@
 # AnyList client ecosystem comparison
 
-This document is the evidence behind the README's claim that this project is the most complete public general-purpose AnyList client we could identify. It compares implemented surface area, fidelity, verification depth, and measured performance across the current public client ecosystem.
+This compares `aioanylist` with the public general-purpose AnyList clients found during the September 2026 audit. The comparison covers implemented features, protocol coverage, verification, and measured performance.
 
 ## Scope and methodology
 
@@ -16,7 +16,7 @@ The general-purpose libraries identified were:
 | PyPI [`anylist`](https://pypi.org/project/anylist/0.0.1rc1/) | published `0.0.1rc1` artifact (2025-05-31) | PyPI `anylist` 0.0.1rc1 | Very small async Python client; no repository/project URL is published in its package metadata |
 | [`kevdliu/anylist`](https://github.com/kevdliu/anylist/tree/d69278a6a7ec04750dadfdf9c6f8b1b157b3a7e8) | `d69278a` (2026-05-03) | npm `anylist` 0.8.6 | JavaScript client; README explicitly says much of the API is not implemented and list create/remove/update is unavailable |
 | [`phildenhoff/anylist_rs`](https://github.com/phildenhoff/anylist_rs/tree/0698dc9de81dd7a50856f2d890a5397277644251) | `0698dc9` (2026-07-08) | Rust crate `anylist_rs` 0.4.0 | Broad Rust client with shopping, recipes, stores, categories, meal planning, photos, and realtime support |
-| [`ozonejunkieau/pyanylist`](https://github.com/ozonejunkieau/pyanylist/tree/c34ae722dd3daf87430bf4f4de56c6552b2a0006) | `c34ae72` (2026-03-17) | PyPI `pyanylist` 0.0.6 | Python/PyO3 bindings over `anylist_rs`; public stub exposes a deliberately smaller Python surface |
+| [`ozonejunkieau/pyanylist`](https://github.com/ozonejunkieau/pyanylist/tree/c34ae722dd3daf87430bf4f4de56c6552b2a0006) | `c34ae72` (2026-03-17) | PyPI `pyanylist` 0.0.6 | Python/PyO3 bindings over `anylist_rs`; the public Python stub exposes a smaller surface |
 
 The comparison uses the checked-in source at those revisions. README feature lists are treated as secondary evidence because they can lag behind implementation; for example, the `anylist_rs` README still lists realtime sync as a future feature even though its current source contains a full realtime module.
 
@@ -71,12 +71,12 @@ Legend: **Yes** = a public, generally usable API is present; **Partial** = some 
 
 ## Protocol and verification depth
 
-This project publishes detailed evidence for reverse-engineered behavior so protocol and implementation claims can be audited.
+The repository tracks protocol coverage and verification status in checked-in reports.
 
 At the 1.0.0 release checkpoint:
 
-- **72** method-aware endpoint rows are classified: 54 implemented and 18 intentionally excluded, with zero unknown rows.
-- **202** proven operation handlers are classified: 195 implemented and 7 intentionally excluded, with zero unknown rows.
+- **72** endpoint/method rows are classified: 54 implemented, 18 excluded, 0 unknown.
+- **202** operation handlers are classified: 195 implemented, 7 excluded, 0 unknown.
 - The embedded protocol contains **156 protobuf messages**; the independently extracted Android schema matches all 156 message names.
 - The default offline/local suite contains **530 passing tests**.
 - The current read-only real-service suite is **12/12 passing**.
@@ -127,18 +127,16 @@ Network conditions, account size, AnyList server behavior, and upstream client
 changes can move these numbers, so the benchmark should be rerun when the ecosystem
 comparison is refreshed.
 
-## Why the gap is large
+## Coverage differences
 
-Most existing AnyList libraries understandably focus on the operations an integration immediately needs: authenticate, read shopping lists, mutate items, recipes, and perhaps meal planning. That is enough for many applications.
+Most public AnyList clients focus on the common integration path: authentication, shopping lists, item mutations, recipes, and some meal-planning support. `aioanylist` also implements client-side behavior and lower-level synchronization details such as incremental timestamps, operation queues, Favorites/Recents semantics, categorization, autocomplete, parsing helpers, derived values, themes/assets, native-only lookup services, and realtime catch-up.
 
-This project treats the official clients themselves as an executable specification and keeps going until the useful protocol and client behavior are accounted for. Coverage includes server calls, incremental timestamps, operation queues, Favorites/Recents semantics, settings fallbacks, grocery categorization, autocomplete, quantity and ingredient parsing, derived values, themes/assets, native-only lookup services, and realtime catch-up behavior.
-
-That is what the README means by **"the last AnyList client you need."** The feature matrix and protocol/conformance evidence above are the basis for that positioning.
+As of the audit date, no other reviewed general-purpose client matched that combined feature set. The table above is the basis for the README's comparison statement.
 
 ## Reproducing or updating this audit
 
-The comparison should be treated as time-sensitive. Before repeating the claim after a substantial period, re-check the upstream projects and add any new general-purpose AnyList client that has appeared.
+This comparison is time-sensitive. Re-check upstream projects and add new general-purpose AnyList clients when updating it.
 
 Useful discovery queries include GitHub repositories with `anylist` in the name or description, PyPI projects containing `anylist`, and npm packages tagged for AnyList/grocery use. For each serious candidate, inspect its public API and source directly; README feature lists can be stale.
 
-If another public client catches up or exceeds this project's surface in a category, this document should say so plainly.
+If another client catches up or exceeds `aioanylist` in a category, update the table accordingly.

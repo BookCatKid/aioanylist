@@ -1,19 +1,14 @@
 # SDK usability audit
 
-Protocol completeness is not the same as a complete SDK. A protobuf field or low-level operation
-can technically expose data while still forcing every downstream application to reverse engineer
-the official clients to interpret it. This audit tracks those gaps separately from endpoint
-coverage.
+Protocol coverage alone does not make a useful high-level API. This audit tracks places where raw fields or operations still need client-side semantics before applications can use them directly.
 
 The comparison source is the current official AnyList web bundle's protobuf convenience methods,
 static-data loaders, and client-side rendering/derived helpers. Native source is used where the
-web app has no equivalent behavior. Pure UI chrome, telemetry, lifecycle plumbing, and obsolete
-integrations are intentionally excluded.
+web app has no equivalent behavior. Pure UI chrome, telemetry, lifecycle plumbing, and obsolete integrations are out of scope.
 
-## Closed in the visual-assets audit
+## Visual and asset support
 
-The following previously existed only as raw protobuf/string fields and are now first-class SDK
-behavior:
+The SDK now handles the following behavior that was previously exposed only as raw fields:
 
 - current official icon-catalog fetching, grouping, keywords, emoji variations, caching, and
   searching;
@@ -32,10 +27,9 @@ behavior:
 The implementation is in `aioanylist.visuals`; no AnyList image binaries are distributed with
 the package. See [`visual-assets.md`](visual-assets.md).
 
-## Closed in the same audit: protobuf convenience behavior
+## Protobuf semantic helpers
 
-The official web bundle also exposed small but useful semantic helpers that were easy to miss
-because all of their raw fields were already present. The SDK now ports:
+The web bundle also defines semantic helpers on top of fields already present in the protobufs. The SDK implements:
 
 - account `fullName` composition and shared-user display-name fallback;
 - recipe first-photo ID / first-photo URL;
@@ -61,31 +55,24 @@ because all of their raw fields were already present. The SDK now ports:
 
 These are local derived helpers; they do not add server operations.
 
-## Remaining high-value ergonomic gaps
+## Remaining ergonomic gaps
 
-These are real official behaviors worth considering next, but they need more than a trivial field
-wrapper:
+The remaining domain-level gap is:
 
-| Area | Missing ergonomic behavior | Why it is not blindly ported yet |
+| Area | Missing ergonomic behavior | Reason |
 |---|---|---|
 | Localized date display | `PBItemIngredient.eventDateDisplayString()` | Depends on AnyList's locale/date-format manager. The raw ISO event date is exposed; exact display parity belongs with a future localization layer. |
 
-The current protobuf convenience-method audit is otherwise closed for meaningful domain behavior.
-Remaining official prototype methods either map to SDK service mutations already exposed elsewhere,
-are direct protobuf field access with no additional semantics, or are presentation-only helpers.
+No other domain-level gaps were found in the current protobuf helper audit. The remaining prototype methods are service mutations already exposed elsewhere, direct field access, or presentation helpers.
 
-## Intentionally not promoted
+## Kept out of the public API
 
 Some official helpers exist solely to render AnyList Web itself. Examples include attachment
 indicator image filenames/sizes (`ALItemIconPrice@2x.png`, toolbar/disclosure images), table-cell
 CSS classes, popup geometry, promo/welcome artwork, and browser-specific presentation workarounds.
-Those are not missing SDK functionality merely because they are present in `app.js`.
+They are presentation details, not SDK domain behavior.
 
-The recipe-collection sort-order subtitle/name helpers are also intentionally left out of the core
-SDK. Their only behavior is mapping enum values to i18next presentation labels such as `By Name`
-and `By Rating`; the underlying sort-order semantics are already exposed. In this captured web
-build, ordinary text translations are limited to English/German, while dates use Moment with the
-full app locale, so those two localization concerns should not be conflated.
+Recipe-collection sort-order subtitle/name helpers are also omitted. They only map enum values to i18next labels such as `By Name` and `By Rating`; the sort-order behavior itself is already exposed. This web build has English/German text translations while date formatting uses the full app locale, so a localization layer would need to handle those separately.
 
 Likewise, the SDK does not package AnyList's icon/texture/category image binaries. It preserves the
 official metadata and URL construction so a downstream UI can request the current resources from
@@ -99,5 +86,4 @@ When a new field or operation is added, ask both questions:
 2. **Usability parity:** can a downstream integration interpret and use it without independently
    reverse engineering an official AnyList client?
 
-Conformance work should close both when the second layer contains real domain semantics. It should
-not copy presentation-only implementation details merely to increase an API surface count.
+Conformance work should cover both layers when client-side code contains domain semantics. Presentation-only details stay out of scope.

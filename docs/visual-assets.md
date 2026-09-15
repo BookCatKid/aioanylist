@@ -6,9 +6,7 @@ not sufficient by themselves to build an AnyList-like UI. The official web clien
 runtime icon catalogs, constructs image URLs, supplies built-in theme definitions and palettes,
 and applies fallback/derived rendering rules.
 
-The SDK exposes that behavior through `client.visuals`. It deliberately **does not bundle or
-redistribute AnyList image artwork**. Catalog metadata is loaded from AnyList-owned public web
-resources and image methods return canonical AnyList URLs.
+The SDK exposes this through `client.visuals`. Image artwork is not bundled or redistributed; catalog metadata comes from AnyList's public web resources and image helpers return AnyList URLs.
 
 ## Official icon catalogs
 
@@ -29,8 +27,7 @@ icon variations. `IconCatalog.unique_entries()` includes variations while dedupl
 name plus tint.
 
 On 2026-09-13 a live read of the English resources returned 26 groups and **3,485 unique icon
-names** across the three catalogs. This live web catalog is the authority rather than a frozen
-drawable inventory from a particular Android APK version.
+names** across the three catalogs. The live web catalog is used instead of a frozen drawable inventory from one Android APK.
 
 ```python
 from aioanylist import IconContext
@@ -41,7 +38,7 @@ for group in catalog.groups:
         print(entry.icon_name, entry.keywords, client.visuals.icon_url(entry))
 ```
 
-The official picker compositions are reconstructed too:
+Context-specific catalogs match these picker sets:
 
 - shopping lists: nine theme-colored `default_list_icon` entries plus emoji;
 - folders: nine colored `default_folder_icon` entries plus emoji;
@@ -74,9 +71,7 @@ and shopping-category artwork uses:
 against the client's configured AnyList host. Both `www.anylist.com` and
 `production.anylist.com` serve the static resources.
 
-This keeps the Python package limited to factual identifiers, metadata, and resolution logic.
-Callers that want the artwork fetch it from AnyList rather than receiving a copied asset bundled
-inside the SDK.
+The package contains identifiers, metadata, and URL resolution code only. Applications fetch the artwork from AnyList.
 
 ## Built-in themes and palettes
 
@@ -98,12 +93,11 @@ URL, and texture tile size. Raw optional theme fields such as `backgroundImage`,
 and `cellTexture` remain available without inventing defaults that the official client does not
 define.
 
-The service also exposes the source-derived rendering helpers used by the web client: effective
+The service also exposes these web-client rendering helpers: effective
 table-background CSS (texture URL or color), theme darkness from navigation-bar HSV brightness,
-font-style/name mapping, and the item-name font-weight rule. `backgroundImage` is deliberately
-left raw: this web build copies the protobuf field through the custom-theme editor, but its actual
+font-style/name mapping, and the item-name font-weight rule. `backgroundImage` is left raw: this web build copies the protobuf field through the custom-theme editor, but its actual
 `PBListTheme` rendering helpers do not resolve it into an asset URL or use it as the list/table
-background. The SDK therefore does not invent a resource convention for it.
+background. No asset-URL convention is applied to that field.
 
 ## Effective list theme and icon
 
@@ -119,8 +113,7 @@ native dark conversion, including the known texture substitutions such as
 `classic_paper -> noisy_net`, `executive_paper -> dark_dotted`, and `wood -> dark_wood`.
 
 Built-in dark variants likewise follow the Android client: accent colors are mapped to their
-night equivalents, text/background/selection fallbacks are adjusted, and Sticky Note is
-deliberately left unchanged just as the native client does.
+night equivalents, text/background/selection fallbacks are adjusted, and Sticky Note is left unchanged to match the native client.
 
 `resolve_list_icon()` returns an explicit stored icon when one exists. Otherwise it synthesizes
 `default_list_icon` tinted with the effective theme control color, matching the native fallback.

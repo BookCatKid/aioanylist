@@ -1,10 +1,12 @@
 # aioanylist
 
-Async-first, typed, pure-Python client for AnyList, reconstructed from the **official AnyList web application**, official native-client behavior where the web app has no equivalent surface, the embedded protobuf schema, and AnyList-owned runtime/server behavior.
+Async-first, typed Python client for AnyList, reverse-engineered from AnyList's web and native clients and embedded protobuf schema.
 
-This project does not use unofficial AnyList clients as protocol authority and is not affiliated with or endorsed by AnyList.
+Unofficial and not affiliated with AnyList.
 
-> **Built to be the last AnyList client you need.** As of September 2026, an audit of the public general-purpose AnyList client ecosystem found no other library matching this project's combination of protocol coverage, high-level feature breadth, client-side AnyList behavior, realtime/incremental sync, typing, and live conformance testing. The claim is intentionally evidence-backed rather than marketing shorthand; see the [ecosystem comparison](docs/ecosystem-comparison.md) for the exact projects, revisions, methodology, and feature matrix.
+> **Built to be the last AnyList client you need.**
+
+As of the September 2026 audit, no other reviewed public general-purpose AnyList client matched its combined protocol and client-behavior coverage. See the [ecosystem comparison](docs/ecosystem-comparison.md) for the dated feature matrix and benchmarks.
 
 ## Highlights
 
@@ -17,9 +19,9 @@ This project does not use unofficial AnyList clients as protocol authority and i
 - Client-side AnyList behavior including autocomplete, grocery categorization, quantity/package parsing, recipe parsing, normalization, stemming, derived totals, deterministic identifiers, and official visual/theme resolution.
 - Current AnyList icon metadata/catalog access and canonical asset URLs without bundling or redistributing AnyList artwork.
 - PEP 561 typing with schema-generated protobuf stubs.
-- Full-featured Textual example application, kept outside the installable SDK package.
+- Textual example application kept outside the installable SDK package.
 
-The default repository test suite currently passes **530/530** tests. Detailed source/live verification evidence is tracked in [`docs/conformance.md`](docs/conformance.md).
+The default test suite passes **530/530** tests. Live and offline verification status is tracked in [`docs/conformance.md`](docs/conformance.md).
 
 ## Requirements
 
@@ -85,21 +87,21 @@ recipes = client.recipes.all()
 events = client.meal_plan.events()
 ```
 
-The low-level protobuf namespace is available as `aioanylist.proto.PB`. Operation-backed services also expose `operation(...)` as a protocol escape hatch for already-proven official handlers that do not need a dedicated convenience method.
+Low-level protobuf classes are available under `aioanylist.proto.PB`. Operation-backed services also expose `operation(...)` for known handlers without a dedicated convenience method.
 
 ## Authentication and session reuse
 
 Sign-in returns an `AuthTokens` object containing the user ID, access token, refresh token, and account metadata. Normal API calls use the access token as a bearer token. If AnyList rejects it with an authentication response, the transport refreshes it once using the refresh token and retries the original request.
 
-AnyList's refresh response rotates **both** the access token and refresh token, so applications that persist sessions should always save the newest `AuthTokens` value rather than assuming the original refresh token remains valid indefinitely.
+AnyList rotates both tokens during refresh. Applications that persist sessions should save the newest `AuthTokens` value after every refresh.
 
-The SDK never needs to retain the user's password after sign-in. `logout()` performs AnyList's official native token-session sign-out and then clears local credentials; `clear_session()` is available when an application deliberately wants local-only credential removal. Live verification on both AnyList hosts shows that sign-out revokes the refresh token immediately but does not invalidate the already-issued access token, which remains usable until its normal expiry.
+The SDK does not retain the password after sign-in. `logout()` signs out the token session and clears local credentials. `clear_session()` only clears local credentials. Live tests on both AnyList hosts found that sign-out revokes the refresh token immediately while the current access token remains valid until expiry.
 
 See [`docs/architecture.md`](docs/architecture.md) for the transport, sync, operation-queue, and realtime model.
 
 ## Example terminal client
 
-[`examples/anylist_tui.py`](examples/anylist_tui.py) is a substantial downstream example built on the SDK. It intentionally stays outside `src/aioanylist`, so installing the library for Home Assistant, automation, or another application does not also install an end-user app.
+[`examples/anylist_tui.py`](examples/anylist_tui.py) is a downstream example built on the SDK. It lives outside `src/aioanylist`, so installing the library does not also install an end-user application.
 
 ```console
 git clone https://github.com/BookCatKid/aioanylist.git
@@ -108,7 +110,7 @@ python -m pip install -e '.[tui]'
 python examples/anylist_tui.py
 ```
 
-The first run prompts for the AnyList email and password before the TUI starts. The password is never stored. The client caches only the account email plus the current access/refresh token pair under `~/.config/aioanylist/`, with the token file written as mode `0600` where supported.
+On first run, the TUI asks for the AnyList email and password. It stores the email and current token pair under `~/.config/aioanylist/`; the password is not stored. The token file uses mode `0600` where supported.
 
 The TUI includes:
 
@@ -122,11 +124,7 @@ See [`docs/tui.md`](docs/tui.md) for navigation, shortcuts, session behavior, an
 
 ## Model Context Protocol
 
-There are already community AnyList MCP servers, so MCP is intentionally not baked
-into the core SDK. This repository instead includes a small first-party adapter
-example using the current official MCP Python SDK. It keeps one synchronized
-`AnyListClient` alive for the MCP server lifespan and demonstrates shopping and
-recipe tools without imposing an MCP-specific API on normal SDK users.
+The core package has no MCP dependency. [`examples/anylist_mcp.py`](examples/anylist_mcp.py) shows how to expose the SDK through the official MCP Python SDK while keeping one synchronized `AnyListClient` alive for the server lifespan.
 
 See [`examples/anylist_mcp.py`](examples/anylist_mcp.py) and [`docs/mcp.md`](docs/mcp.md).
 
@@ -152,9 +150,9 @@ examples/               downstream example applications
 
 ## Conformance and safety
 
-The official executable web-client behavior is the primary specification for shared/web functionality. For native-only functionality that has no web equivalent, decompiled official Android behavior and captured official iOS behavior are used as client authority rather than unofficial third-party libraries. Captured requests or server acceptance alone are not treated as permission to invent semantics.
+Shared/web behavior is matched against AnyList Web. Native-only behavior comes from official Android source and iOS captures. Unofficial clients are not used as protocol references.
 
-The full verification matrix, known official-source contradictions, deliberate evidence-backed divergence, and live-test safety boundaries are documented in [`docs/conformance.md`](docs/conformance.md).
+[`docs/conformance.md`](docs/conformance.md) records verification status, source contradictions, known divergences, and live-test boundaries.
 
 The default test suite is fully offline/local:
 
@@ -173,22 +171,22 @@ python tools/generate_proto_stubs.py --check
 python -m ruff format --check .
 ```
 
-`src/aioanylist/proto/__init__.pyi` is deterministic generated output and is intentionally excluded from independent Ruff reformatting; the generator check is its source-of-truth validation.
+`src/aioanylist/proto/__init__.pyi` is generated deterministically and excluded from standalone Ruff formatting. `tools/generate_proto_stubs.py --check` validates it.
 
 ## Documentation
 
 - [`docs/architecture.md`](docs/architecture.md) — authentication, transport, state, sync, queues, realtime, and typing model.
 - [`docs/usage.md`](docs/usage.md) — practical SDK patterns for integrations and applications.
 - [`docs/tui.md`](docs/tui.md) — terminal-client setup and day-to-day usage.
-- [`docs/conformance.md`](docs/conformance.md) — exhaustive verified public surface and live/offline evidence.
+- [`docs/conformance.md`](docs/conformance.md) — public API verification status and live/offline evidence.
 - [`docs/protocol-coverage.md`](docs/protocol-coverage.md) — generated merged Web/Android route and operation-handler coverage audit.
 - [`docs/visual-assets.md`](docs/visual-assets.md) — official icon catalogs, asset URLs, themes, palettes, and effective visual fallbacks.
 - [`docs/usability-audit.md`](docs/usability-audit.md) — protocol-complete surfaces that still need higher-level domain ergonomics.
-- [`docs/ecosystem-comparison.md`](docs/ecosystem-comparison.md) — evidence behind the project's "most complete public AnyList client" positioning.
-- [`docs/mcp.md`](docs/mcp.md) — optional MCP adapter pattern and existing AnyList MCP ecosystem.
+- [`docs/ecosystem-comparison.md`](docs/ecosystem-comparison.md) — comparison with other public AnyList clients.
+- [`docs/mcp.md`](docs/mcp.md) — optional MCP adapter example and related projects.
 
 ## Scope
 
-The SDK exposes source-backed external/account operations where they have been reconstructed, but the terminal client intentionally avoids workflows with external or hard-to-reverse effects such as sharing/email, Alexa linking, recipe web import, and account-name changes.
+The SDK includes reconstructed external/account operations where available. The terminal example leaves out workflows with external or hard-to-reverse effects, including sharing/email, Alexa linking, recipe web import, and account-name changes.
 
 Because this is a reverse-engineered client for a service that can change independently, future AnyList web/protocol updates may require corresponding SDK updates.

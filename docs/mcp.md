@@ -1,8 +1,6 @@
 # MCP integration
 
-Model Context Protocol support is optional. The SDK works as a backend for MCP
-servers while normal SDK users keep the core dependency set small and avoid an
-MCP-specific tool taxonomy.
+MCP support is optional. The core SDK has no MCP dependency or MCP-specific public API.
 
 For users who want MCP, the repository includes [`examples/anylist_mcp.py`](../examples/anylist_mcp.py).
 It uses the current v2 line of the official MCP Python SDK and holds one authenticated,
@@ -27,16 +25,14 @@ client. The official MCP Python SDK supports stdio and Streamable HTTP, so the
 AnyList-specific part of the integration can remain the same across local and
 network deployments.
 
-The example intentionally exposes only a small set of obvious tools:
+The example exposes a small set of tools:
 
 - refresh synchronized state;
 - list/get shopping lists;
 - add/check/remove shopping items;
 - list/get recipes.
 
-That is enough to demonstrate the adapter pattern. A serious MCP application can
-map the rest of the SDK's services to whatever tool grouping is appropriate without
-needing to bypass the high-level API.
+Additional SDK services can be exposed with the same pattern without bypassing the high-level API.
 
 ## Existing AnyList MCP servers
 
@@ -52,7 +48,4 @@ the September 2026 ecosystem review include:
 - [`avanrossum/mcp-anylist`](https://github.com/avanrossum/mcp-anylist) — a local
   npm-distributed server focused on shopping and meal planning.
 
-The opportunity for this SDK is different: provide a broader and more faithful
-AnyList backend that MCP projects can build on. Existing MCP servers can retain
-their own schemas, deployment model, and authentication UX while replacing a
-narrower AnyList client underneath.
+`aioanylist` can also be used as the AnyList backend for an existing MCP server while leaving that server's tool schemas, deployment model, and authentication flow unchanged.

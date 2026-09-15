@@ -1,25 +1,17 @@
 # AnyList hidden endpoints — Android 3.0.3 research
 
-Complete reverse-engineering notes for the AnyList native API surface, derived
-from the official Android client. Everything needed to implement the missing
-endpoints in the Python SDK is captured here or in the linked artifacts.
+Notes from the AnyList Android 3.0.3 endpoint audit. Request shapes, response handling, and source locations are recorded here or in the linked artifacts.
 
 Machine-readable inventory: `research/android/endpoints.json`.
 Raw evidence: `research/android/endpoint_call_sites.tsv`,
 `research/android/endpoint_context.txt`.
 
-## 0. TL;DR
+## Summary
 
 - `/data/auth/sign-out` confirmed in Android (`e7/w6.java:46`): **form-encoded**
   (not multipart like iOS), bearer + `refresh_token` + optional
   `push_token`/`push_token_type=fcm`. Wipes local session afterwards.
-- Android 3.0.3 revealed 22 AnyList API routes that were absent from the SDK at
-  discovery time. **5 useful native routes are now implemented** from the exact
-  Android call sites: remote config, Alexa default-list selection, place search,
-  image search, and UPC lookup. The remaining **17 routes are intentionally not exposed**
-  as high-level SDK methods because they are account-creation/recovery,
-  destructive/family-management, credential-changing, or Google-Play-specific
-  operations, native lifecycle/UI bookkeeping, or obsolete integrations (see §10).
+- Android 3.0.3 exposed 22 AnyList API routes that were missing from the SDK at discovery time. **5 native routes are now implemented**: remote config, Alexa default-list selection, place search, image search, and UPC lookup. The other **17 routes are not exposed** as high-level SDK methods; see §10.
 - The APK ships AnyList's own protobuf schema. `model.proto` == the
   SDK's `proto/schema.json` (156/156 messages); `server.proto` adds only
   `PBUserProfileProperty` / `PBUserProfileInfo` (Mixpanel people profile).
@@ -34,8 +26,7 @@ Raw evidence: `research/android/endpoint_call_sites.tsv`,
   (build 278)** — verified latest on APKPure at download time.
 - Fetched with `apkeep -a com.purplecover.anylist -d apk-pure` (XAPK with base
   APK + config splits); base APK extracted and decompiled with `jadx 1.5.6`.
-- Route inventory built twice: string literals in jadx Java, and raw dex
-  strings — identical AnyList sets, so no literal was missed to jadx rendering.
+- Route inventory built from both jadx Java string literals and raw DEX strings. The AnyList route sets matched.
 - Every call site captured with surrounding code; request maps, encodings,
   response parsers, and protobuf classes read from the decompiled sources.
 - Reproduction + file guide: `research/android/README.md`.
@@ -106,32 +97,32 @@ Full per-endpoint detail (exact fields, response keys, evidence) is in
 |---|---|---|---|
 | `POST auth/token` (`email`,`password`) | form | JSON token set | sdk |
 | `POST /auth/token/refresh` (`refresh_token`) | form | JSON token set | sdk |
-| `POST /auth/token/exchange-signed-user-id` (`signed_user_id`) | form | JSON token set | known / intentionally unimplemented |
-| `POST /data/signup` (`use_token_auth`,`create_default_list`,`create_default_recipes`,`email`,`password?`,`preferred_user_id?`,`locale`) | multipart | JSON token set / `err` | known / intentionally unimplemented |
-| `POST /data/send-password-reset` (`email`) | form | **plain text** `SUCCESS`/`NO_ACCOUNT` | known / intentionally unimplemented |
-| `POST /data/reset-password` (`email`,`password`,`reset_token`,`use_token_auth`) | form | JSON token set / `err` | known / intentionally unimplemented |
+| `POST /auth/token/exchange-signed-user-id` (`signed_user_id`) | form | JSON token set | known / not exposed |
+| `POST /data/signup` (`use_token_auth`,`create_default_list`,`create_default_recipes`,`email`,`password?`,`preferred_user_id?`,`locale`) | multipart | JSON token set / `err` | known / not exposed |
+| `POST /data/send-password-reset` (`email`) | form | **plain text** `SUCCESS`/`NO_ACCOUNT` | known / not exposed |
+| `POST /data/reset-password` (`email`,`password`,`reset_token`,`use_token_auth`) | form | JSON token set / `err` | known / not exposed |
 | `GET /data/account/info` | — | `PBAccountInfoResponse` | sdk |
 | `POST /data/account/info` (`account_info` proto bytes) | multipart | `PBAccountInfoResponse` | sdk |
-| `POST /data/account/change-password` (`current_password`,`new_password`,`refresh_token`) | multipart | `PBAccountChangePasswordResponse` (**rotates both tokens**) | known / intentionally unimplemented |
-| `POST /data/account/add-subuser` (`email`) | multipart | `PBAccountInfoResponse` | known / intentionally unimplemented |
-| `POST /data/account/remove-subuser` (`email`) | multipart | `PBAccountInfoResponse` | known / intentionally unimplemented |
-| `POST /data/account/request-delete` (no fields) | form | JSON `success`,`localized_reason` | known / intentionally unimplemented |
-| `POST /data/account/unlock-google-play-purchase` (`purchaseJson`) | form | JSON `already_processed`,`valid`,`account_info` (base64 proto),`is_subscription_modification` | known / intentionally unimplemented |
-| `POST /data/account/update-locale` (`locale`) | multipart | none parsed | known / intentionally unimplemented |
-| `POST /data/update-push-token` (`push-token`,`type=fcm`) | form | none parsed | known / intentionally unimplemented |
+| `POST /data/account/change-password` (`current_password`,`new_password`,`refresh_token`) | multipart | `PBAccountChangePasswordResponse` (**rotates both tokens**) | known / not exposed |
+| `POST /data/account/add-subuser` (`email`) | multipart | `PBAccountInfoResponse` | known / not exposed |
+| `POST /data/account/remove-subuser` (`email`) | multipart | `PBAccountInfoResponse` | known / not exposed |
+| `POST /data/account/request-delete` (no fields) | form | JSON `success`,`localized_reason` | known / not exposed |
+| `POST /data/account/unlock-google-play-purchase` (`purchaseJson`) | form | JSON `already_processed`,`valid`,`account_info` (base64 proto),`is_subscription_modification` | known / not exposed |
+| `POST /data/account/update-locale` (`locale`) | multipart | none parsed | known / not exposed |
+| `POST /data/update-push-token` (`push-token`,`type=fcm`) | form | none parsed | known / not exposed |
 | `POST /data/auth/sign-out` (`refresh_token`,`push_token?`,`push_token_type?`) | form | none parsed | sdk |
-| `POST /data/app-notices/get` (3 proto timestamp fields) | multipart | `PBAppNoticesResponse` | known / intentionally unimplemented |
-| `POST /data/app-notices/update` (op queue `app-notice-operations`) | multipart | `PBEditOperationResponse` | known / intentionally unimplemented |
+| `POST /data/app-notices/get` (3 proto timestamp fields) | multipart | `PBAppNoticesResponse` | known / not exposed |
+| `POST /data/app-notices/update` (op queue `app-notice-operations`) | multipart | `PBEditOperationResponse` | known / not exposed |
 | `GET /data/version-check` | — | JSON feature flags (see §5.4) | sdk (Android-derived) |
-| `POST /data/increment-metric` (`metric`) | form | none parsed | known / intentionally unimplemented |
-| `POST /data/contact/app-rating-prompt-feedback` (8 fields, §5.5) | multipart | none parsed | known / intentionally unimplemented |
+| `POST /data/increment-metric` (`metric`) | form | none parsed | known / not exposed |
+| `POST /data/contact/app-rating-prompt-feedback` (8 fields, §5.5) | multipart | none parsed | known / not exposed |
 | `POST /data/alexa/link-list` (`alexa_list_id?`,`anylist_list_id?`) | multipart | JSON | sdk |
-| `POST /data/alexa/set-default-list-id` (`list_id`) | multipart | JSON | known / intentionally unimplemented |
+| `POST /data/alexa/set-default-list-id` (`list_id`) | multipart | JSON | known / not exposed |
 | `POST /data/alexa/set-is-enabled-for-alexa-for-list-ids` (2 `PBValue` byte fields) | multipart | JSON | sdk |
 | `POST /data/alexa/unlink-anylist-list` (`anylist_list_id`) | multipart | JSON | sdk |
 | `POST /data/alexa/unlink-list` (`alexa_list_id`, optional `should_update_is_enabled_for_alexa_property=n`) | multipart | JSON | sdk |
-| `POST /data/gassistant/link-list` (`anylist_list_id`) | multipart | JSON `success`,`should_contact_support`,`network_error`,`server_error_message` | known / intentionally unimplemented |
-| `POST /data/gassistant/unlink-list` (`google_assistant_list_id`) | multipart | JSON `success` | known / intentionally unimplemented |
+| `POST /data/gassistant/link-list` (`anylist_list_id`) | multipart | JSON `success`,`should_contact_support`,`network_error`,`server_error_message` | known / not exposed |
+| `POST /data/gassistant/unlink-list` (`google_assistant_list_id`) | multipart | JSON `success` | known / not exposed |
 | `POST /data/maps/place-search` (`query`,`lat`,`lng`,`radius`) | multipart | JSON Google-Places-shaped `results[]` | sdk (Android-derived) |
 | `POST /data/photos/image-search` (`query`) | multipart | JSON `results[].MediaUrl`, `Thumbnail.MediaUrl` | sdk (Android-derived) |
 | `GET /data/product-lookup/{upc}` | path | `PBProductLookupResponse`; 404 = miss | sdk (Android-derived) |
@@ -326,18 +317,13 @@ file import.
 `/data/web/set-mac-app-download-prompt-cookie`,
 `/data/web/set-welcome-screen-cookie`.
 
-## 10. Remaining deliberate gaps
+## 10. Routes kept out of the high-level SDK
 
-The useful native data/client surface discovered here is implemented in the SDK
-with Android-source-derived request encodings and offline regressions, except for
-native lifecycle/UI bookkeeping and obsolete external integrations.
-The remaining AnyList routes are retained as research rather than high-level SDK
-methods:
+The remaining routes stay in the research inventory instead of the high-level SDK:
 
 1. `auth/token/exchange-signed-user-id`, `signup`, `send-password-reset`, and
    `reset-password` — account creation/recovery/social-auth flows.
-2. `account/change-password` — credential-changing and rotates both token
-   values; easy to misuse in a general integration.
+2. `account/change-password` — changes credentials and rotates both token values.
 3. `account/add-subuser`, `account/remove-subuser`, `account/request-delete`,
    and `account/update-locale` — account/family/global-state management rather
    than ordinary AnyList data access.
@@ -345,13 +331,11 @@ methods:
    Billing purchase JSON and platform-store state.
 5. `app-notices/get` and `app-notices/update` — AnyList's in-app announcement
    UI plus read/dismiss bookkeeping, not user list/recipe data.
-6. `update-push-token` — FCM device-registration lifecycle plumbing belongs to
-   the native mobile app, not a general-purpose Python AnyList client.
+6. `update-push-token` — FCM device-registration lifecycle plumbing.
 7. `gassistant/link-list` and `gassistant/unlink-list` — retained for protocol
    documentation only; the Android source describes Google Assistant support as
    shut down in 2023.
-8. `increment-metric` and `contact/app-rating-prompt-feedback` — app telemetry
-   and rating-dialog feedback, not AnyList data functionality for SDK consumers.
+8. `increment-metric` and `contact/app-rating-prompt-feedback` — app telemetry and rating-dialog feedback.
 
 Still out of scope: eMeals/Instacart, Mixpanel proxy endpoints, and the two
 `PBUserProfile*` server/Mixpanel profile messages. Web-only email/cookie flows

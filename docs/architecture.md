@@ -15,13 +15,15 @@ Authenticated requests send the access token as a bearer token. On an authentica
 
 Refresh tokens rotate. Applications that persist sessions should write the latest token pair whenever it changes.
 
-`logout()` uses the official native `/data/auth/sign-out` token-session endpoint. iOS traffic established the endpoint and its server semantics. Android sends the same fields as URL-encoded form data, while iOS uses multipart; the server accepts both, and the SDK keeps the already-live-verified multipart path. The request carries bearer authentication and the current refresh token; optional push-token metadata can be supplied by a native integration. Live tests against both `www.anylist.com` and `production.anylist.com` confirmed that sign-out immediately revokes the refresh token but leaves the current access token valid until its normal expiry. `clear_session()` is the explicit local-only operation for discarding credentials without contacting AnyList.
+`logout()` uses `/data/auth/sign-out` with bearer authentication and the current refresh token. iOS sends multipart data; Android sends the same fields as URL-encoded form data. The server accepts both, and the SDK uses the multipart form verified by live tests. Optional push-token metadata can be supplied by native integrations.
+
+Live tests against `www.anylist.com` and `production.anylist.com` found that sign-out revokes the refresh token immediately while the current access token stays valid until expiry. `clear_session()` discards local credentials without contacting AnyList.
 
 ## Transport and protobufs
 
 Normal data/edit endpoints use the multipart/protobuf format emitted by AnyList Web. Binary protobuf values are ordinary multipart fields rather than file uploads. The normal request path can allow specific HTTP statuses when the endpoint defines them as application data; UPC lookup, for example, treats 404 as a normal miss.
 
-The SDK default remains `https://www.anylist.com`. Android hardcodes `production.anylist.com`, but the host is transport configuration rather than protocol semantics; callers can override `base_url` when reproducing a native environment.
+The default host is `https://www.anylist.com`. Android uses `production.anylist.com`; callers can override `base_url` when needed.
 
 The package embeds the official protobuf schema and builds runtime message classes dynamically. Static typing is provided by `src/aioanylist/proto/__init__.pyi`, generated deterministically from the same schema.
 
@@ -47,7 +49,7 @@ Queues can be paused, resumed, explicitly flushed, and restored from an `Operati
 
 ## Realtime behavior
 
-The WebSocket client is an invalidation/catch-up channel, not a second authoritative state store. Realtime events identify domains that should refresh. Reconnect callbacks trigger catch-up synchronization after an interrupted socket.
+WebSocket messages invalidate synchronized domains; they are not applied as standalone state updates. Reconnects trigger a catch-up refresh.
 
 Pass `realtime=True` to `client.load()` to start it automatically.
 
@@ -64,13 +66,11 @@ Several visible AnyList features are computed locally rather than by the server.
 - recipe/meal-plan/pricing derived values.
 - AnyList-owned visual catalogs, asset URL resolution, built-in themes, and effective visual fallbacks.
 
-The exhaustive evidence level for each public callable is tracked in [`conformance.md`](conformance.md).
-The separate [`usability-audit.md`](usability-audit.md) tracks cases where raw protocol coverage
-exists but a downstream application would otherwise still need to reconstruct official client-side
-semantics itself.
+Verification status for each public callable is tracked in [`conformance.md`](conformance.md).
+[`usability-audit.md`](usability-audit.md) tracks protocol surfaces that still need higher-level client semantics.
 
-## Source authority
+## Protocol sources
 
-Protocol behavior is derived from the official AnyList web application, official AnyList native clients for native-only functionality, the embedded protobuf schema, and AnyList-owned runtime resources/server behavior. Unofficial clients are not used as behavioral authority. Web behavior remains primary where the surfaces overlap; Android source is used to reconstruct useful native-only data features such as search/lookup and remote configuration, while app UI plumbing, mobile lifecycle behavior, telemetry, and obsolete integrations remain documented without becoming public SDK surface.
+Protocol behavior comes from AnyList Web, official native clients for native-only features, the embedded protobuf schema, and observed server behavior. Unofficial clients are not used as protocol references. Android source supplies native-only features such as search, lookup, and remote configuration; UI plumbing, lifecycle code, telemetry, and obsolete integrations stay in the research notes.
 
-When official JavaScript and the embedded schema contradict each other, the SDK does not guess missing wire information. Evidence-backed deliberate divergences are documented explicitly in the conformance matrix.
+When the official JavaScript and embedded schema disagree, the SDK leaves the ambiguity unresolved unless another official source establishes the wire behavior. Known divergences are listed in the conformance matrix.

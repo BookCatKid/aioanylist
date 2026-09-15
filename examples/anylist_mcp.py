@@ -5,9 +5,7 @@ Run from a source checkout with:
     python -m pip install -e '.[mcp]'
     mcp dev examples/anylist_mcp.py
 
-Set ANYLIST_EMAIL and ANYLIST_PASSWORD in the environment first. The example is
-deliberately small: it demonstrates the integration pattern without making MCP a
-dependency of the core SDK or attempting to prescribe one universal tool taxonomy.
+Set ANYLIST_EMAIL and ANYLIST_PASSWORD in the environment first. The example keeps the tool set small and leaves MCP out of the core SDK dependencies.
 """
 
 from __future__ import annotations

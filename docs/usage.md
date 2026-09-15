@@ -1,6 +1,6 @@
 # SDK usage
 
-This guide covers the normal application/integration path. For transport and synchronization internals, see [architecture.md](architecture.md). For exhaustive protocol evidence, see [conformance.md](conformance.md).
+Common `aioanylist` usage patterns. See [architecture.md](architecture.md) for internals and [conformance.md](conformance.md) for verification status.
 
 ## Client lifecycle
 
@@ -23,9 +23,7 @@ await client.close()
 
 `cache_dir` enables durable operation-journal replay and tag-data caching. `load()` performs the initial synchronized account load; `realtime=True` also starts the WebSocket invalidation client.
 
-`client.visuals` is available even before authentication because the official icon metadata and
-image resources are public static AnyList resources. With `cache_dir`, its JSON catalogs are cached
-alongside tag data; image binaries are never bundled or copied into the SDK.
+`client.visuals` works before authentication because AnyList serves the icon metadata and image resources publicly. With `cache_dir`, JSON catalogs are cached alongside tag data. Image binaries are not stored in the package.
 
 ## Icons, images, colors, and themes
 
@@ -50,12 +48,7 @@ style = client.visuals.theme_style(theme)
 print(style.control_hex_color, style.table_texture_url, style.font_family)
 ```
 
-The icon index is fetched from the same official JSON resources used by AnyList Web, so the SDK
-does not freeze a particular Android APK's drawable inventory and does not redistribute AnyList's
-PNG artwork. Context-specific catalogs reproduce the official pickers for lists, folders, recipes,
-recipe collections, meal-plan notes, and meal-plan templates. See
-[`visual-assets.md`](visual-assets.md) for the exact paths, theme palettes, dark-mode behavior, and
-fallback rules.
+The icon index comes from the JSON catalogs used by AnyList Web. Context-specific catalogs cover lists, folders, recipes, recipe collections, meal-plan notes, and meal-plan templates. See [`visual-assets.md`](visual-assets.md) for asset paths, theme palettes, dark-mode behavior, and fallback rules.
 
 ## Reusing a signed-in session
 
@@ -81,7 +74,9 @@ client = AnyListClient(
 await client.load(realtime=True)
 ```
 
-AnyList rotates both the access token and refresh token. `token_callback` runs whenever the SDK publishes a new pair, including automatic refresh, so integrations do not need to reach into `client.transport` to keep persisted credentials current. `await client.logout()` uses AnyList's official native token-session sign-out endpoint and publishes `None` after success so the application can clear its persisted token record too. Live verification shows that AnyList revokes the refresh token immediately while allowing the current access token to remain valid until its ordinary expiry; after that expiry the signed-out session cannot refresh itself. Use `await client.clear_session()` when the application intentionally wants to forget local credentials without revoking that server session.
+AnyList rotates both tokens. `token_callback` runs whenever the SDK receives a new pair, including automatic refresh, so applications can persist tokens without reaching into `client.transport`.
+
+`await client.logout()` signs out the token session and publishes `None` after success. Live tests found that the refresh token is revoked immediately while the current access token remains valid until expiry. `await client.clear_session()` only removes local credentials.
 
 Native clients can also unregister their push registration while signing out:
 
@@ -113,7 +108,7 @@ milk = await client.lists.add_item(
 await client.lists.set_checked(groceries.identifier, milk.identifier, True)
 ```
 
-Fresh grocery items are enriched client-side using the same categorization path reconstructed from AnyList Web. For UI-style autocomplete, use `client.autocomplete` together with current/Favorite/Recent items, or use the higher-level prepared-item helpers on `ShoppingListsService` when an explicitly selected Favorite/Recent suggestion should carry saved metadata.
+New grocery items use the reconstructed AnyList categorization path. For autocomplete, use `client.autocomplete` with current/Favorite/Recent items. `ShoppingListsService` also has prepared-item helpers for cases where selecting a Favorite or Recent should reuse its saved metadata.
 
 ## Deferring and batching writes
 
@@ -203,9 +198,9 @@ for result in results:
 
 ## Native search, lookup, and configuration
 
-Several AnyList-owned endpoints exist only in the official native clients. The SDK keeps the normal `www.anylist.com` host by default while reproducing the Android request shape for these routes.
+Some endpoints only appear in the native clients. The SDK uses `www.anylist.com` by default and sends the Android request shapes for these routes.
 
-UPC lookup returns the official `PBProductLookupResponse`; a 404 or an empty response means no match. The Android UI premium-gates this feature, so applications should respect the account/product UX appropriate to their integration:
+UPC lookup returns `PBProductLookupResponse`; a 404 or empty response means no match. Android puts this feature behind a premium UI gate:
 
 ```python
 assert client.products is not None
@@ -232,13 +227,13 @@ places = await client.maps.place_search(
 
 `client.alexa.set_default_list_id(...)` exposes the Android Alexa default-list selector alongside the SDK's existing Alexa integration methods.
 
-Android App Notices, client metrics, rating-prompt feedback, FCM push-token registration, and legacy Google Assistant link/unlink routes are documented in the research inventory but deliberately not exposed as SDK services. They are app UI/telemetry/lifecycle plumbing or obsolete external-integration behavior rather than useful AnyList data APIs.
+Android App Notices, client metrics, rating-prompt feedback, FCM push-token registration, and legacy Google Assistant link/unlink routes are documented in the research inventory but not exposed as SDK services. They are app UI, telemetry, lifecycle, or obsolete integration paths.
 
-The Android client also reveals account/signup/password/subuser/delete/purchase endpoints. They are intentionally documented in the research/conformance material but not exposed as SDK conveniences because they are high-impact account-management or store-specific operations and add little value to normal list/recipe/automation integrations.
+The Android client also exposes account/signup/password/subuser/delete/purchase endpoints. They remain in the research and conformance notes instead of the high-level SDK because they are account-management or store-specific operations with broad side effects.
 
 ## Manual refresh and realtime
 
-`await client.refresh()` performs timestamp-based catch-up synchronization. With realtime enabled, WebSocket messages act as invalidations and the SDK refreshes synchronized domains rather than treating socket messages as an independent source of truth.
+`await client.refresh()` performs timestamp-based catch-up synchronization. With realtime enabled, WebSocket messages mark domains stale and trigger the corresponding refreshes.
 
 For long-running integrations such as Home Assistant, the usual lifecycle is:
 
@@ -267,6 +262,6 @@ except TransportError:
 
 `AuthenticationError`, `PermissionDeniedError`, `ProtocolError`, `TransportError`, `SyncError`, and `TagDataError` allow applications to distinguish auth, network, protocol, synchronization, and tag-resource failures without parsing exception strings.
 
-## Raw protocol escape hatch
+## Low-level protocol access
 
-High-level services cover the reconstructed public behavior. `client.raw` and each operation-backed service's `operation(...)` method exist for source-backed protocol work that does not need a dedicated convenience wrapper. Prefer the typed service surface for ordinary application code.
+`client.raw` and each operation-backed service's `operation(...)` method provide access to known protocol operations without dedicated convenience wrappers. Most application code should use the typed service methods.

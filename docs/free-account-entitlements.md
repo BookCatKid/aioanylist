@@ -1,18 +1,18 @@
 # Free-account entitlement behavior
 
-This note records the 2026-09-13 disposable-account investigation into AnyList Complete feature enforcement. It describes observed protocol behavior, not a promise that AnyList will keep the same policy in future server versions.
+Results from a disposable free account tested on 2026-09-13. Server behavior can change independently of this project.
 
 ## Test account state
 
-All server-verification probes ran against a newly created disposable account. Before the sweep, a fresh authentication reported `is_premium_user = false`. After all probes—including photo upload, meal-plan iCalendar enable/disable, and recipe imports below the advertised free quota—a second fresh authentication still reported `is_premium_user = false`.
+All probes used a newly created disposable account. Fresh authentication reported `is_premium_user = false` before and after the test run.
 
-`GET /data/account/info` independently agreed: `isPremiumUser = false`; no premium subscription type, management system, expiration, cancellation, or pending-downgrade fields were present; and `icalendarId` was absent after iCalendar was disabled during cleanup. The successful Complete-labelled operations therefore were not accidentally running under a premium trial or subscription.
+`GET /data/account/info` also reported `isPremiumUser = false`, with no premium subscription metadata. `icalendarId` was absent after cleanup.
 
 ## Server-enforcement result
 
-**No server-enforced premium gate was found in the exercised SDK data surface.** Every mapped Complete-labelled data operation tested on the free account was accepted by the server and, where persistence applies, survived a fresh-client sync/readback.
+**No server-side premium gate was found in the tested SDK data paths.** Every tested Complete-labelled operation was accepted, and persistent mutations survived a fresh sync.
 
-This does not mean every AnyList product entitlement is free. The official applications may restrict access before issuing the request, and non-data product features such as official Web/Mac app access, watch availability, or support level are outside this investigation.
+Official apps still apply client-side product restrictions, and this test did not cover Web/Mac app access, watch availability, support tiers, or other non-data entitlements.
 
 ## Free account: server verified
 
@@ -50,9 +50,9 @@ The earlier HTTP 500 seen while testing `/data/photos/upload` was not a premium 
 
 The server maintains `freeRecipeImportsRemainingCount`, but the tested endpoint did not enforce it as authorization.
 
-The disposable account successfully parsed and saved repeated imports while the response counter decreased through zero. Further imports still returned recipe-import `statusCode = 0`, returned a recipe, and continued decrementing the counter into negative values; the investigation ultimately observed `freeRecipeImportsRemainingCount = -11` while recipe saves still succeeded.
+Repeated recipe imports succeeded as `freeRecipeImportsRemainingCount` passed through zero and became negative. The lowest observed value was `-11`; imports and saves still returned success.
 
-This is strong evidence that the counter is entitlement/accounting metadata consumed by official-client UI rather than a server permission check on the tested import/save paths.
+In these tests, the counter behaved as client-facing entitlement/accounting metadata rather than a server permission check for the import/save paths.
 
 ## Android 3.0.3 client-side Complete gates
 
@@ -74,13 +74,13 @@ Android 3.0.3 build 278 stores the account entitlement as `ALIsPremiumUserKey`, 
 | Passcode lock | `cd/m4.java` | First-time password persisted. |
 | Location reminders | `cd/w1.java`, `rc/i3.java` | Location plus enable setting persisted. |
 
-These checks are evidence about **official Android UI policy**, not wire-level permission requirements.
+These checks describe Android UI gating. The server behavior is listed separately in the right column.
 
 ## Android features that were not premium-gated
 
-The audit did not find a `uc.c.c()` entitlement check around shopping-list icon selection. There is therefore no evidence for a separate class of premium-only shopping-list icons in this Android build. A tested list icon also persisted on the free account.
+No `uc.c.c()` entitlement check was found around shopping-list icon selection in this Android build. A tested list icon also persisted on the free account.
 
-The template-icon picker and iCalendar settings row likewise were not themselves guarded by the same premium predicate, even though they belong to broader meal-planning UI. UPC lookup itself was also not premium-gated at the network layer exercised by the SDK.
+The template-icon picker and iCalendar settings row were also not guarded by that premium predicate. UPC lookup was not server-gated in the tested SDK path.
 
 ## `customTheme` versus `customDarkTheme`
 
@@ -98,16 +98,16 @@ The native save operations are symmetric:
 - `customTheme` → handler `save-custom-theme`
 - `customDarkTheme` → handler `save-custom-dark-theme`
 
-The second handler is proven by Android source (`a2/e.java`) but is not present in the web-derived `official_surface.json`. The SDK therefore treats it as native-client authority, not as a guessed handler.
+The second handler appears in Android source (`a2/e.java`) but not in the web-derived `official_surface.json`, so the Android implementation supplies the handler name.
 
 ## SDK policy
 
-The SDK exposes subscription state as account metadata, but **does not use `is_premium_user` to reject data operations that the server itself accepts**. Adding client-side Complete checks would make the SDK less faithful to the observed server protocol.
+The SDK exposes subscription state as account metadata and does not block operations solely because `is_premium_user` is false. Server rejections are surfaced normally.
 
-If AnyList later begins returning an actual permission/subscription rejection, the normal transport error path should surface that server response rather than relying on hard-coded entitlement policy in the client library.
+If AnyList later returns a permission or subscription rejection, the transport will surface that server response.
 
 ## Remaining unknowns
 
-- The client-side policy audit covered Android 3.0.3 build 278. Equivalent iOS UI gates were not exhaustively audited.
+- The client-side policy audit covered Android 3.0.3 build 278. Equivalent iOS UI gates were not fully audited.
 - A reserved conformance-list ID from another account caused some old fixture-based store tests to fail their safety guard. Self-created disposable-list probes covered the same server operations successfully, so that fixture mismatch is not premium evidence.
 - Future AnyList server/client releases may change these behaviors.

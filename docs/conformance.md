@@ -1,17 +1,17 @@
-# AnyList SDK Conformance Matrix
+# Conformance
 
-This is the authoritative verification checklist for the SDK. **Official executable `app.js` behavior is the primary specification for shared/web functionality.** For native-only functionality absent from the web application, behavior from official AnyList native clients is accepted as client authority. Exact source reconstruction is the default; captured requests or server acceptance alone never justify invented behavior. A deliberate divergence is allowed only when the source defect/limitation is explicit, the alternative is supported by the official schema/runtime model, and both offline regression evidence and a disposable live test prove the alternative. Such cases are labeled as intentional divergences rather than parity.
+This file tracks how each SDK surface was verified. Shared/web behavior is compared with the official `app.js`; native-only behavior is compared with official AnyList native clients. Captures and server responses are supporting evidence, but missing protocol semantics are not inferred from acceptance alone. Known divergences are called out explicitly and covered by regression tests.
 
 ## Status legend
 
-- **✅ LIVE VERIFIED** — the current code path has been exercised against the real AnyList service and the exercised result was validated. This is the strongest evidence available; it does **not** mean every imaginable edge case is mathematically proven.
-- **✅ LOCAL VERIFIED** — behavior is intentionally local-only and has been verified end-to-end locally (for example token logout).
-- **🧪 OFFLINE VERIFIED** — official client source / embedded schema behavior is covered by offline regression tests, but the method has not yet been proven with a live server mutation/readback.
-- **🟡 LIVE PARTIAL** — a meaningful live path passed, but another direction/side effect remains intentionally untested.
-- **🟠 LIVE RETEST REQUIRED** — relevant implementation changed after the last live attempt; do not treat older live results as current proof.
-- **🔷 VERIFIED INTENTIONAL DIVERGENCE** — differs deliberately from a precisely identified `app.js` path because the official path has a concrete defect/limitation; the alternative is schema-supported and locked by both offline and live evidence.
+- **✅ LIVE VERIFIED** — exercised against the real AnyList service and the result was checked.
+- **✅ LOCAL VERIFIED** — local-only behavior verified end to end.
+- **🧪 OFFLINE VERIFIED** — covered by source/schema-based regression tests, without current live mutation/readback evidence.
+- **🟡 LIVE PARTIAL** — one live path passed; another direction or side effect is still untested.
+- **🟠 LIVE RETEST REQUIRED** — implementation changed after the last live run.
+- **🔷 VERIFIED INTENTIONAL DIVERGENCE** — differs from a specific `app.js` path because of a documented defect or limitation; covered by offline and live tests.
 - **⚪ NOT LIVE TESTED** — no current live evidence.
-- **🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE** — deliberately not tested because it would modify pre-existing non-disposable state, another person, an account-wide setting that cannot be isolated, or an external/irreversible side effect without a cleanup path. Tests may create and fully remove uniquely identified disposable resources in otherwise global domains.
+- **🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE** — live mutation would touch pre-existing state, another user, an account-wide setting, or an external/irreversible side effect without a safe cleanup path.
 - **⚠️ OFFICIAL CONTRADICTION** — official JavaScript and embedded protobuf schema conflict; do not invent a wire format.
 
 ## Current checkpoint
@@ -19,41 +19,41 @@ This is the authoritative verification checklist for the SDK. **Official executa
 - Default offline/local suite: **530 passing** at the latest repository gate.
 - Current read-only live suite: **12/12 passing** with the corrected multipart transport, including live autocomplete/categorization against official English/German tag resources plus live sync-hook, raw-API, service-view, and transport-close coverage.
 - Native token-session sign-out: **2/2 passing** against both `www.anylist.com` and `production.anylist.com`. In both cases `/data/auth/sign-out` revoked the supplied refresh token immediately while the already-issued access token remained accepted by `/data/account/info` immediately after logout.
-- Guarded live mutation suite: **48 passed, 1 safely skipped without writing** in the latest complete run. In addition to the disposable shopping-list ecosystem, coverage now includes uniquely identified disposable global categories/groupings and learned categorization memory, disposable recipes/collections with exact collection-order restoration, disposable per-recipe cooking-state add/remove with byte-for-byte preservation of every pre-existing cooking-state record, disposable meal-plan events/labels/list-items, disposable templates/template events/template groups with exact root-item restoration, and recipe-linked deletion across both normal and template event stores.
+- Guarded live mutation suite: **48 passed, 1 skipped without writing** in the latest complete run. Coverage includes disposable shopping data, categories/groupings, learned categorization memory, recipes/collections, cooking state, meal-plan data, templates/groups, and recipe-linked deletion across normal and template event stores.
 - The reusable server-side disposable list **`AnyList SDK Conformance Test`** exists and is retained for future verification. Mutation guards require both its reserved ID and exact name before any write.
-- No normal shopping list or pre-existing recipe/category/meal-plan resource is intentionally mutated. Temporary shopping, starter, folder, category, recipe, collection, meal-plan event/label/template/group, rule, and provenance resources created by live tests are removed again and fresh cleanup audits require zero residue. The one label-order experiment that necessarily renumbered existing labels was immediately restored to the exact original `[0,1,2,3,4]` sort indices and is excluded from routine reruns.
+- Live tests do not mutate normal shopping lists or pre-existing recipe/category/meal-plan resources. Disposable resources are removed after each run and cleanup checks require zero residue. The label-order experiment restored the original `[0,1,2,3,4]` indices and is not part of routine reruns.
 - The protobuf multipart correction is now **live write verified**: AnyList requires binary protobuf fields as ordinary multipart form fields with no filename and no per-part Content-Type.
 - Live conformance found and fixed a categorization-rule identity bug: single, bulk, and migration rule creation now use the official deterministic UUIDv5 of `lower(itemName) + categoryGroupId + listId`. Offline regressions and live server readback both confirm it.
 - Live conformance also found and fixed a cross-service flush bug: `clear()` and `remove_checked()` could commit the shopping-list removal while leaving their required Recent Items promotion queued locally. Both now propagate the caller's flush request to the Recent/Favorite starter queue, matching the official web flow; offline regressions and live readback confirm the fix.
 - Known official quirk: `ShoppingListsResponse.orderedIds` is populated on a full response and empty on unchanged deltas; `app.js` stores its private `$oj$JK` value but never reads it. Real ordering is folder-managed.
 - Known official contradiction: `set-web-selected-meal-plan-event-id` exists in JavaScript but `PBMobileAppSettings` has no `webSelectedMealPlanEventId` field.
-- The generated merged protocol audit currently accounts for **72 endpoint/method rows** (54 implemented, 18 intentionally excluded) and **202 proven operation handlers** (195 implemented, 7 intentionally excluded), with **zero unknown rows** and zero unreviewed Android action-like candidates. The concise checked-in report is [`protocol-coverage.md`](protocol-coverage.md); `tools/protocol_coverage.py` can emit the full machine-readable JSON evidence on demand.
+- The merged protocol audit accounts for **72 endpoint/method rows** (54 implemented, 18 excluded) and **202 operation handlers** (195 implemented, 7 excluded), with zero unknown rows or unreviewed Android action-like candidates. See [`protocol-coverage.md`](protocol-coverage.md); `tools/protocol_coverage.py` can emit the full JSON report.
 
 ### Free-account server entitlement sweep (2026-09-13)
 
 A separate disposable account was created specifically to determine whether AnyList Complete restrictions are enforced by the server or only by official-client UI. Fresh authentication reported `is_premium_user = false`; after the entire sweep, both a new auth token and `/data/account/info` still reported non-premium status (`isPremiumUser = false`, `subscriptionType = 0`).
 
-The real service accepted and persisted every Complete-labelled data surface exercised by the SDK: folders; stores, filters, item/store assignments and prices; first-time list passcode creation; notification locations plus `locationNotificationsEnabled`; premium and custom themes; the `set-badge-mode` list-settings handler; item and recipe photo metadata; binary photo upload; URL photo import; recipe scaling plus prep/cook times; meal-plan events, labels, event-list items, templates, template groups and template events; iCalendar enable/disable; and meal-plan email delivery. Uploaded photo IDs were also fetched back from `photos.anylist.com` with HTTP 200, proving actual server-side photo storage rather than optimistic metadata alone. UPC lookup and web image search likewise worked while authenticated as the free account.
+The free account accepted every Complete-labelled data path exercised in the sweep, including folders, stores, prices, passcodes, location reminders, themes, photos, recipe scaling, meal planning, iCalendar, and meal-plan email. Uploaded photos were fetched back from `photos.anylist.com` with HTTP 200. UPC lookup and web image search also worked.
 
-The advertised five-import recipe limit was also not enforced by these server paths. Seven disposable web imports were parsed, saved with `isNewRecipeFromWebImport`, verified from fresh clients, and removed again. Responses counted down through `freeRecipeImportsRemainingCount = 0`; another import after zero still returned status `0` with a recipe, reported `-1`, and the subsequent saved recipe persisted. This is observed server behavior, not a guarantee that AnyList will preserve it or that official clients will expose the same actions.
+The tested recipe-import path also continued past the advertised five-import allowance. Imports still returned status `0` after `freeRecipeImportsRemainingCount` reached zero, and saved recipes survived a fresh read. This records observed server behavior as of the test date.
 
-These results strongly indicate that the official apps enforce many Complete restrictions client-side. The SDK therefore does not synthesize subscription errors for operations that the server accepts. Product-level entitlements that are not SDK data APIs—such as entering the official Web/Mac applications, Apple Watch availability, or support priority—are outside this server-data sweep.
+These results indicate that many Complete restrictions are enforced in the official clients. The SDK does not add subscription errors to operations the server accepts. Product-level entitlements that are not SDK data APIs—such as entering the official Web/Mac applications, Apple Watch availability, or support priority—are outside this server-data sweep.
 
-The full feature-by-feature server matrix, Android `isPremiumUser` gate audit, recipe-import quota observations, theme behavior, and known unknowns are preserved in [`free-account-entitlements.md`](free-account-entitlements.md). In particular, Android's native list-settings surface proves that `customDarkTheme` is written with the `save-custom-dark-theme` handler; this handler is absent from the web-derived `official_surface.json`, so it is treated as native-client authority rather than invented web behavior.
+See [`free-account-entitlements.md`](free-account-entitlements.md) for the full matrix, Android `isPremiumUser` gates, recipe-import results, and theme behavior. Android source uses `save-custom-dark-theme` for `customDarkTheme`; that handler does not appear in the web-derived `official_surface.json`.
 
 ### Native iOS capture observation (not behavioral authority)
 
-A current AnyList iOS 7.1 network capture was compared with the web-derived SDK during the repository quality audit. The native app still uses API version `3` and the same core token/data paths represented here: `/auth/token`, `/auth/token/refresh`, `/data/user-data/get`, `/data/account/info`, and `/data/add-user-listener`. Its production host is `production.anylist.com` rather than the web client's `www.anylist.com`, and it adds native-app request headers plus mobile-specific endpoints for push tokens, app notices, locale/version handling, and analytics.
+An AnyList iOS 7.1 capture still used API version `3` and the same core token/data routes represented by the SDK: `/auth/token`, `/auth/token/refresh`, `/data/user-data/get`, `/data/account/info`, and `/data/add-user-listener`. The app uses `production.anylist.com` and adds native headers plus mobile-only routes for push tokens, app notices, locale/version handling, and analytics.
 
-The capture also shows a native `POST /data/auth/sign-out` request carrying bearer authentication and multipart fields named `refresh_token`, `push_token`, and `push_token_type`. That is strong evidence that the native client has a token-session sign-out path distinct from the web browser's `_xsrf`-protected `/auth/logout` form. An unauthenticated probe returned HTTP `401` from the same `/data/auth/sign-out` path on both `production.anylist.com` and `www.anylist.com`, confirming that the route exists on the normal web hostname too rather than being production-host-only. A separately gated live auth-mutation test then proved the server semantics on both hosts: sign-out immediately revokes the submitted refresh token, while the already-issued access token remains usable immediately afterward and therefore dies only through its ordinary expiry. Once that access token expires, the revoked refresh token prevents the signed-out session from obtaining another pair.
+The capture includes `POST /data/auth/sign-out` with bearer authentication and multipart fields `refresh_token`, `push_token`, and `push_token_type`. An unauthenticated request returned HTTP `401` on both `production.anylist.com` and `www.anylist.com`, so the route exists on both hosts. Live auth tests then confirmed that sign-out revokes the submitted refresh token immediately while the current access token remains usable until expiry.
 
 ### Native Android 3.0.3 source reconstruction
 
-The official Android 3.0.3 (build 278) application was decompiled and independently inventoried from both Java call sites and raw DEX endpoint strings. It uses API version `3`, a persisted client identifier, `production.anylist.com`, and the same protobuf schema: all 156 Android `model.proto` messages match the SDK schema name-for-name. Android also exposes native-only AnyList routes that have no web equivalent. The SDK only promotes generally useful data features: remote configuration, UPC lookup, place search, and image search. App Notices, Alexa default-list selection, metrics, rating feedback, push-token registration, and legacy Google Assistant linking remain documented but intentionally unexposed because they are app UI/telemetry/lifecycle plumbing or obsolete external integration behavior.
+The Android 3.0.3 (build 278) app was decompiled and its Java call sites and raw DEX route strings were inventoried. It uses API version `3`, a persisted client identifier, `production.anylist.com`, and a protobuf schema whose 156 message names match the SDK schema. Native-only routes include remote configuration, UPC lookup, place search, and image search. UI, telemetry, lifecycle, and obsolete integration routes remain in the research notes.
 
-Android sends `/data/auth/sign-out` as `application/x-www-form-urlencoded`, unlike iOS multipart. The server accepts both. The SDK keeps its previously implemented multipart request because that exact code path is already live verified on both AnyList hosts; copying Android's encoding adds no useful SDK capability.
+Android sends `/data/auth/sign-out` as `application/x-www-form-urlencoded`; iOS uses multipart. The server accepts both. The SDK keeps the multipart form already covered by live tests.
 
-The Android source also reveals account/signup/password/subuser/delete/purchase endpoints. Those are intentionally not promoted to high-level SDK methods: they are high-impact account-management or store-specific operations, while the normal SDK use cases are list, recipe, meal-plan, automation, and native data features. Their exact known routes remain documented under `research/hidden_endpoints.md` rather than being silently discarded.
+The Android source also reveals account/signup/password/subuser/delete/purchase endpoints. Those routes stay in `research/hidden_endpoints.md` instead of the high-level SDK because they are account-management or store-specific operations with broad side effects.
 
 ## Client
 
@@ -234,7 +234,7 @@ The Android source also reveals account/signup/password/subuser/delete/purchase 
 | `ShoppingListsService.clear()` | ✅ LIVE VERIFIED | Cleared the disposable shopping list and populated its Recent Items list; this live test exposed and then confirmed the cross-service flush fix. |
 | `ShoppingListsService.remove_checked()` | ✅ LIVE VERIFIED | Removed only checked disposable items while preserving their existing Recent entries without duplicates; live-confirmed after the cross-service flush fix. |
 | `ShoppingListsService.uncheck_all()` | ✅ LIVE VERIFIED | Temporary checked items were uncrossed without Recent Items writes and verified on a fresh read. |
-| `ShoppingListsService.unshare()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Could affect another user/share relationship; intentionally not exercised. |
+| `ShoppingListsService.unshare()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because it could affect another user's share relationship. |
 | `ShoppingListsService.add_notification_location()` | ✅ LIVE VERIFIED | On the disposable non-premium account, a notification location was added to a newly-created list and confirmed from a fresh client together with `locationNotificationsEnabled`; deleting the entire disposable list provided exact cleanup. |
 | `ShoppingListsService.remove_notification_location()` | 🧪 OFFLINE VERIFIED | Exact Android `remove-list-notification-location` contract is regression-tested: removal is a local no-op when the ID is absent; otherwise the removed full `PBNotificationLocation` is carried in the list operation. |
 | `ShoppingListsService.add_store_ids_to_items()` | ✅ LIVE VERIFIED | Temporary item/store association persisted on fresh read. |
@@ -292,8 +292,8 @@ The Android source also reveals account/signup/password/subuser/delete/purchase 
 |---|---|---|
 | `MobileSettingsService.refresh()` | ✅ LIVE VERIFIED | Called against the real endpoint and decoded/applied successfully. |
 | `MobileSettingsService.get()` | ✅ LIVE VERIFIED | Returned the real synchronized mobile-settings object from live state. |
-| `MobileSettingsService.set()` | 🧪 OFFLINE VERIFIED / 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Web handlers plus Android-native `crossOffGesture`, `keepScreenOnBehavior`, `mealPlanWeekStartDay`, `isOnlineShoppingDisabled`, `shouldUseMetricUnits`, `webDecimalSeparator`, `webCurrencyCode`, and `webCurrencySymbol` mutations are source-derived and regression-tested. Live mutation is intentionally avoided because this is pre-existing account-wide state without an isolated cleanup scope. |
-| `MobileSettingsService.save_recipe_cooking_states()` | ✅ LIVE VERIFIED | Added one cooking-state record keyed only to a disposable recipe, verified its fields from a fresh client, and proved every pre-existing cooking-state protobuf remained byte-for-byte identical. |
+| `MobileSettingsService.set()` | 🧪 OFFLINE VERIFIED / 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Web handlers plus Android-native `crossOffGesture`, `keepScreenOnBehavior`, `mealPlanWeekStartDay`, `isOnlineShoppingDisabled`, `shouldUseMetricUnits`, `webDecimalSeparator`, `webCurrencyCode`, and `webCurrencySymbol` mutations are source-derived and regression-tested. Live mutation is skipped because this is pre-existing account-wide state without an isolated cleanup scope. |
+| `MobileSettingsService.save_recipe_cooking_states()` | ✅ LIVE VERIFIED | Added one cooking-state record keyed only to a disposable recipe, verified its fields from a fresh client, and confirmed every pre-existing cooking-state protobuf remained byte-for-byte identical. |
 | `MobileSettingsService.remove_recipe_cooking_states()` | ✅ LIVE VERIFIED | Removed only the disposable recipe's cooking-state key; fresh state exactly matched the complete pre-test cooking-state snapshot. |
 
 ## User categories
@@ -462,7 +462,7 @@ The Android source also reveals account/signup/password/subuser/delete/purchase 
 | `MealPlanService.set_event_list_item_details()` | ✅ LIVE VERIFIED | Disposable event-list-item details persisted on fresh readback. |
 | `MealPlanService.set_event_list_item_quantity()` | ✅ LIVE VERIFIED | Disposable event-list-item quantity protobuf persisted on fresh readback. |
 | `MealPlanService.set_event_list_item_package_size()` | ✅ LIVE VERIFIED | Disposable event-list-item package-size protobuf persisted on fresh readback. |
-| `MealPlanService.delete_events_for_recipe_id()` | 🔷 VERIFIED INTENTIONAL DIVERGENCE | `app.js` 84361-84383 fetches matching template events but maps the normal-event array twice, leaving the fetched template array unused. The SDK deliberately sends normal IDs followed by the actual template-event IDs. The protobuf shape supports this, an offline regression locks the difference, and a disposable live recipe test confirmed both event stores are cleared. |
+| `MealPlanService.delete_events_for_recipe_id()` | 🔷 VERIFIED INTENTIONAL DIVERGENCE | `app.js` 84361-84383 fetches matching template events but maps the normal-event array twice, leaving the fetched template array unused. The SDK sends normal IDs followed by the actual template-event IDs. The protobuf shape supports this, an offline regression locks the difference, and a disposable live recipe test confirmed both event stores are cleared. |
 | `MealPlanService.set_template_name()` | ✅ LIVE VERIFIED | Disposable template name persisted on fresh readback. |
 | `MealPlanService.set_template_icon()` | ✅ LIVE VERIFIED | Disposable template icon persisted on fresh readback. |
 | `MealPlanService.add_template_day_ids()` | ✅ LIVE VERIFIED | Added real UUID template-day IDs to a disposable template; operation acknowledged live. |
@@ -486,9 +486,9 @@ The Android source also reveals account/signup/password/subuser/delete/purchase 
 | `AccountService.get()` | ✅ LIVE VERIFIED |  |
 | `AccountService.update_name()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
 
-### Known Android account/auth routes intentionally not exposed
+### Android account/auth routes not exposed
 
-Official Android 3.0.3 source provides exact request/response behavior for `/auth/token/exchange-signed-user-id`, `/data/signup`, `/data/send-password-reset`, `/data/reset-password`, `/data/account/change-password`, `/data/account/add-subuser`, `/data/account/remove-subuser`, `/data/account/request-delete`, `/data/account/unlock-google-play-purchase`, and `/data/account/update-locale`. These remain documented in `research/hidden_endpoints.md` but intentionally have no high-level SDK convenience methods. They are account-creation/recovery/destructive/family-management/store-purchase flows rather than normal data APIs; several rotate credentials or cause account-wide/external effects, and Google Play unlock is platform-store-specific.
+Android 3.0.3 contains account/auth routes for signed-user-id exchange, signup, password reset/change, subusers, account deletion, Google Play purchase unlock, and locale updates. They are documented in `research/hidden_endpoints.md` and have no high-level SDK convenience methods because they affect credentials, account-wide state, family membership, or platform-store state.
 
 ## Photos
 
@@ -496,7 +496,7 @@ Official Android 3.0.3 source provides exact request/response behavior for `/aut
 |---|---|---|
 | `PhotosService.upload_bytes()` | ✅ LIVE VERIFIED | A non-premium account uploaded real image bytes successfully. The resulting photo URL was fetched back from `photos.anylist.com` with HTTP 200 and non-empty bytes, proving actual server storage. |
 | `PhotosService.upload_url()` | ✅ LIVE VERIFIED | A non-premium account imported an image-search result by URL; the generated photo ID was subsequently fetched from `photos.anylist.com` with HTTP 200 and non-empty bytes. |
-| `PhotosService.image_search()` | ✅ LIVE VERIFIED | Exact Android multipart route `/data/photos/image-search`, `query` field, and strict `results[].MediaUrl` / `Thumbnail.MediaUrl` parsing are source-derived and regression-tested. A live request returned many image results; current thumbnail URLs are proxied through Brave Search, so Android's old Bing-specific log message is historical rather than proof of the present backend. |
+| `PhotosService.image_search()` | ✅ LIVE VERIFIED | Exact Android multipart route `/data/photos/image-search`, `query` field, and strict `results[].MediaUrl` / `Thumbnail.MediaUrl` parsing are source-derived and regression-tested. A live request returned many image results; current thumbnail URLs are proxied through Brave Search, so Android's old Bing-specific log message does not identify the current backend. |
 | `PhotosService.url()` | ✅ LIVE VERIFIED | URLs generated for both byte-uploaded and URL-imported photos were fetched live from `photos.anylist.com` with HTTP 200 and non-empty bodies. |
 
 ## Android native search, lookup, and config
@@ -526,7 +526,7 @@ Official Android 3.0.3 source provides exact request/response behavior for `/aut
 | `AlexaService.set_enabled_lists()` | 🚫 NOT MUTATED UNDER CURRENT SAFETY SCOPE | Not exercised because this path changes pre-existing/account-wide state or can trigger an external effect that cannot be isolated to a uniquely disposable resource with a proven cleanup path. |
 | `AlexaService.set_default_list_id()` | 🧪 OFFLINE VERIFIED | Exact Android multipart `/data/alexa/set-default-list-id` route and `list_id` field are regression-tested. |
 
-### Known native routes intentionally not exposed
+### Native routes not exposed
 
 `/data/app-notices/get` and `/data/app-notices/update` implement AnyList's in-app notice/announcement UI and read/dismiss bookkeeping. `/data/increment-metric` and `/data/contact/app-rating-prompt-feedback` are app telemetry/feedback plumbing, while `/data/update-push-token` is mobile lifecycle plumbing. All remain research-only. `/data/gassistant/link-list` and `/data/gassistant/unlink-list` are likewise retained only as protocol documentation because the Android source explicitly describes the Google Assistant integration as shut down June 20, 2023.
 
@@ -743,12 +743,12 @@ Official Android 3.0.3 source provides exact request/response behavior for `/aut
 | Generated protobuf `.pyi` stubs | ✅ LOCAL VERIFIED | Strict consumer mypy test passes, including from installed wheel. |
 | PEP 561 `py.typed` packaging | ✅ LOCAL VERIFIED | Present in built wheel and recognized by consumer type check. |
 | 185 official operation handler strings accounted for | ✅ LOCAL VERIFIED | Every handler is represented in implementation/tests; one is the documented schema contradiction. |
-| 48 official endpoint strings accounted for | ✅ LOCAL VERIFIED | `/auth/logout` is intentionally not used by token auth because official bearer-token flow has no such request. |
+| 48 official endpoint strings accounted for | ✅ LOCAL VERIFIED | `/auth/logout` is not used by token auth; the bearer-token flow uses `/data/auth/sign-out`. |
 | Wheel build / external import | ✅ LOCAL VERIFIED | Correct `aioanylist-1.0.0` wheel built, installed and imported outside the source tree at the 1.0.0 release gate. |
 
 ## Running live conformance tests
 
-The live harness is intentionally outside the default pytest `testpaths`, so `pytest` never
+The live harness is outside the default pytest `testpaths`, so `pytest` never
 contacts AnyList on its own. Read-only/auth/realtime checks require explicit credentials and opt-in:
 
 ```text
@@ -767,8 +767,7 @@ Mutation tests require the additional `ANYLIST_LIVE_MUTATIONS=1` guard plus the 
 shopping-list ID expected by the harness. Every supported mutation test is constrained to disposable
 resources, checks operation acknowledgement, verifies the result from a fresh server read, and cleans
 up what it created. Tests that would alter pre-existing account-wide state, another user, quota, email,
-sharing, Alexa, iCalendar state, or another external/irreversible side effect remain intentionally
-disabled unless their row above says otherwise.
+sharing, Alexa, iCalendar state, or another external/irreversible side effect remain disabled unless their row above says otherwise.
 
 ## Parsing API
 

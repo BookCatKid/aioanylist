@@ -1,13 +1,12 @@
-"""Generate an evidence-backed AnyList protocol coverage report.
+"""Generate the AnyList protocol coverage report.
 
-Authorities:
-- ``src/aioanylist/official_surface.json``: current AnyList Web endpoints/handlers.
-- ``research/android/endpoints.json``: Android routes, methods, evidence and intentional status.
+Inputs:
+- ``src/aioanylist/official_surface.json``: AnyList Web endpoints and handlers.
+- ``research/android/endpoints.json``: Android routes, methods, evidence, and SDK status.
 - Python source under ``src/aioanylist``: implemented SDK literals and their locations.
 
-The report is intentionally conservative. A route or handler is marked implemented only when an
-exact source literal is found (or an explicit, source-proven override says so). Unknown rows are
-for human review; the generator never silently assumes parity.
+A route or handler is marked implemented only when a matching source literal or explicit
+source-backed override exists. Unknown rows require manual review.
 """
 
 from __future__ import annotations
@@ -26,7 +25,7 @@ SDK_ROOT = ROOT / "src" / "aioanylist"
 WEB_SURFACE = SDK_ROOT / "official_surface.json"
 ANDROID_SURFACE = ROOT / "research" / "android" / "endpoints.json"
 
-# Proven official operations that are absent from the deliberately lightweight web extractor.
+# Proven official operations that are absent from the web extractor.
 # Keep this list tiny and source-evidenced; these are not speculative aliases.
 EXTRA_OPERATION_HANDLERS: dict[str, dict[str, Any]] = {
     "save-custom-dark-theme": {
@@ -46,9 +45,9 @@ EXTRA_OPERATION_HANDLERS: dict[str, dict[str, Any]] = {
         "authority": "android",
         "evidence": ["research/android/jadx/sources/cd/q6.java:883"],
         "notes": (
-            "Android atomic new-list PBListSettings creation primitive. Intentionally not exposed "
-            "as a second public list-settings creation API; the SDK already exposes the equivalent "
-            "web-derived initialization workflow."
+            "Android atomic new-list PBListSettings creation primitive. Not exposed as a second "
+            "public list-settings creation API; the SDK already exposes the equivalent "
+            "initialization workflow."
         ),
         "sdk_policy": "intentionally_unimplemented",
     },
@@ -56,9 +55,9 @@ EXTRA_OPERATION_HANDLERS: dict[str, dict[str, Any]] = {
         "authority": "android",
         "evidence": ["research/android/jadx/sources/sd/o.java:140"],
         "notes": (
-            "Android Submit Public Item flow carrying an edited ListItem. Intentionally not exposed "
-            "as a convenience API because it writes user-supplied metadata into AnyList's shared "
-            "public product database and has little ordinary SDK value relative to its abuse risk."
+            "Android Submit Public Item flow carrying an edited ListItem. Not exposed as a "
+            "convenience API because it writes user-supplied metadata into AnyList's shared public "
+            "product database."
         ),
         "sdk_policy": "intentionally_unimplemented",
     },
@@ -117,7 +116,7 @@ EXTRA_OPERATION_HANDLERS: dict[str, dict[str, Any]] = {
     "set-client-has-shown-alexa-onboarding": {
         "authority": "android",
         "evidence": ["research/android/jadx/sources/zc/b.java:169"],
-        "notes": "Native onboarding UI bookkeeping, not domain state worth promoting.",
+        "notes": "Native onboarding UI bookkeeping.",
         "sdk_policy": "intentionally_unimplemented",
     },
     "set-client-has-shown-google-assistant-onboarding": {
@@ -190,10 +189,9 @@ def source_hits(needle: str, files: Iterable[Path]) -> list[Hit]:
 def android_action_like_literals() -> dict[str, list[Hit]]:
     """Return native action-like string literals for parity review.
 
-    This is intentionally a *candidate* inventory rather than an authority by itself: obfuscated
-    Android source contains route fragments and UI state names that can look handler-like. The
-    report exposes native-only candidates so they can be reviewed and, when proven, promoted into
-    ``EXTRA_OPERATION_HANDLERS`` with exact evidence.
+    Obfuscated Android source contains route fragments and UI state names that can look like
+    handlers. The report lists native-only candidates for manual review before adding them to
+    ``EXTRA_OPERATION_HANDLERS``.
     """
 
     root = ROOT / "research" / "android" / "jadx" / "sources"
@@ -286,7 +284,7 @@ def build_report() -> dict[str, Any]:
             }
         )
 
-    # Add web-only direct routes. Method is intentionally ANY because the lightweight surface
+    # Add web-only direct routes. Method is ANY because the web surface
     # extractor records URL literals, not the call's verb.
     for path_value in web.get("endpoints", []):
         path = str(path_value)
@@ -381,11 +379,10 @@ def render_markdown(report: dict[str, Any]) -> str:
     endpoint_counts = summary["endpoints_by_status"]
     handler_counts = summary["handlers_by_status"]
     lines = [
-        "# Protocol Coverage Audit",
+        "# Protocol coverage",
         "",
-        "Generated from the checked-in AnyList Web surface and Android endpoint research. The",
-        "generator is conservative: `unknown` means the SDK could not prove an implementation by",
-        "exact source evidence and requires review.",
+        "Generated from the checked-in AnyList Web surface and Android endpoint research. `unknown`",
+        "means no implementation match was found with source evidence and the row needs review.",
         "",
         "## Summary",
         "",
@@ -423,9 +420,9 @@ def render_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
-            "## Intentional endpoint exclusions",
+            "## Endpoint exclusions",
             "",
-            "These are source-proven official routes deliberately not promoted to the public SDK.",
+            "These official routes were found in source but are not exposed through the public SDK.",
             "",
         ]
     )
@@ -433,27 +430,25 @@ def render_markdown(report: dict[str, Any]) -> str:
         row for row in report["endpoints"] if row["status"] == "intentionally_unimplemented"
     ]
     for row in exclusions:
-        lines.append(f"- `{row['key']}` — {row.get('notes') or 'intentional exclusion'}")
+        lines.append(f"- `{row['key']}` — {row.get('notes') or 'excluded'}")
 
-    lines.extend(["", "## Intentional operation-handler exclusions", ""])
+    lines.extend(["", "## Operation-handler exclusions", ""])
     handler_exclusions = [
         row
         for row in report["operation_handlers"]
         if row["status"] == "intentionally_unimplemented"
     ]
     for row in handler_exclusions:
-        lines.append(f"- `{row['handler']}` — {row.get('notes') or 'intentional exclusion'}")
+        lines.append(f"- `{row['handler']}` — {row.get('notes') or 'excluded'}")
 
     lines.extend(
         [
             "",
-            "## Evidence model",
+            "## Generated report",
             "",
-            "The generator can emit a detailed JSON report containing every endpoint/handler row,",
-            "exact SDK source hits, and Android decompiler evidence paths. That verbose artifact is",
-            "generated on demand rather than tracked in Git. This Markdown intentionally focuses on",
-            "unresolved and intentionally excluded surface rather than duplicating every implemented",
-            "row.",
+            "The generator can emit JSON containing every endpoint/handler row, SDK source hits,",
+            "and Android decompiler evidence paths. The JSON report is generated on demand and is",
+            "not tracked in Git. This file lists unresolved and excluded surface only.",
             "",
             "## Android native-only action-like candidates",
             "",
