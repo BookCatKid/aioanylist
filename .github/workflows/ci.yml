@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install test dependencies
+        run: python -m pip install -e '.[test]'
+      - name: Run test suite
+        run: python -m pytest -q
+
+  quality:
+    name: Quality and packaging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - name: Install development and release tools
+        run: python -m pip install -e '.[test]' build twine
+      - name: Ruff lint
+        run: python -m ruff check .
+      - name: Ruff format
+        run: python -m ruff format --check .
+      - name: Strict typing
+        run: python -m mypy --strict --disable-error-code attr-defined --no-incremental src/anylist_sdk
+      - name: Verify generated protobuf stubs
+        run: python tools/generate_proto_stubs.py --check
+      - name: Verify diff hygiene
+        run: git diff --check
+      - name: Build distributions
+        run: python -m build
+      - name: Validate distributions
+        run: python -m twine check dist/*
+      - name: Verify source distribution is lean
+        run: >-
+          python -c "import glob, tarfile;
+          path=glob.glob('dist/*.tar.gz')[0];
+          names=tarfile.open(path, 'r:gz').getnames();
+          forbidden=('/tests/', '/live_tests/', '/research/', '/tools/', '/docs/', '/examples/');
+          assert not [n for n in names if any(part in n for part in forbidden)]"
+      - name: Smoke-test built wheel
+        run: |
+          python -m pip install --force-reinstall dist/*.whl
+          python -c "from anylist_sdk import AnyListClient; print(AnyListClient.__name__)"
