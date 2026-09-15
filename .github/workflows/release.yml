@@ -8,7 +8,7 @@ on:
       tag:
         description: GitHub release tag to build and publish
         required: true
-        default: v1.0.1
+        default: v1.0.2
 
 permissions:
   contents: read

@@ -125,3 +125,48 @@ async def test_aggregate_sync_defers_busy_manager_snapshot_until_guard_clears(
     # Unlike shopping/starter managers, list settings has no deferred-refresh flag in the
     # official client. The busy aggregate snapshot is simply ignored; the queue delegate's
     # normal timestamp conflict path decides whether a direct settings refresh is necessary.
+
+
+@pytest.mark.asyncio
+async def test_sync_status_listener_reports_success_and_failure(fake_transport) -> None:
+    state = AnyListState(user_id="user")
+    sync = SyncCoordinator(fake_transport, state)
+    seen: list[Exception | None] = []
+    sync.add_status_listener(seen.append)
+
+    response = PB.PBUserDataResponse()
+    fake_transport.responses.extend([response, RuntimeError("offline"), None])
+
+    await sync.refresh(full=True)
+    with pytest.raises(RuntimeError, match="offline"):
+        await sync.refresh()
+    await sync.refresh()
+
+    assert seen[0] is None
+    assert isinstance(seen[1], RuntimeError)
+    assert str(seen[1]) == "offline"
+    assert seen[2] is None
+
+
+@pytest.mark.asyncio
+async def test_coalesced_sync_failure_notifies_status_once() -> None:
+    class FailingTransport(BlockingTransport):
+        async def post_proto(self, endpoint, *, fields, response_type=None):
+            self.calls.append((endpoint, fields, response_type))
+            self.entered.set()
+            await self.release.wait()
+            raise RuntimeError("offline")
+
+    transport = FailingTransport(None)
+    sync = SyncCoordinator(transport, AnyListState(user_id="user"))
+    seen: list[Exception | None] = []
+    sync.add_status_listener(seen.append)
+
+    tasks = [asyncio.create_task(sync.refresh()) for _ in range(4)]
+    await transport.entered.wait()
+    transport.release.set()
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    assert all(isinstance(result, RuntimeError) for result in results)
+    assert len(seen) == 1
+    assert isinstance(seen[0], RuntimeError)

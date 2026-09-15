@@ -88,6 +88,7 @@ The Android source also reveals account/signup/password/subuser/delete/purchase 
 |---|---|---|
 | `SyncCoordinator.set_field_guard()` | ✅ LIVE VERIFIED | A real full sync was guarded for `shoppingListsResponse`; the busy callback fired and the guarded live state was preserved. |
 | `SyncCoordinator.add_listener()` | ✅ LIVE VERIFIED | A live full sync invoked the registered domain listener with the applied domain set. |
+| `SyncCoordinator.add_status_listener()` | 🧪 OFFLINE VERIFIED | Reports one success or failure result per aggregate sync, including coalesced callers, so host applications can track sync health without polling. |
 | `SyncCoordinator.refresh()` | ✅ LIVE VERIFIED | Called against the real endpoint and decoded/applied successfully. |
 
 ## Realtime

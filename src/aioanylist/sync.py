@@ -11,6 +11,7 @@ from .transport import AnyListTransport
 from .types import Domain
 
 SyncListener = Callable[[set[Domain]], Awaitable[None] | None]
+SyncStatusListener = Callable[[Exception | None], Awaitable[None] | None]
 FieldGuard = Callable[[], bool]
 BusyCallback = Callable[[], None]
 
@@ -37,6 +38,7 @@ class SyncCoordinator:
         self._lock = asyncio.Lock()
         self._inflight: asyncio.Task[PBUserDataResponse | None] | None = None
         self._listeners: list[SyncListener] = []
+        self._status_listeners: list[SyncStatusListener] = []
         self._field_guards: dict[str, FieldGuard] = {}
         self._busy_callbacks: dict[str, BusyCallback] = {}
 
@@ -53,11 +55,24 @@ class SyncCoordinator:
     def add_listener(self, listener: SyncListener) -> None:
         self._listeners.append(listener)
 
+    def add_status_listener(self, listener: SyncStatusListener) -> None:
+        """Register a listener for aggregate sync success and failure."""
+        self._status_listeners.append(listener)
+
     async def _notify(self, domains: set[Domain]) -> None:
         for listener in tuple(self._listeners):
             result = listener(domains)
             if asyncio.iscoroutine(result):
                 await result
+
+    async def _notify_status(self, error: Exception | None) -> None:
+        for listener in tuple(self._status_listeners):
+            try:
+                result = listener(error)
+                if asyncio.iscoroutine(result):
+                    await result
+            except Exception:  # noqa: BLE001,S112 - status listeners are observers
+                continue
 
     @staticmethod
     def _domains_in(response: PBUserDataResponse) -> set[Domain]:
@@ -87,15 +102,21 @@ class SyncCoordinator:
         fields: dict[str, Message] = {"client_info": self.state.user_data_client_info()}
         if not full and self.state.loaded_once:
             fields["timestamps"] = self.state.user_data_timestamps()
-        response = await self.transport.post_proto(
-            "/data/user-data/get", fields=fields, response_type="PBUserDataResponse"
-        )
-        if response is None:
-            return None
-        assert isinstance(response, PB.PBUserDataResponse)
-        filtered = self._filter_busy_fields(response)
-        domains = self._domains_in(filtered)
-        self.state.apply_user_data(filtered)
+        try:
+            response = await self.transport.post_proto(
+                "/data/user-data/get", fields=fields, response_type="PBUserDataResponse"
+            )
+            if response is None:
+                await self._notify_status(None)
+                return None
+            assert isinstance(response, PB.PBUserDataResponse)
+            filtered = self._filter_busy_fields(response)
+            domains = self._domains_in(filtered)
+            self.state.apply_user_data(filtered)
+        except Exception as err:
+            await self._notify_status(err)
+            raise
+        await self._notify_status(None)
         await self._notify(domains)
         return response
 
