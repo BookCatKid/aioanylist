@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections import Counter
 
 from .normalization import contains_word_or_phrase, remove_diacritics
@@ -29,11 +30,12 @@ _SYSTEM_ROOT_CATEGORIES = {
     "wine-beer-spirits",
     "other",
 }
+_TOKEN_SPLIT = re.compile(r"[ ,():/\-]")
 
 
 def _tokenize(text: str) -> list[str]:
     folded = remove_diacritics(text.lower())
-    return [part for part in __import__("re").split(r"[ ,():/\-]", folded) if part.strip()]
+    return [part for part in _TOKEN_SPLIT.split(folded) if part.strip()]
 
 
 def _keyword_condition_matches(stemmed_text: str, keyword_expr: str) -> bool:
@@ -133,14 +135,13 @@ class Categorizer:
             candidates = specific
 
         # Remove less-specific candidates if another candidate implies them.
-        remaining = list(candidates)
+        candidate_set = set(candidates)
+        less_specific: set[str] = set()
         for child in candidates:
-            for parent in candidates:
-                if child == parent:
-                    continue
-                if Categorizer._implies(data, child, parent) and parent in remaining:
-                    remaining.remove(parent)
-        candidates = remaining
+            for parent in Categorizer._parents(data, child):
+                if parent != child and parent in candidate_set:
+                    less_specific.add(parent)
+        candidates = [tag for tag in candidates if tag not in less_specific]
         if len(candidates) == 1:
             return candidates[0]
 

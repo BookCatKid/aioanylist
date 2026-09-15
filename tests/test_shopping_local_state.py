@@ -1019,6 +1019,31 @@ async def test_bulk_add_at_top_preserves_visible_order_and_reverses_wire_items(
 
 
 @pytest.mark.asyncio
+async def test_bulk_add_return_values_preserve_first_match_semantics_for_duplicate_ids(
+    fake_transport,
+) -> None:
+    svc = service(fake_transport)
+    svc.state.shopping_lists["list"] = PB.ShoppingList(
+        identifier="list",
+        items=[PB.ListItem(identifier="same", listId="list", name="Existing")],
+    )
+
+    added = await svc.add_items(
+        "list",
+        [
+            PB.ListItem(identifier="same", name="First incoming"),
+            PB.ListItem(identifier="same", name="Second incoming"),
+        ],
+    )
+
+    # The previous implementation called state.get_item() once per input, so malformed
+    # duplicate identifiers resolved to the first matching item in visible list order.
+    assert [item.name for item in added] == ["Existing", "Existing"]
+    added[0].name = "Mutated through result"
+    assert svc.state.shopping_lists["list"].items[0].name == "Mutated through result"
+
+
+@pytest.mark.asyncio
 async def test_set_password_omits_original_value_like_web_client(fake_transport) -> None:
     svc = service(fake_transport)
     svc.state.shopping_lists["list"] = PB.ShoppingList(identifier="list", password="old")

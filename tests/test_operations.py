@@ -65,6 +65,18 @@ async def test_file_journal_round_trip(tmp_path, fake_transport) -> None:
 
 
 @pytest.mark.asyncio
+async def test_file_journal_save_keeps_legacy_json_bytes(tmp_path) -> None:
+    journal = FileOperationJournal(tmp_path)
+    payload = b"\x00\x01hello"
+
+    await journal.save("q", payload)
+
+    path = tmp_path / "q.json"
+    assert path.read_bytes() == b'{"operations": "AAFoZWxsbw=="}'
+    assert await journal.load("q") == payload
+
+
+@pytest.mark.asyncio
 async def test_operation_queue_retains_head_on_out_of_order_acknowledgement(fake_transport) -> None:
     spec = QueueSpec("q", "/update", "PBListOperation", "PBListOperationList")
     queue = OperationQueue(fake_transport, spec, user_id="user")

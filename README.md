@@ -17,7 +17,7 @@ This project does not use unofficial AnyList clients as protocol authority and i
 - PEP 561 typing with schema-generated protobuf stubs.
 - Full-featured Textual example application, kept outside the installable SDK package.
 
-The default repository test suite currently passes **527/527** tests. Detailed source/live verification evidence is tracked in [`docs/conformance.md`](docs/conformance.md).
+The default repository test suite currently passes **530/530** tests. Detailed source/live verification evidence is tracked in [`docs/conformance.md`](docs/conformance.md).
 
 ## Requirements
 

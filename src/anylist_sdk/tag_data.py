@@ -93,12 +93,16 @@ class TagDataManager:
 
     async def _load_cache(self, language: str) -> tuple[TagData | None, float]:
         path = self._cache_path(language)
-        if path is None or not path.exists():
+        if path is None:
             return None, 0.0
+
+        def read_cached() -> tuple[str, float]:
+            stat = path.stat()
+            return path.read_text("utf-8"), stat.st_mtime
+
         try:
-            stat = await asyncio.to_thread(path.stat)
-            raw = await asyncio.to_thread(path.read_text, "utf-8")
-            return TagData.from_json(language, json.loads(raw)), stat.st_mtime
+            raw, mtime = await asyncio.to_thread(read_cached)
+            return TagData.from_json(language, json.loads(raw)), mtime
         except (OSError, ValueError, TypeError, KeyError, TagDataError):
             return None, 0.0
 

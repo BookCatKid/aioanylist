@@ -12,7 +12,7 @@ from typing import Any, Protocol
 from google.protobuf.message import Message
 
 from .identifiers import uuid4_hex
-from .proto import PB, decode, encode, message_class
+from .proto import decode, encode, message_class
 from .transport import AnyListTransport
 from .types import OperationAck
 
@@ -38,8 +38,8 @@ class FileOperationJournal:
     async def save(self, queue_id: str, payload: bytes) -> None:
         path = self._path(queue_id)
         path.parent.mkdir(parents=True, exist_ok=True)
-        data = json.dumps({"operations": base64.b64encode(payload).decode("ascii")})
-        await asyncio.to_thread(path.write_text, data, "utf-8")
+        data = b'{"operations": "' + base64.b64encode(payload) + b'"}'
+        await asyncio.to_thread(path.write_bytes, data)
 
     async def load(self, queue_id: str) -> bytes | None:
         path = self._path(queue_id)
@@ -117,14 +117,14 @@ class OperationQueue:
         **fields: Any,
     ) -> Message:
         op = message_class(self.spec.operation_type)()
-        metadata = PB.PBOperationMetadata(
-            operationId=uuid4_hex(), handlerId=handler_id, userId=self.user_id
-        )
+        metadata = op.metadata
+        metadata.operationId = uuid4_hex()
+        metadata.handlerId = handler_id
+        metadata.userId = self.user_id
         if operation_class is not None:
             metadata.operationClass = operation_class
         if operation_version is not None:
             metadata.operationVersion = operation_version
-        op.metadata.CopyFrom(metadata)
         for name, value in fields.items():
             field = op.DESCRIPTOR.fields_by_name.get(name)
             if field is None:
@@ -160,8 +160,7 @@ class OperationQueue:
 
     def _as_list_message(self, operations: list[Message] | None = None) -> Message:
         result = message_class(self.spec.operation_list_type)()
-        for operation in operations if operations is not None else self._pending:
-            result.operations.add().CopyFrom(operation)
+        result.operations.extend(operations if operations is not None else self._pending)
         return result
 
     async def _persist_locked(self) -> None:
@@ -242,14 +241,15 @@ class OperationQueue:
                         # request therefore cannot be lost when this batch is acknowledged.
                         for operation_id in processed:
                             if (
-                                self._pending
-                                and self._pending[0].metadata.operationId == operation_id
+                                removed < len(self._pending)
+                                and self._pending[removed].metadata.operationId == operation_id
                             ):
-                                del self._pending[0]
                                 removed += 1
                             else:
                                 local_id = (
-                                    self._pending[0].metadata.operationId if self._pending else None
+                                    self._pending[removed].metadata.operationId
+                                    if removed < len(self._pending)
+                                    else None
                                 )
                                 logger.error(
                                     "AnyList operation acknowledgement mismatch for %s: "
@@ -258,6 +258,8 @@ class OperationQueue:
                                     operation_id,
                                     local_id,
                                 )
+                        if removed:
+                            del self._pending[:removed]
                         all_processed.extend(processed)
                         await self._persist_locked()
 

@@ -969,12 +969,20 @@ class ShoppingListsService(OperationService):
             await self.operation(handler_id, listId=list_id, list=partial, flush=False)
         if flush:
             await self.flush()
-        result: list[ListItem] = []
-        for item in clones:
-            stored = self.item(list_id, item.identifier)
-            if stored is not None:
-                result.append(stored)
-        return result
+        # Return the protobuf objects stored in the synchronized list, in caller order.
+        # Looking each ID up through state.get_item() rescans the whole list and turns large
+        # bulk additions into O(n²) local work even though all inserted IDs are already known.
+        added_ids = {str(item.identifier) for item in clones}
+        stored_by_id: dict[str, ListItem] = {}
+        for item in lst.items:
+            identifier = str(item.identifier)
+            if identifier in added_ids and identifier not in stored_by_id:
+                # state.get_item(), used by the old implementation, returns the first matching
+                # item when malformed/duplicate identifiers exist. Preserve that edge behavior.
+                stored_by_id[identifier] = item
+        return [
+            stored_by_id[str(item.identifier)] for item in clones if item.identifier in stored_by_id
+        ]
 
     async def revive_matching_item(
         self,

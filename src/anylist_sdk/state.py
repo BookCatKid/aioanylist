@@ -209,9 +209,13 @@ class AnyListState:
         for group_id in deleted_group_ids:
             groups.pop(group_id, None)
         if deleted_group_ids:
-            for category_id, category in tuple(categories.items()):
-                if str(category.categoryGroupId) in deleted_group_ids:
-                    categories.pop(category_id, None)
+            category_ids_to_remove = [
+                category_id
+                for category_id, category in categories.items()
+                if str(category.categoryGroupId) in deleted_group_ids
+            ]
+            for category_id in category_ids_to_remove:
+                categories.pop(category_id, None)
 
         for group_response in detail.categoryGroupResponses:
             for category_id in group_response.deletedCategoryIds:
@@ -278,16 +282,22 @@ class AnyListState:
         if response.includesRecipeCollectionIds:
             self.recipe_collection_ids = list(response.recipeCollectionIds)
             allowed_collections = set(self.recipe_collection_ids)
-            for identifier in tuple(self.recipe_collections):
-                if identifier not in allowed_collections:
-                    self.recipe_collections.pop(identifier, None)
+            collection_ids_to_remove = [
+                identifier
+                for identifier in self.recipe_collections
+                if identifier not in allowed_collections
+            ]
+            for identifier in collection_ids_to_remove:
+                self.recipe_collections.pop(identifier, None)
 
         if response.HasField("allRecipesCollection"):
             self.all_recipes_collection = clone(response.allRecipesCollection)
             allowed_recipes = set(response.allRecipesCollection.recipeIds)
-            for identifier in tuple(self.recipes):
-                if identifier not in allowed_recipes:
-                    self.recipes.pop(identifier, None)
+            recipe_ids_to_remove = [
+                identifier for identifier in self.recipes if identifier not in allowed_recipes
+            ]
+            for identifier in recipe_ids_to_remove:
+                self.recipes.pop(identifier, None)
             # The web client also strips deleted recipe IDs from every user collection.
             for collection in self.recipe_collections.values():
                 kept = [rid for rid in collection.recipeIds if rid in allowed_recipes]
@@ -534,9 +544,19 @@ class AnyListState:
 
     def user_data_timestamps(self) -> PBUserDataClientTimestamps:
         out = PB.PBUserDataClientTimestamps()
-        out.shoppingListTimestamps.CopyFrom(self.shopping_list_timestamps())
-        out.shoppingListLogicalTimestamps.CopyFrom(self.shopping_list_logical_timestamps())
-        out.listFolderTimestamps.CopyFrom(self.list_folder_timestamps())
+        for shopping_list in self.shopping_lists.values():
+            timestamp = out.shoppingListTimestamps.timestamps.add()
+            timestamp.identifier = shopping_list.identifier
+            timestamp.timestamp = shopping_list.timestamp
+            logical = out.shoppingListLogicalTimestamps.timestamps.add()
+            logical.identifier = shopping_list.identifier
+            logical.logicalTimestamp = shopping_list.logicalClockTime
+        if self.root_folder_id:
+            out.listFolderTimestamps.rootFolderId = self.root_folder_id
+        for folder in self.list_folders.values():
+            timestamp = out.listFolderTimestamps.folderTimestamps.add()
+            timestamp.identifier = folder.identifier
+            timestamp.timestamp = folder.timestamp
         if self.recipe_data_id:
             out.userRecipeDataTimestamp.identifier = self.recipe_data_id
             out.userRecipeDataTimestamp.timestamp = self.recipe_timestamp
@@ -556,9 +576,18 @@ class AnyListState:
         if self.starter_list_settings_timestamp_id:
             out.starterListSettingsTimestamp.identifier = "list-settings-timestamp"
             out.starterListSettingsTimestamp.timestamp = self.starter_list_settings_timestamp
-        out.starterListTimestamps.CopyFrom(self._starter_timestamps(self.starter_lists))
-        out.recentItemTimestamps.CopyFrom(self._starter_timestamps(self.recent_item_lists))
-        out.favoriteItemTimestamps.CopyFrom(self._starter_timestamps(self.favorite_item_lists))
+        for starter_list in self.starter_lists.values():
+            timestamp = out.starterListTimestamps.timestamps.add()
+            timestamp.identifier = starter_list.identifier
+            timestamp.timestamp = starter_list.timestamp
+        for recent_list in self.recent_item_lists.values():
+            timestamp = out.recentItemTimestamps.timestamps.add()
+            timestamp.identifier = recent_list.identifier
+            timestamp.timestamp = recent_list.timestamp
+        for favorite_list in self.favorite_item_lists.values():
+            timestamp = out.favoriteItemTimestamps.timestamps.add()
+            timestamp.identifier = favorite_list.identifier
+            timestamp.timestamp = favorite_list.timestamp
         if self.ordered_starter_list_ids_timestamp_id:
             out.orderedStarterListIdsTimestamp.identifier = (
                 self.ordered_starter_list_ids_timestamp_id

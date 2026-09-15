@@ -25,6 +25,42 @@ _EXCEPTION1 = {
 }
 _EXCEPTION2 = {"inning", "outing", "canning", "herring", "earring", "proceed", "exceed", "succeed"}
 _R1_SPECIAL = ("gener", "commun", "arsen")
+_STEP2 = {
+    "ization": "ize",
+    "ational": "ate",
+    "fulness": "ful",
+    "ousness": "ous",
+    "iveness": "ive",
+    "tional": "tion",
+    "biliti": "ble",
+    "lessli": "less",
+    "entli": "ent",
+    "ation": "ate",
+    "alism": "al",
+    "aliti": "al",
+    "ousli": "ous",
+    "iviti": "ive",
+    "fulli": "ful",
+    "enci": "ence",
+    "anci": "ance",
+    "abli": "able",
+    "izer": "ize",
+    "ator": "ate",
+    "alli": "al",
+    "bli": "ble",
+}
+_STEP2_SUFFIXES = tuple(sorted(_STEP2, key=len, reverse=True))
+_STEP3 = {
+    "ational": "ate",
+    "tional": "tion",
+    "alize": "al",
+    "icate": "ic",
+    "iciti": "ic",
+    "ical": "ic",
+    "ful": "",
+    "ness": "",
+}
+_STEP3_SUFFIXES = tuple(sorted(_STEP3, key=len, reverse=True))
 
 
 def _vowel(ch: str) -> bool:
@@ -146,34 +182,10 @@ def english_stem(raw: str) -> str:
         word = word[:-1] + "i"
 
     # Step 2: longest suffix first.
-    step2 = {
-        "ization": "ize",
-        "ational": "ate",
-        "fulness": "ful",
-        "ousness": "ous",
-        "iveness": "ive",
-        "tional": "tion",
-        "biliti": "ble",
-        "lessli": "less",
-        "entli": "ent",
-        "ation": "ate",
-        "alism": "al",
-        "aliti": "al",
-        "ousli": "ous",
-        "iviti": "ive",
-        "fulli": "ful",
-        "enci": "ence",
-        "anci": "ance",
-        "abli": "able",
-        "izer": "ize",
-        "ator": "ate",
-        "alli": "al",
-        "bli": "ble",
-    }
     applied = False
-    for suffix in sorted(step2, key=len, reverse=True):
+    for suffix in _STEP2_SUFFIXES:
         if _in_region(word, suffix, r1):
-            word = word[: -len(suffix)] + step2[suffix]
+            word = word[: -len(suffix)] + _STEP2[suffix]
             applied = True
             break
     if not applied and _in_region(word, "ogi", r1):
@@ -186,20 +198,10 @@ def english_stem(raw: str) -> str:
             word = base
 
     # Step 3
-    step3 = {
-        "ational": "ate",
-        "tional": "tion",
-        "alize": "al",
-        "icate": "ic",
-        "iciti": "ic",
-        "ical": "ic",
-        "ful": "",
-        "ness": "",
-    }
     applied = False
-    for suffix in sorted(step3, key=len, reverse=True):
+    for suffix in _STEP3_SUFFIXES:
         if _in_region(word, suffix, r1):
-            word = word[: -len(suffix)] + step3[suffix]
+            word = word[: -len(suffix)] + _STEP3[suffix]
             applied = True
             break
     if not applied and _in_region(word, "ative", r2):

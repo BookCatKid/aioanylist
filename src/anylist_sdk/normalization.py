@@ -43,6 +43,8 @@ _EXTRA_DIACRITIC_FOLD = str.maketrans(
 
 def remove_diacritics(text: str) -> str:
     """AnyList-style search folding, including ligatures beyond plain NFD stripping."""
+    if text.isascii():
+        return text
     text = text.translate(_EXTRA_DIACRITIC_FOLD)
     normalized = unicodedata.normalize("NFKD", text)
     return "".join(ch for ch in normalized if not unicodedata.combining(ch))
@@ -119,6 +121,26 @@ def range_of_word_or_phrase(
     expand_to_word_boundaries: bool = False,
 ) -> MatchRange | None:
     if not text or not pattern:
+        return None
+    # The custom scanner exists only for AnyList's special '&' <-> 'and/an/a' and
+    # 'ß' <-> 'ss' equivalences. Ordinary text can use CPython's optimized substring
+    # search while retaining the exact same boundary/expansion checks.
+    if "&" not in text and "&" not in pattern and "ß" not in text and "ß" not in pattern:
+        start = text.find(pattern)
+        while start != -1:
+            end = start + len(pattern) - 1
+            if (not require_start_boundary or _boundary(text, start, before=True)) and (
+                not require_end_boundary or _boundary(text, end, before=False)
+            ):
+                if expand_to_word_boundaries:
+                    left, right = start, end
+                    while left > 0 and not _boundary(text, left, before=True):
+                        left -= 1
+                    while right < len(text) - 1 and not _boundary(text, right, before=False):
+                        right += 1
+                    return MatchRange(left, right - left + 1)
+                return MatchRange(start, len(pattern))
+            start = text.find(pattern, start + 1)
         return None
     for start in range(len(text)):
         ti, pi = start, 0

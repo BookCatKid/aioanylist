@@ -14,6 +14,19 @@ SyncListener = Callable[[set[Domain]], Awaitable[None] | None]
 FieldGuard = Callable[[], bool]
 BusyCallback = Callable[[], None]
 
+_DOMAIN_FIELDS = (
+    ("shoppingListsResponse", Domain.SHOPPING_LISTS),
+    ("listFoldersResponse", Domain.LIST_FOLDERS),
+    ("recipeDataResponse", Domain.RECIPES),
+    ("mealPlanningCalendarResponse", Domain.MEAL_PLAN),
+    ("categorizedItemsResponse", Domain.CATEGORIZED_ITEMS),
+    ("userCategoriesResponse", Domain.USER_CATEGORIES),
+    ("starterListsResponse", Domain.STARTER_LISTS),
+    ("listSettingsResponse", Domain.LIST_SETTINGS),
+    ("starterListSettingsResponse", Domain.STARTER_LIST_SETTINGS),
+    ("mobileAppSettingsResponse", Domain.MOBILE_SETTINGS),
+)
+
 
 class SyncCoordinator:
     """Coalesced aggregate sync matching /data/user-data/get in the official web app."""
@@ -48,33 +61,26 @@ class SyncCoordinator:
 
     @staticmethod
     def _domains_in(response: PBUserDataResponse) -> set[Domain]:
-        mapping = {
-            "shoppingListsResponse": Domain.SHOPPING_LISTS,
-            "listFoldersResponse": Domain.LIST_FOLDERS,
-            "recipeDataResponse": Domain.RECIPES,
-            "mealPlanningCalendarResponse": Domain.MEAL_PLAN,
-            "categorizedItemsResponse": Domain.CATEGORIZED_ITEMS,
-            "userCategoriesResponse": Domain.USER_CATEGORIES,
-            "starterListsResponse": Domain.STARTER_LISTS,
-            "listSettingsResponse": Domain.LIST_SETTINGS,
-            "starterListSettingsResponse": Domain.STARTER_LIST_SETTINGS,
-            "mobileAppSettingsResponse": Domain.MOBILE_SETTINGS,
-        }
-        return {domain for field, domain in mapping.items() if response.HasField(field)}
+        return {domain for field, domain in _DOMAIN_FIELDS if response.HasField(field)}
 
     def _filter_busy_fields(self, response: PBUserDataResponse) -> PBUserDataResponse:
         """Mirror each official manager's `queue.bl() -> return` snapshot guard."""
-        filtered = response.__class__()
-        filtered.CopyFrom(response)
+        blocked: list[str] = []
         for field, guard in self._field_guards.items():
             if not response.HasField(field):
                 continue
             if guard():
                 continue
-            filtered.ClearField(field)
+            blocked.append(field)
             callback = self._busy_callbacks.get(field)
             if callback is not None:
                 callback()
+        if not blocked:
+            return response
+        filtered = response.__class__()
+        filtered.CopyFrom(response)
+        for field in blocked:
+            filtered.ClearField(field)
         return filtered
 
     async def _refresh_once(self, *, full: bool) -> PBUserDataResponse | None:

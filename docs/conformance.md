@@ -16,7 +16,7 @@ This is the authoritative verification checklist for the SDK. **Official executa
 
 ## Current checkpoint
 
-- Default offline/local suite: **527 passing** at the latest repository gate.
+- Default offline/local suite: **530 passing** at the latest repository gate.
 - Current read-only live suite: **12/12 passing** with the corrected multipart transport, including live autocomplete/categorization against official English/German tag resources plus live sync-hook, raw-API, service-view, and transport-close coverage.
 - Native token-session sign-out: **2/2 passing** against both `www.anylist.com` and `production.anylist.com`. In both cases `/data/auth/sign-out` revoked the supplied refresh token immediately while the already-issued access token remained accepted by `/data/account/info` immediately after logout.
 - Guarded live mutation suite: **48 passed, 1 safely skipped without writing** in the latest complete run. In addition to the disposable shopping-list ecosystem, coverage now includes uniquely identified disposable global categories/groupings and learned categorization memory, disposable recipes/collections with exact collection-order restoration, disposable per-recipe cooking-state add/remove with byte-for-byte preservation of every pre-existing cooking-state record, disposable meal-plan events/labels/list-items, disposable templates/template events/template groups with exact root-item restoration, and recipe-linked deletion across both normal and template event stores.
