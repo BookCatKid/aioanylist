@@ -597,8 +597,8 @@ class ListsPanel(SDKPanel):
     DEFAULT_CSS = """
     ListsPanel .toolbar { height: auto; }
     ListsPanel #lists-tables { height: 1fr; }
-    ListsPanel #lists-table { width: 38%; }
-    ListsPanel #items-table { width: 62%; }
+    ListsPanel #lists-pane { width: 38%; }
+    ListsPanel #items-pane { width: 62%; }
     """
 
     def __init__(self) -> None:
@@ -618,10 +618,10 @@ class ListsPanel(SDKPanel):
             yield Button("Remove item", id="items-remove", variant="error")
             yield Button("List Settings…", id="lists-settings")
         with Horizontal(id="lists-tables"):
-            with Vertical():
+            with Vertical(id="lists-pane"):
                 yield Label("Lists")
                 yield DataTable(id="lists-table", cursor_type="row", zebra_stripes=True)
-            with Vertical():
+            with Vertical(id="items-pane"):
                 yield Label("Items")
                 yield DataTable(id="items-table", cursor_type="row", zebra_stripes=True)
 
@@ -1001,6 +1001,10 @@ class ListsPanel(SDKPanel):
         name = str(result["name"]).strip()
         if not name:
             return self.error("Item name is required")
+        quantity_text = str(result.get("quantity") or "").strip()
+        parsed = parse_quantity_and_package_size(quantity_text) if quantity_text else None
+        if quantity_text and parsed is None:
+            return self.error("Could not understand that quantity/package size")
         changed = False
         if name != item.name:
             await service.rename_item(list_id, item_id, name, flush=False)
@@ -1045,11 +1049,7 @@ class ListsPanel(SDKPanel):
                     )
                     await service.set_category_match_id(list_id, item_id, match_id, flush=False)
                     changed = True
-        quantity_text = str(result.get("quantity") or "").strip()
-        if quantity_text:
-            parsed = parse_quantity_and_package_size(quantity_text)
-            if parsed is None:
-                return self.error("Could not understand that quantity/package size")
+        if parsed is not None:
             if parsed.HasField("quantityPb"):
                 await service.set_quantity(list_id, item_id, parsed.quantityPb, flush=False)
                 changed = True
@@ -1206,8 +1206,8 @@ class StoresCategoriesPanel(SDKPanel):
     DEFAULT_CSS = """
     StoresCategoriesPanel .toolbar { height: auto; }
     StoresCategoriesPanel #metadata-tables { height: 1fr; }
-    StoresCategoriesPanel #stores-table { width: 44%; }
-    StoresCategoriesPanel #categories-table { width: 56%; }
+    StoresCategoriesPanel #stores-pane { width: 44%; }
+    StoresCategoriesPanel #categories-pane { width: 56%; }
     """
 
     def __init__(self, list_id: str) -> None:
@@ -1230,10 +1230,10 @@ class StoresCategoriesPanel(SDKPanel):
             yield Button("Make default", id="category-default")
             yield Button("Delete category", id="category-delete", variant="error")
         with Horizontal(id="metadata-tables"):
-            with Vertical():
+            with Vertical(id="stores-pane"):
                 yield Label("Stores")
                 yield DataTable(id="stores-table", cursor_type="row", zebra_stripes=True)
-            with Vertical():
+            with Vertical(id="categories-pane"):
                 yield Label("Categories")
                 yield DataTable(id="categories-table", cursor_type="row", zebra_stripes=True)
 
@@ -1649,8 +1649,8 @@ class SavedItemsPanel(SDKPanel):
     DEFAULT_CSS = """
     SavedItemsPanel .toolbar { height: auto; }
     SavedItemsPanel #saved-tables { height: 1fr; }
-    SavedItemsPanel #saved-lists { width: 42%; }
-    SavedItemsPanel #saved-items { width: 58%; }
+    SavedItemsPanel #saved-lists-pane { width: 42%; }
+    SavedItemsPanel #saved-items-pane { width: 58%; }
     """
 
     def __init__(self, shopping_list_id: str) -> None:
@@ -1669,10 +1669,10 @@ class SavedItemsPanel(SDKPanel):
             yield Button("Edit item", id="saved-edit-item")
             yield Button("Remove item", id="saved-remove-item", variant="error")
         with Horizontal(id="saved-tables"):
-            with Vertical():
+            with Vertical(id="saved-lists-pane"):
                 yield Label("Saved item lists")
                 yield DataTable(id="saved-lists", cursor_type="row", zebra_stripes=True)
-            with Vertical():
+            with Vertical(id="saved-items-pane"):
                 yield Label("Items")
                 yield DataTable(id="saved-items", cursor_type="row", zebra_stripes=True)
 
@@ -1910,6 +1910,10 @@ class SavedItemsPanel(SDKPanel):
                 name = str(result["name"]).strip()
                 if not name:
                     return self.error("Item name is required")
+                quantity_text = str(result.get("quantity") or "").strip()
+                parsed = parse_quantity_and_package_size(quantity_text) if quantity_text else None
+                if quantity_text and parsed is None:
+                    return self.error("Could not understand that quantity/package size")
                 changed = False
                 if name != item_snapshot.name:
                     await service.set_item_name(list_id, item_id, name, flush=False)
@@ -1918,11 +1922,7 @@ class SavedItemsPanel(SDKPanel):
                 if details != item_snapshot.details:
                     await service.set_item_details(list_id, item_id, details, flush=False)
                     changed = True
-                quantity_text = str(result.get("quantity") or "").strip()
-                if quantity_text:
-                    parsed = parse_quantity_and_package_size(quantity_text)
-                    if parsed is None:
-                        return self.error("Could not understand that quantity/package size")
+                if parsed is not None:
                     if parsed.HasField("quantityPb"):
                         await service.set_quantity(list_id, item_id, parsed.quantityPb, flush=False)
                         changed = True
@@ -3778,6 +3778,10 @@ class MealPlanPanel(SDKPanel):
         name = str(result.get("name") or "").strip()
         if not name:
             return self.error("Item name is required")
+        quantity_text = str(result.get("quantity") or "").strip()
+        parsed = parse_quantity_and_package_size(quantity_text) if quantity_text else None
+        if quantity_text and parsed is None:
+            return self.error("Could not understand that quantity/package size")
         changed = False
         if name != str(getattr(item, "name", "")):
             await service.set_event_list_item_name(event_id, item_id, name, flush=False)
@@ -3786,11 +3790,7 @@ class MealPlanPanel(SDKPanel):
         if details != str(getattr(item, "details", "")):
             await service.set_event_list_item_details(event_id, item_id, details, flush=False)
             changed = True
-        quantity_text = str(result.get("quantity") or "").strip()
-        if quantity_text:
-            parsed = parse_quantity_and_package_size(quantity_text)
-            if parsed is None:
-                return self.error("Could not understand that quantity/package size")
+        if parsed is not None:
             if parsed.HasField("quantityPb"):
                 await service.set_event_list_item_quantity(
                     event_id, item_id, parsed.quantityPb, flush=False
