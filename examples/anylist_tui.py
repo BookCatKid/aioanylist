@@ -332,11 +332,14 @@ class FormModal(ModalScreen[FormResult | None]):
                             placeholder=field.placeholder,
                         )
                     elif field.kind == "select":
-                        value = Select.NULL if field.value is None else field.value
+                        known = any(option == field.value for _, option in field.options)
+                        value = field.value if known else Select.NULL
+                        # Textual rejects a non-blank Select without options, e.g. before
+                        # folder data has loaded.
                         yield Select(
                             field.options,
                             value=value,
-                            allow_blank=field.allow_blank,
+                            allow_blank=field.allow_blank or not field.options,
                             id=widget_id,
                         )
                     elif field.kind == "multiselect":
@@ -4520,7 +4523,11 @@ async def _authenticated_client(
         token_callback=_token_cache_callback(cache_path, email),
     )
     try:
-        tokens = await client.sign_in(email, password)
+        try:
+            tokens = await client.sign_in(email, password)
+        except AuthenticationError as exc:
+            await client.close()
+            raise SystemExit(f"{exc}. Check your email and password and try again.") from None
         _save_token_cache(cache_path, email, tokens)
         await client.load(realtime=True, load_tag_data=False, restore_pending=True)
         if client.tokens is not None:
@@ -4568,7 +4575,10 @@ def _parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = _parser().parse_args()
-    asyncio.run(_async_main(args))
+    try:
+        asyncio.run(_async_main(args))
+    except AuthenticationError as exc:
+        raise SystemExit(f"{exc}. Run with --login to sign in again.") from None
 
 
 if __name__ == "__main__":
