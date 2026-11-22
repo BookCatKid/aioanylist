@@ -59,15 +59,24 @@ async def test_split_tables_fill_their_proportioned_panes(width, populated, monk
 @pytest.mark.parametrize("quantity", ["2", "", "nonsense"])
 async def test_item_edit_validates_quantity_before_mutating(kind, quantity, monkeypatch):
     client = AnyListClient(tokens=AuthTokens("user", "access", "refresh"))
+    original_quantity = PB.PBItemQuantity(amount="5", unit="lb", rawQuantity="5 lb")
     client.state.shopping_lists["list"] = PB.ShoppingList(
-        identifier="list", name="Groceries", items=[PB.ListItem(identifier="item", name="Original")]
+        identifier="list",
+        name="Groceries",
+        items=[PB.ListItem(identifier="item", name="Original", quantityPb=original_quantity)],
     )
     client.state.starter_lists["saved"] = PB.StarterList(
-        identifier="saved", name="Custom", items=[PB.ListItem(identifier="item", name="Original")]
+        identifier="saved",
+        name="Custom",
+        items=[PB.ListItem(identifier="item", name="Original", quantityPb=original_quantity)],
     )
     client.state.meal_plan_events["event"] = PB.PBCalendarEvent(
         identifier="event",
-        eventListItems=[PB.PBCalendarEventListItem(identifier="item", name="Original")],
+        eventListItems=[
+            PB.PBCalendarEventListItem(
+                identifier="item", name="Original", quantityPb=original_quantity
+            )
+        ],
     )
     monkeypatch.setattr(tui, "_save_token_cache", lambda *args: None)
     app = tui.AnyListTUI(client, "test", Path("unused-token-cache"))
@@ -116,7 +125,11 @@ async def test_item_edit_validates_quantity_before_mutating(kind, quantity, monk
                 error.assert_not_called()
                 assert item.name == "Edited"
                 assert item.details == "New details"
-                assert bool(item.HasField("quantityPb")) == bool(quantity)
+                assert item.HasField("quantityPb")
+                if quantity:
+                    assert item.quantityPb.amount == "2"
+                else:
+                    assert item.quantityPb == original_quantity
                 service.flush.assert_awaited_once()
                 panel.refresh_view.assert_awaited_once()
     finally:
