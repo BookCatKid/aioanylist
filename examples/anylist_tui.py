@@ -4523,7 +4523,11 @@ async def _authenticated_client(
         token_callback=_token_cache_callback(cache_path, email),
     )
     try:
-        tokens = await client.sign_in(email, password)
+        try:
+            tokens = await client.sign_in(email, password)
+        except AuthenticationError as exc:
+            await client.close()
+            raise SystemExit(f"{exc}. Check your email and password and try again.") from None
         _save_token_cache(cache_path, email, tokens)
         await client.load(realtime=True, load_tag_data=False, restore_pending=True)
         if client.tokens is not None:
@@ -4574,7 +4578,7 @@ def main() -> None:
     try:
         asyncio.run(_async_main(args))
     except AuthenticationError as exc:
-        raise SystemExit(f"{exc}. Check your email and password and try again.") from None
+        raise SystemExit(f"{exc}. Run with --login to sign in again.") from None
 
 
 if __name__ == "__main__":
