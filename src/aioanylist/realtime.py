@@ -12,6 +12,7 @@ from .exceptions import AnyListError, AuthenticationError, TransportError
 from .transport import AnyListTransport
 from .types import Domain
 
+TOKEN_REFRESH_CLOSE_CODE = 4010
 HEARTBEAT = "--heartbeat--"
 HEARTBEAT_INTERVAL = 5.0
 MAX_MISSED_HEARTBEATS = 3
@@ -45,7 +46,7 @@ class RealtimeEvent:
 
 EventCallback = Callable[[RealtimeEvent], Awaitable[None] | None]
 ReconnectCallback = Callable[[], Awaitable[None] | None]
-ErrorCallback = Callable[[AnyListError], None]
+ErrorCallback = Callable[[AnyListError], Awaitable[None] | None]
 
 
 class RealtimeClient:
@@ -62,7 +63,8 @@ class RealtimeClient:
         self.connected = asyncio.Event()
         self._retry_delay = INITIAL_RETRY_DELAY
         self._has_connected_once = False
-        self._callback_tasks: set[asyncio.Task[None]] = set()
+        self._refresh_reconnect_pending = False
+        self._callback_tasks: set[asyncio.Future[None]] = set()
 
     def add_listener(self, callback: EventCallback) -> None:
         self._callbacks.append(callback)
@@ -72,15 +74,17 @@ class RealtimeClient:
         self._reconnect_callbacks.append(callback)
 
     def add_error_listener(self, callback: ErrorCallback) -> None:
-        """Listen for unexpected disconnects or reconnect authentication errors."""
+        """Listen for unexpected disconnects or failed token refreshes."""
         self._error_callbacks.append(callback)
 
     def _notify_error(self, error: AnyListError) -> None:
         for callback in tuple(self._error_callbacks):
             try:
-                callback(error)
+                result = callback(error)
             except Exception:  # noqa: BLE001,S112 - isolate listener failures
                 continue
+            if inspect.isawaitable(result):
+                self._track_callback(result)
 
     async def events(self) -> AsyncIterator[RealtimeEvent]:
         while True:
@@ -122,6 +126,7 @@ class RealtimeClient:
         self.connected.clear()
         # An explicit stop/start is a new realtime session, not an automatic reconnect.
         self._has_connected_once = False
+        self._refresh_reconnect_pending = False
         self._retry_delay = INITIAL_RETRY_DELAY
         callbacks = tuple(self._callback_tasks)
         for callback_task in callbacks:
@@ -145,20 +150,16 @@ class RealtimeClient:
         )
 
     def _track_callback(self, awaitable: Awaitable[None]) -> None:
-        async def runner() -> None:
-            try:
-                await awaitable
-            except asyncio.CancelledError:
-                raise
-            except Exception:  # noqa: BLE001 - callback failures must not kill the socket
-                # Listener/catch-up failures are outside the WebSocket transport state machine.
-                # The web client launches the corresponding AJAX refreshes without awaiting
-                # them, so a failed refresh cannot tear down a healthy socket.
-                return
+        # Schedule the awaitable itself so an immediate stop still cancels it.
+        future = asyncio.ensure_future(awaitable)
+        self._callback_tasks.add(future)
+        future.add_done_callback(self._callback_done)
 
-        task = asyncio.create_task(runner(), name="anylist-realtime-callback")
-        self._callback_tasks.add(task)
-        task.add_done_callback(self._callback_tasks.discard)
+    def _callback_done(self, future: asyncio.Future[None]) -> None:
+        self._callback_tasks.discard(future)
+        if not future.cancelled():
+            # Listener failures must not escape into the WebSocket state machine.
+            future.exception()
 
     async def _dispatch(self, message: str) -> None:
         event = RealtimeEvent(message, INVALIDATION_DOMAINS.get(message))
@@ -175,10 +176,12 @@ class RealtimeClient:
         self._retry_delay = INITIAL_RETRY_DELAY
 
     async def _connection(self) -> int:
+        refreshing = False
         try:
             async with self.transport.session.ws_connect(self._url(), heartbeat=None) as ws:
                 was_reconnect = self._has_connected_once
                 self._has_connected_once = True
+                self._refresh_reconnect_pending = False
                 self.connected.set()
                 loop = asyncio.get_running_loop()
                 # WebSocketManager schedules rp independently at +2s and cancels it when this
@@ -216,9 +219,13 @@ class RealtimeClient:
                                 # dispatch off the socket receive/heartbeat critical path.
                                 await self._dispatch(str(msg.data))
                         elif msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED):
-                            return int(ws.close_code or 1000)
+                            code = int(ws.close_code or 1000)
+                            refreshing = code == TOKEN_REFRESH_CLOSE_CODE
+                            return code
                         elif msg.type == aiohttp.WSMsgType.ERROR:
-                            return int(ws.close_code or 1006)
+                            code = int(ws.close_code or 1006)
+                            refreshing = code == TOKEN_REFRESH_CLOSE_CODE
+                            return code
 
                         now = loop.time()
                         if now >= next_heartbeat:
@@ -234,13 +241,14 @@ class RealtimeClient:
                 finally:
                     retry_reset_handle.cancel()
         except aiohttp.ClientError as exc:
+            refreshing = False
             if self._stop.is_set():
                 return 1000
             raise TransportError("AnyList WebSocket connection failed") from exc
         finally:
             was_connected = self.connected.is_set()
             self.connected.clear()
-            if was_connected and not self._stop.is_set():
+            if was_connected and not refreshing and not self._stop.is_set():
                 self._notify_error(TransportError("AnyList WebSocket disconnected"))
 
     async def _run(self) -> None:
@@ -251,14 +259,21 @@ class RealtimeClient:
                 code = 1006
             if self._stop.is_set():
                 return
-            if code == 4010:
+            if self._refresh_reconnect_pending:
+                # Refresh succeeded but the immediate reconnect never opened.
+                self._refresh_reconnect_pending = False
+                self._notify_error(
+                    TransportError("AnyList WebSocket reconnect after refresh failed")
+                )
+            if code == TOKEN_REFRESH_CLOSE_CODE:
                 try:
                     await self.transport.refresh_access_token(force=True)
                     # Official app reconnects immediately after successful 4010 refresh.
+                    self._refresh_reconnect_pending = True
                     continue
-                except AuthenticationError as exc:
+                except AnyListError as exc:
                     self._notify_error(exc)
-                except Exception:  # noqa: BLE001,S110 - failed refresh resumes normal backoff
-                    pass
+                except Exception:  # noqa: BLE001 - failed refresh resumes normal backoff
+                    self._notify_error(TransportError("AnyList WebSocket token refresh failed"))
             await asyncio.sleep(self._retry_delay)
             self._retry_delay = min(self._retry_delay * 2.0, MAX_RETRY_DELAY)
