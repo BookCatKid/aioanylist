@@ -5,7 +5,8 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from aioanylist.realtime import HEARTBEAT, RealtimeClient
+from aioanylist.exceptions import AuthenticationError, TransportError
+from aioanylist.realtime import HEARTBEAT, INITIAL_RETRY_DELAY, RealtimeClient
 from aioanylist.types import AuthTokens, Domain
 
 
@@ -71,12 +72,21 @@ async def test_reconnect_listener_runs_only_after_first_successful_connection(mo
     realtime = RealtimeClient(transport)
     calls = []
     realtime.add_reconnect_listener(lambda: calls.append("reconnect"))
+    errors: list[Exception] = []
+
+    def on_error(error: Exception) -> None:
+        assert not realtime.connected.is_set()
+        errors.append(error)
+
+    realtime.add_error_listener(on_error)
 
     assert await realtime._connection() == 1000
     assert calls == []
-    realtime._stop.clear()
+    assert len(errors) == 1
+    assert isinstance(errors[0], TransportError)
     assert await realtime._connection() == 1000
     assert calls == ["reconnect"]
+    assert len(errors) == 2
 
 
 @pytest.mark.asyncio
@@ -321,10 +331,14 @@ async def test_4010_refresh_success_reconnects_immediately_without_backoff(monke
 
     transport = Transport()
     realtime = RealtimeClient(transport)
-    codes = iter([4010, 1000])
+    codes = iter([4010, None])
 
     async def connection():
-        return next(codes)
+        code = next(codes)
+        if code is None:
+            realtime._stop.set()
+            return 1000
+        return code
 
     realtime._connection = connection
     sleeps = []
@@ -354,10 +368,14 @@ async def test_4010_refresh_failure_uses_normal_exponential_backoff(monkeypatch)
 
     transport = Transport()
     realtime = RealtimeClient(transport)
-    codes = iter([4010, 1000])
+    codes = iter([4010, None])
 
     async def connection():
-        return next(codes)
+        code = next(codes)
+        if code is None:
+            realtime._stop.set()
+            return 1000
+        return code
 
     realtime._connection = connection
     sleeps = []
@@ -377,10 +395,14 @@ async def test_4010_refresh_failure_uses_normal_exponential_backoff(monkeypatch)
 @pytest.mark.asyncio
 async def test_retry_backoff_caps_at_120_seconds(monkeypatch) -> None:
     realtime = RealtimeClient(DummyTransport())
-    codes = iter([1006] * 9 + [1000])
+    codes = iter([1006] * 9 + [None])
 
     async def connection():
-        return next(codes)
+        code = next(codes)
+        if code is None:
+            realtime._stop.set()
+            return 1000
+        return code
 
     realtime._connection = connection
     sleeps = []
@@ -442,3 +464,92 @@ async def test_explicit_stop_cancels_inflight_callback_tasks() -> None:
 
     assert cancelled.is_set()
     assert not realtime._callback_tasks
+
+
+@pytest.mark.asyncio
+async def test_explicit_stop_does_not_report_outage() -> None:
+    transport = DummyTransport()
+    waiting = asyncio.Event()
+
+    class WS:
+        async def receive(self):
+            waiting.set()
+            await asyncio.Event().wait()
+
+    class Context:
+        async def __aenter__(self):
+            return WS()
+
+        async def __aexit__(self, *args):
+            return False
+
+    class Session:
+        def ws_connect(self, *args, **kwargs):
+            return Context()
+
+    transport.session = Session()
+    realtime = RealtimeClient(transport)
+    errors: list[Exception] = []
+    realtime.add_error_listener(errors.append)
+
+    await realtime.start()
+    await waiting.wait()
+    await realtime.stop()
+
+    assert not realtime.connected.is_set()
+    assert not errors
+
+
+@pytest.mark.asyncio
+async def test_reconnect_authentication_failure_is_reported(monkeypatch) -> None:
+    class Transport(DummyTransport):
+        async def refresh_access_token(self, *, force=False):
+            raise AuthenticationError("Expired")
+
+    realtime = RealtimeClient(Transport())
+    codes = iter([4010, None])
+
+    async def connection():
+        code = next(codes)
+        if code is None:
+            realtime._stop.set()
+            return 1000
+        return code
+
+    async def fake_sleep(delay):
+        pass
+
+    monkeypatch.setattr(realtime, "_connection", connection)
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    errors: list[Exception] = []
+    realtime.add_error_listener(errors.append)
+
+    await realtime._run()
+
+    assert len(errors) == 1
+    assert isinstance(errors[0], AuthenticationError)
+
+
+@pytest.mark.asyncio
+async def test_unrequested_normal_close_reconnects(monkeypatch) -> None:
+    realtime = RealtimeClient(DummyTransport())
+    calls = 0
+    backoffs = []
+
+    async def connection():
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            realtime._stop.set()
+        return 1000
+
+    async def sleep(delay):
+        backoffs.append(delay)
+
+    monkeypatch.setattr(realtime, "_connection", connection)
+    monkeypatch.setattr(asyncio, "sleep", sleep)
+
+    await realtime._run()
+
+    assert calls == 2
+    assert backoffs == [INITIAL_RETRY_DELAY]

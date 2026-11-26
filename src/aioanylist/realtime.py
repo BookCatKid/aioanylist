@@ -8,7 +8,7 @@ from urllib.parse import quote
 
 import aiohttp
 
-from .exceptions import AuthenticationError, TransportError
+from .exceptions import AnyListError, AuthenticationError, TransportError
 from .transport import AnyListTransport
 from .types import Domain
 
@@ -45,6 +45,7 @@ class RealtimeEvent:
 
 EventCallback = Callable[[RealtimeEvent], Awaitable[None] | None]
 ReconnectCallback = Callable[[], Awaitable[None] | None]
+ErrorCallback = Callable[[AnyListError], None]
 
 
 class RealtimeClient:
@@ -54,6 +55,7 @@ class RealtimeClient:
         self.transport = transport
         self._callbacks: list[EventCallback] = []
         self._reconnect_callbacks: list[ReconnectCallback] = []
+        self._error_callbacks: list[ErrorCallback] = []
         self._events: asyncio.Queue[RealtimeEvent] = asyncio.Queue()
         self._task: asyncio.Task[None] | None = None
         self._stop = asyncio.Event()
@@ -68,6 +70,17 @@ class RealtimeClient:
     def add_reconnect_listener(self, callback: ReconnectCallback) -> None:
         """Run after a successful automatic reconnect, matching AnyList Web's catch-up load."""
         self._reconnect_callbacks.append(callback)
+
+    def add_error_listener(self, callback: ErrorCallback) -> None:
+        """Listen for unexpected disconnects or reconnect authentication errors."""
+        self._error_callbacks.append(callback)
+
+    def _notify_error(self, error: AnyListError) -> None:
+        for callback in tuple(self._error_callbacks):
+            try:
+                callback(error)
+            except Exception:  # noqa: BLE001,S112 - isolate listener failures
+                continue
 
     async def events(self) -> AsyncIterator[RealtimeEvent]:
         while True:
@@ -84,12 +97,10 @@ class RealtimeClient:
         # Wait for the first successful open, but also observe an unexpectedly terminated
         # runner so callers never hang forever on a task that has already failed.
         connected_wait = asyncio.create_task(self.connected.wait())
-        _, pending = await asyncio.wait(
-            {connected_wait, self._task}, return_when=asyncio.FIRST_COMPLETED
-        )
-        for task in pending:
-            if task is connected_wait:
-                task.cancel()
+        try:
+            await asyncio.wait({connected_wait, self._task}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            connected_wait.cancel()
         if self.connected.is_set():
             return
         if self._task.done():
@@ -223,12 +234,14 @@ class RealtimeClient:
                 finally:
                     retry_reset_handle.cancel()
         except aiohttp.ClientError as exc:
-            self.connected.clear()
             if self._stop.is_set():
                 return 1000
             raise TransportError("AnyList WebSocket connection failed") from exc
         finally:
+            was_connected = self.connected.is_set()
             self.connected.clear()
+            if was_connected and not self._stop.is_set():
+                self._notify_error(TransportError("AnyList WebSocket disconnected"))
 
     async def _run(self) -> None:
         while not self._stop.is_set():
@@ -236,13 +249,15 @@ class RealtimeClient:
                 code = await self._connection()
             except TransportError:
                 code = 1006
-            if self._stop.is_set() or code == 1000:
+            if self._stop.is_set():
                 return
             if code == 4010:
                 try:
                     await self.transport.refresh_access_token(force=True)
                     # Official app reconnects immediately after successful 4010 refresh.
                     continue
+                except AuthenticationError as exc:
+                    self._notify_error(exc)
                 except Exception:  # noqa: BLE001,S110 - failed refresh resumes normal backoff
                     pass
             await asyncio.sleep(self._retry_delay)

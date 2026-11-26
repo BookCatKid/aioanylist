@@ -97,6 +97,7 @@ The Android source also reveals account/signup/password/subuser/delete/purchase 
 |---|---|---|
 | `RealtimeClient.add_listener()` | ✅ LIVE VERIFIED | A second authenticated client mutated the disposable shopping list; the registered client listener received `refresh-shopping-lists` and refreshed state without a manual refresh. |
 | `RealtimeClient.add_reconnect_listener()` | ✅ LIVE VERIFIED | A transport-level socket abort triggered automatic reconnect; reconnect callbacks ran and the built-in catch-up refresh recovered a disposable mutation made while disconnected. |
+| `RealtimeClient.add_error_listener()` | 🧪 OFFLINE VERIFIED | Reports unexpected socket loss and reconnect authentication errors, but not an explicit stop. |
 | `RealtimeClient.events()` | ✅ LIVE VERIFIED | The live event iterator yielded the real `refresh-shopping-lists` invalidation produced by a second client. |
 | `RealtimeClient.start()` | ✅ LIVE VERIFIED | Real WebSocket connected, survived multiple heartbeat intervals, stopped, and restarted. |
 | `RealtimeClient.stop()` | ✅ LIVE VERIFIED | Real WebSocket connected, survived multiple heartbeat intervals, stopped, and restarted. |
